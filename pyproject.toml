@@ -1,0 +1,19 @@
+[project]
+name = "colorize-ASCII"
+version = "0.1.6"
+description = "This project takes in a png file then a text file and outputs a colored ans file"
+requires-python = ">=3.0"
+dependencies = [
+    "Pillow>=10",
+    "numpy>=2",
+]
+authors = [
+    { name = "Ian Robinson", email = "irobinson010@gmail.com" },
+]
+readme = "README.md"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
