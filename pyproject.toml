@@ -11,9 +11,9 @@ authors = [
     { name = "Ian Robinson", email = "irobinson010@gmail.com" },
 ]
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]
