@@ -3,6 +3,7 @@
 
 import argparse
 import os, sys
+import logging
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -33,13 +34,17 @@ def find_default_font(font_name: str = "DejaVuSansMono"):
 
 def load_font(font_path: str | None, font_size: int) -> ImageFont.FreeTypeFont:
     """Load a font, falling back to default if not found."""
+    logger = logging.getLogger(__name__)
     if font_path and os.path.exists(font_path):
+        logger.debug("Loading font from %s (size=%d)", font_path, font_size)
         return ImageFont.truetype(font_path, font_size)
 
     default = find_default_font()
     if default:
+        logger.debug("Falling back to default font %s (size=%d)", default, font_size)
         return ImageFont.truetype(default, font_size)
 
+    logger.debug("Using PIL default bitmap font (size=%d)", font_size)
     return ImageFont.load_default()
 
 
@@ -65,6 +70,8 @@ def render_text_to_image(
     padding: int = 20,
 ) -> Image.Image:
     """Render text to an image."""
+    logger = logging.getLogger(__name__)
+    logger.debug("Rendering text to image; font_size=%d padding=%d", font_size, padding)
     font = load_font(font_path, font_size)
     text_width, text_height = measure_text(text, font)
 
@@ -92,6 +99,7 @@ def text_to_ascii_art(
     style: str = "block",
     width: int = 80,
     font_size: int = 12,
+    font_path: str | None = None,
 ) -> str:
     """
     Convert text to ASCII art.
@@ -105,25 +113,84 @@ def text_to_ascii_art(
     Returns:
         ASCII art string
     """
-    # TODO: Implement ASCII art generation
-    # 1. Render text to image
-    # 2. Scale to desired width
-    # 3. Convert to ASCII using glyph matching or density-based approach
-    pass
+    # Basic density-based ASCII renderer.
+    # Validate style
+    styles = ("block", "small", "shadow")
+    if style not in styles:
+        raise ValueError(f"unknown style: {style}")
+
+    logger = logging.getLogger(__name__)
+    # Render text to an image
+    logger.info(
+        "Generating ASCII art (style=%s width=%s font_size=%s)", style, width, font_size
+    )
+    img = render_text_to_image(text, font_size=font_size, font_path=font_path)
+    img = img.convert("L")
+
+    # Target character width (number of characters per line)
+    target_w = max(1, int(width))
+
+    # Map image pixels -> characters. Characters are taller than wide,
+    # so reduce the height when computing rows to keep aspect ratio.
+    scale = target_w / max(1, img.width)
+    target_h = max(1, int(img.height * scale * 0.5))
+
+    img_small = img.resize((target_w, target_h))
+    logger.debug("Resized image to %dx%d for ascii mapping", target_w, target_h)
+
+    # Choose character ramps per style
+    if style == "block":
+        ramp = "@%#*+=-:. "
+    elif style == "small":
+        ramp = "@#*.- "
+    else:  # shadow
+        ramp = " .:-=+*#%@"
+
+    # Use the new flattened data API when available (Pillow deprecation),
+    # otherwise fall back to getdata for compatibility.
+    if hasattr(img_small, "get_flattened_data"):
+        pixels = list(img_small.get_flattened_data())
+    else:
+        pixels = list(img_small.getdata())
+    lines = []
+    for row in range(target_h):
+        line_chars = []
+        for col in range(target_w):
+            val = pixels[row * target_w + col]
+            idx = int((val / 255) * (len(ramp) - 1))
+            # For shadow style, invert mapping so dark->densest
+            if style == "shadow":
+                ch = ramp[idx]
+            else:
+                ch = ramp[idx]
+            line_chars.append(ch)
+        lines.append("".join(line_chars))
+
+    return "\n".join(lines)
 
 
 def text_to_box(text: str, width: int = 80) -> str:
     """Draw text in a simple box."""
     lines = text.split("\n")
     max_len = max(len(line) for line in lines) if lines else 0
-    box_width = min(max_len + 4, width)
+
+    # content width is space for text inside the box
+    content_width = max(1, min(max_len, max(1, width - 4)))
+    box_width = content_width + 4
 
     result = []
     result.append("┌" + "─" * (box_width - 2) + "┐")
 
     for line in lines:
-        padded = line.ljust(box_width - 4)
-        result.append("│ " + padded + " │")
+        # truncate long lines to fit the requested width
+        if len(line) > content_width:
+            logging.getLogger(__name__).debug(
+                "Truncating line from %d to %d characters", len(line), content_width
+            )
+            content = line[:content_width]
+        else:
+            content = line.ljust(content_width)
+        result.append("│ " + content + " │")
 
     result.append("└" + "─" * (box_width - 2) + "┘")
 
@@ -193,8 +260,22 @@ def main():
         default="#",
         help="Character to use for banner style",
     )
+    parser.add_argument(
+        "--log-level",
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set the logging level (default: WARNING)",
+    )
 
     args = parser.parse_args()
+
+    # Configure logging early so other functions can emit messages
+    numeric_level = getattr(logging, args.log_level.upper(), None)
+    if not isinstance(numeric_level, int):
+        numeric_level = logging.WARNING
+    logging.basicConfig(
+        stream=sys.stdout, level=numeric_level, format="%(levelname)s: %(message)s"
+    )
 
     # If no args, show help and exit 0
     if len(sys.argv) == 1:
@@ -218,8 +299,14 @@ def main():
     elif args.style == "banner":
         output = text_to_banner(text, char=args.char)
     else:
-        # TODO: Implement other styles
-        output = text_to_banner(text, char=args.char)
+        # Generate ascii-art styles using the renderer
+        output = text_to_ascii_art(
+            text,
+            style=args.style,
+            width=args.width,
+            font_size=args.font_size,
+            font_path=args.font,
+        )
 
     # Output
     if args.output:
