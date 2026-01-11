@@ -13,33 +13,32 @@ def charset_ascii_printable():
     # ASCII printable range
     return "".join(chr(i) for i in range(32, 127))
 
+
 def charset_ascii_dense():
     # A popular dense ASCII ramp (dark->light) plus some extras.
-    return "@%#*+=-:. " + "$&0QMWNBDHKPAqwmZOCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
+    return (
+        "@%#*+=-:. "
+        + "$&0QMWNBDHKPAqwmZOCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
+    )
+
 
 def charset_unicode_blocks():
     # Useful Unicode shading + block fragments + a few line/box shapes
     # (Safe-ish; looks great with a font that supports them.)
-    return (
-        " ░▒▓█"
-        "▁▂▃▄▅▆▇█"
-        "▏▎▍▌▋▊▉█"
-        "▖▗▘▙▚▛▜▝▞▟"
-        "─━│┃┌┐└┘├┤┬┴┼"
-        "/\\|_-"
-    )
+    return " ░▒▓█" "▁▂▃▄▅▆▇█" "▏▎▍▌▋▊▉█" "▖▗▘▙▚▛▜▝▞▟" "─━│┃┌┐└┘├┤┬┴┼" "/\\|_-"
+
 
 def charset_unicode_big():
     # A larger set: ASCII printable + blocks/shading + some extra symbols.
     # Keep it moderate so rendering/matching stays reasonable.
     extra = (
         " ·•"  # light dots
-        "°º"   # small circles
-        "×÷"   # operators
-        "≡≈"   # lines
-        "□■"   # squares
-        "○●"   # circles
-        "△▲▽▼" # triangles
+        "°º"  # small circles
+        "×÷"  # operators
+        "≡≈"  # lines
+        "□■"  # squares
+        "○●"  # circles
+        "△▲▽▼"  # triangles
     )
     return charset_ascii_printable() + charset_unicode_blocks() + extra
 
@@ -57,6 +56,7 @@ def make_charset(unicode_mode: str, ascii_preset: str):
     if unicode_mode == "big":
         return charset_unicode_big()
     raise ValueError(f"Unknown unicode mode: {unicode_mode}")
+
 
 def find_default_mono_font():
     system = platform.system().lower()
@@ -89,6 +89,7 @@ def find_default_mono_font():
             return p
     return None
 
+
 # -----------------------------
 # Fast Sobel (vectorized)
 # -----------------------------
@@ -101,15 +102,22 @@ def sobel_gradients(gray01: np.ndarray):
 
     # Sobel X
     gx = (
-        -1 * g[:-2, :-2] + 1 * g[:-2, 2:] +
-        -2 * g[1:-1, :-2] + 2 * g[1:-1, 2:] +
-        -1 * g[2:, :-2] + 1 * g[2:, 2:]
+        -1 * g[:-2, :-2]
+        + 1 * g[:-2, 2:]
+        + -2 * g[1:-1, :-2]
+        + 2 * g[1:-1, 2:]
+        + -1 * g[2:, :-2]
+        + 1 * g[2:, 2:]
     )
 
     # Sobel Y
     gy = (
-        -1 * g[:-2, :-2] + -2 * g[:-2, 1:-1] + -1 * g[:-2, 2:] +
-         1 * g[2:, :-2] +  2 * g[2:, 1:-1] +  1 * g[2:, 2:]
+        -1 * g[:-2, :-2]
+        + -2 * g[:-2, 1:-1]
+        + -1 * g[:-2, 2:]
+        + 1 * g[2:, :-2]
+        + 2 * g[2:, 1:-1]
+        + 1 * g[2:, 2:]
     )
 
     mag = np.sqrt(gx * gx + gy * gy)
@@ -136,7 +144,9 @@ def preprocess_image(img: Image.Image, autocontrast: bool, gamma: float, invert:
 # -----------------------------
 # Glyph library (render chars to bitmap cells)
 # -----------------------------
-def render_glyphs(charset: str, cell_w: int, cell_h: int, font_path: str | None, font_size: int | None):
+def render_glyphs(
+    charset: str, cell_w: int, cell_h: int, font_path: str | None, font_size: int | None
+):
     if font_size is None:
         # heuristic
         font_size = cell_h
@@ -187,10 +197,12 @@ def render_glyphs(charset: str, cell_w: int, cell_h: int, font_path: str | None,
         chars.append(ch)
 
     if not chars:
-        raise RuntimeError("No glyphs could be rendered. Try providing a font with --font.")
+        raise RuntimeError(
+            "No glyphs could be rendered. Try providing a font with --font."
+        )
 
-    glyph_imgs = np.stack(glyph_imgs, axis=0)          # N x P
-    glyph_feats = np.stack(glyph_feats, axis=0)        # N x 4
+    glyph_imgs = np.stack(glyph_imgs, axis=0)  # N x P
+    glyph_feats = np.stack(glyph_feats, axis=0)  # N x 4
 
     # Normalize features
     mu = glyph_feats.mean(axis=0, keepdims=True)
@@ -200,7 +212,6 @@ def render_glyphs(charset: str, cell_w: int, cell_h: int, font_path: str | None,
     return glyph_imgs, glyph_feats_n, chars, (mu.reshape(-1), sd.reshape(-1))
 
 
-
 # -----------------------------
 # Matching strategies
 # -----------------------------
@@ -208,12 +219,20 @@ def pick_char_fast(cell_feat_n: np.ndarray, glyph_feats_n: np.ndarray) -> int:
     d = np.sum((glyph_feats_n - cell_feat_n) ** 2, axis=1)
     return int(np.argmin(d))
 
+
 def pick_char_best(cell_vec: np.ndarray, glyph_imgs: np.ndarray) -> int:
     # MSE over all glyphs (slowest, best)
     d = np.mean((glyph_imgs - cell_vec) ** 2, axis=1)
     return int(np.argmin(d))
 
-def pick_char_balanced(cell_feat_n: np.ndarray, cell_vec: np.ndarray, glyph_feats_n: np.ndarray, glyph_imgs: np.ndarray, topk: int) -> int:
+
+def pick_char_balanced(
+    cell_feat_n: np.ndarray,
+    cell_vec: np.ndarray,
+    glyph_feats_n: np.ndarray,
+    glyph_imgs: np.ndarray,
+    topk: int,
+) -> int:
     # Feature shortlist -> MSE refine
     d_feat = np.sum((glyph_feats_n - cell_feat_n) ** 2, axis=1)
     k = min(topk, d_feat.shape[0])
@@ -250,12 +269,16 @@ def image_to_text_glyph_mode(
     target_h = rows * cell_h
     img = img.resize((target_w, target_h), resample=Image.Resampling.BILINEAR)
 
-    gray = (np.asarray(img, dtype=np.float32) / 255.0)   # 0..1
-    ink = 1.0 - gray                                     # 1 = dark
+    gray = np.asarray(img, dtype=np.float32) / 255.0  # 0..1
+    ink = 1.0 - gray  # 1 = dark
     mag, ang = sobel_gradients(ink)
 
     glyph_imgs, glyph_feats_n, chars, (mu, sd) = render_glyphs(
-        charset=charset, cell_w=cell_w, cell_h=cell_h, font_path=font_path, font_size=font_size
+        charset=charset,
+        cell_w=cell_w,
+        cell_h=cell_h,
+        font_path=font_path,
+        font_size=font_size,
     )
 
     out_lines = []
@@ -282,7 +305,9 @@ def image_to_text_glyph_mode(
             else:
                 cell_vec = cell_ink.reshape(-1).astype(np.float32)
                 if quality == "balanced":
-                    best = pick_char_balanced(cell_feat_n, cell_vec, glyph_feats_n, glyph_imgs, topk=topk)
+                    best = pick_char_balanced(
+                        cell_feat_n, cell_vec, glyph_feats_n, glyph_imgs, topk=topk
+                    )
                 else:  # "best"
                     best = pick_char_best(cell_vec, glyph_imgs)
 
@@ -309,7 +334,15 @@ _BRAILLE_BITS = {
     (1, 3): 7,  # 8
 }
 
-def image_to_braille(image_path: str, cols: int, autocontrast: bool, gamma: float, invert: bool, threshold: float):
+
+def image_to_braille(
+    image_path: str,
+    cols: int,
+    autocontrast: bool,
+    gamma: float,
+    invert: bool,
+    threshold: float,
+):
     img = Image.open(image_path).convert("L")
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 
@@ -337,7 +370,7 @@ def image_to_braille(image_path: str, cols: int, autocontrast: bool, gamma: floa
                 for dx in range(2):
                     v = ink[y0 + dy, x0 + dx]
                     if v >= threshold:
-                        bits |= (1 << _BRAILLE_BITS[(dx, dy)])
+                        bits |= 1 << _BRAILLE_BITS[(dx, dy)]
             line.append(chr(0x2800 + bits))
         out_lines.append("".join(line))
     return "\n".join(out_lines)
@@ -347,40 +380,88 @@ def image_to_braille(image_path: str, cols: int, autocontrast: bool, gamma: floa
 # CLI
 # -----------------------------
 def main():
-    ap = argparse.ArgumentParser(description="Local high-quality ASCII/Unicode art (glyph match + optional braille mode)")
+    ap = argparse.ArgumentParser(
+        description="Local high-quality ASCII/Unicode art (glyph match + optional braille mode)"
+    )
     ap.add_argument("input", help="Input image path")
-    ap.add_argument("-o", "--output", default=None, help="Output text file (default: stdout)")
+    ap.add_argument(
+        "-o", "--output", default=None, help="Output text file (default: stdout)"
+    )
 
-    ap.add_argument("--mode", choices=["glyph", "braille"], default="glyph",
-                    help="glyph = match characters; braille = Unicode braille pixels (often best)")
-    ap.add_argument("-c", "--cols", type=int, default=120, help="Output columns (characters wide)")
+    ap.add_argument(
+        "--mode",
+        choices=["glyph", "braille"],
+        default="glyph",
+        help="glyph = match characters; braille = Unicode braille pixels (often best)",
+    )
+    ap.add_argument(
+        "-c", "--cols", type=int, default=120, help="Output columns (characters wide)"
+    )
 
     # Glyph mode knobs
-    ap.add_argument("--cell-w", type=int, default=8, help="Glyph mode: cell width in pixels")
-    ap.add_argument("--cell-h", type=int, default=16, help="Glyph mode: cell height in pixels")
-    ap.add_argument("--quality", choices=["fast", "balanced", "best"], default="balanced",
-                    help="fast=feature match; balanced=feature shortlist + MSE; best=full MSE")
-    ap.add_argument("--topk", type=int, default=24, help="balanced: shortlist size (higher=better/slower)")
+    ap.add_argument(
+        "--cell-w", type=int, default=8, help="Glyph mode: cell width in pixels"
+    )
+    ap.add_argument(
+        "--cell-h", type=int, default=16, help="Glyph mode: cell height in pixels"
+    )
+    ap.add_argument(
+        "--quality",
+        choices=["fast", "balanced", "best"],
+        default="balanced",
+        help="fast=feature match; balanced=feature shortlist + MSE; best=full MSE",
+    )
+    ap.add_argument(
+        "--topk",
+        type=int,
+        default=24,
+        help="balanced: shortlist size (higher=better/slower)",
+    )
 
-    ap.add_argument("--ascii", choices=["dense", "printable"], default="dense",
-                    help="ASCII base charset preset")
-    ap.add_argument("--unicode", choices=["off", "blocks", "big"], default="off",
-                    help="Allow Unicode chars in glyph mode (requires font/terminal support)")
+    ap.add_argument(
+        "--ascii",
+        choices=["dense", "printable"],
+        default="dense",
+        help="ASCII base charset preset",
+    )
+    ap.add_argument(
+        "--unicode",
+        choices=["off", "blocks", "big"],
+        default="off",
+        help="Allow Unicode chars in glyph mode (requires font/terminal support)",
+    )
 
-    ap.add_argument("--charset-file", default=None,
-                    help="Optional: file containing characters to use (overrides --ascii/--unicode).")
+    ap.add_argument(
+        "--charset-file",
+        default=None,
+        help="Optional: file containing characters to use (overrides --ascii/--unicode).",
+    )
 
-    ap.add_argument("--font", default=None, help="Path to .ttf font (recommended for unicode)")
-    ap.add_argument("--font-size", type=int, default=None, help="Font size used for glyph rendering")
+    ap.add_argument(
+        "--font", default=None, help="Path to .ttf font (recommended for unicode)"
+    )
+    ap.add_argument(
+        "--font-size", type=int, default=None, help="Font size used for glyph rendering"
+    )
 
     # Preprocess
     ap.add_argument("--autocontrast", action="store_true", help="Apply autocontrast")
-    ap.add_argument("--gamma", type=float, default=1.0, help="Gamma correction (e.g. 1.2 or 0.8)")
-    ap.add_argument("--invert", action="store_true", help="Invert image (useful for dark backgrounds)")
+    ap.add_argument(
+        "--gamma", type=float, default=1.0, help="Gamma correction (e.g. 1.2 or 0.8)"
+    )
+    ap.add_argument(
+        "--invert",
+        action="store_true",
+        help="Invert image (useful for dark backgrounds)",
+    )
 
     # Braille knobs
-    ap.add_argument("--threshold", type=float, default=0.5,
-                    help="Braille mode: dot threshold in [0,1] (higher = fewer dots)")
+    ap.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Braille mode: dot threshold in [0,1] (higher = fewer dots)",
+    )
 
     args = ap.parse_args()
     resolved_font = args.font or find_default_mono_font()
@@ -390,7 +471,13 @@ def main():
             charset = "".join(ch for ch in f.read())
         # Remove newlines etc, keep unique order
         seen = set()
-        charset = "".join([ch for ch in charset if (ch not in seen and not seen.add(ch) and ch not in "\r\n")])
+        charset = "".join(
+            [
+                ch
+                for ch in charset
+                if (ch not in seen and not seen.add(ch) and ch not in "\r\n")
+            ]
+        )
     else:
         charset = make_charset(unicode_mode=args.unicode, ascii_preset=args.ascii)
 
@@ -425,6 +512,6 @@ def main():
     else:
         print(art)
 
+
 if __name__ == "__main__":
     main()
-

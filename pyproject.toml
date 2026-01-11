@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "colorize-ASCII"
 version = "0.1.6"
@@ -11,9 +15,12 @@ authors = [
     { name = "Ian Robinson", email = "irobinson010@gmail.com" },
 ]
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}

@@ -69,25 +69,35 @@ def parse_args(argv):
     while i < len(argv):
         a = argv[i]
         if a == "--max-rows":
-            max_rows = int(require_value(argv, i, a)); i += 2
+            max_rows = int(require_value(argv, i, a))
+            i += 2
         elif a == "--max-cols":
-            max_cols = int(require_value(argv, i, a)); i += 2
+            max_cols = int(require_value(argv, i, a))
+            i += 2
         elif a == "--rows":
-            rows = int(require_value(argv, i, a)); i += 2
+            rows = int(require_value(argv, i, a))
+            i += 2
         elif a == "--cols":
-            cols = int(require_value(argv, i, a)); i += 2
+            cols = int(require_value(argv, i, a))
+            i += 2
         elif a == "--keep-top":
-            keep_top = int(require_value(argv, i, a)); i += 2
+            keep_top = int(require_value(argv, i, a))
+            i += 2
         elif a == "--color-top":
-            color_top = True; i += 1
+            color_top = True
+            i += 1
         elif a == "--format":
-            out_format = require_value(argv, i, a).lower(); i += 2
+            out_format = require_value(argv, i, a).lower()
+            i += 2
         elif a == "--html-font-size":
-            html_font_size_px = int(require_value(argv, i, a)); i += 2
+            html_font_size_px = int(require_value(argv, i, a))
+            i += 2
         elif a == "--html-line-height":
-            html_line_height_px = int(require_value(argv, i, a)); i += 2
+            html_line_height_px = int(require_value(argv, i, a))
+            i += 2
         elif a == "--html-fill-spaces":
-            html_fill_spaces = True; i += 1
+            html_fill_spaces = True
+            i += 1
         else:
             raise SystemExit(f"Unknown arg: {a}")
 
@@ -180,7 +190,9 @@ def colorize_lines_html(lines, img, color_spaces=False, fill_spaces=False):
                     prev = None
                 if fill_spaces:
                     # Use &nbsp; so background is visibly applied
-                    row.append(f'<span style="background-color: rgb({r},{g},{b})">&nbsp;</span>')
+                    row.append(
+                        f'<span style="background-color: rgb({r},{g},{b})">&nbsp;</span>'
+                    )
                 else:
                     row.append(" ")
                 continue
@@ -210,8 +222,8 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
     return (
         "<!doctype html>\n"
         "<html>\n<head>\n"
-        "  <meta charset=\"utf-8\">\n"
-        "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        '  <meta charset="utf-8">\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"  <title>{html.escape(title)}</title>\n"
         "  <style>\n"
         "    html, body { margin: 0; background: #000; }\n"
@@ -220,7 +232,7 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
         "      margin: 0;\n"
         "      white-space: pre;\n"
         "      overflow: auto;\n"
-        "      font-family: \"Hack\", \"JetBrains Mono\", \"Cascadia Mono\", \"Fira Code\", Consolas, monospace;\n"
+        '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", "Fira Code", Consolas, monospace;\n'
         "      font-variant-ligatures: none;\n"
         f"      font-size: {font_size_px}px;\n"
         f"      line-height: {line_height_px}px;\n"
@@ -228,10 +240,8 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
         "    }\n"
         "  </style>\n"
         "</head>\n<body>\n"
-        "  <div class=\"wrap\">\n"
-        "    <pre>\n"
-        + "\n".join(pre_lines) +
-        "\n    </pre>\n"
+        '  <div class="wrap">\n'
+        "    <pre>\n" + "\n".join(pre_lines) + "\n    </pre>\n"
         "  </div>\n"
         "</body>\n</html>\n"
     )
@@ -312,11 +322,15 @@ def main():
         out_lines = []
         if header:
             if color_top:
-                out_lines.extend(colorize_lines_ansi(header, base_img, color_spaces=False))
+                out_lines.extend(
+                    colorize_lines_ansi(header, base_img, color_spaces=False)
+                )
             else:
                 out_lines.extend(header)
         if scaled_art:
-            out_lines.extend(colorize_lines_ansi(scaled_art, base_img, color_spaces=False))
+            out_lines.extend(
+                colorize_lines_ansi(scaled_art, base_img, color_spaces=False)
+            )
 
         with open(out_path, "w", encoding="utf-8") as out:
             out.write("\n".join(out_lines) + "\n")
@@ -325,12 +339,26 @@ def main():
         pre_lines = []
         if header:
             if color_top:
-                pre_lines.extend(colorize_lines_html(header, base_img, color_spaces=False, fill_spaces=html_fill_spaces))
+                pre_lines.extend(
+                    colorize_lines_html(
+                        header,
+                        base_img,
+                        color_spaces=False,
+                        fill_spaces=html_fill_spaces,
+                    )
+                )
             else:
                 pre_lines.extend([html.escape(ln) for ln in header])
 
         if scaled_art:
-            pre_lines.extend(colorize_lines_html(scaled_art, base_img, color_spaces=False, fill_spaces=html_fill_spaces))
+            pre_lines.extend(
+                colorize_lines_html(
+                    scaled_art,
+                    base_img,
+                    color_spaces=False,
+                    fill_spaces=html_fill_spaces,
+                )
+            )
 
         doc = wrap_html(
             pre_lines,
@@ -344,4 +372,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
