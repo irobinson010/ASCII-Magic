@@ -19,9 +19,11 @@ pip install -e .
 
 ### Image to ASCII (`image_to_ascii.py`)
 
-Convert an image directly to ASCII art:
+Convert an image directly to ASCII art (preferred: installed console script):
 
 ```bash
+image-to-ascii input.png -o output.txt
+# or, during development:
 python -m ascii_magic.image_to_ascii input.png -o output.txt
 ```
 
@@ -40,9 +42,11 @@ python -m ascii_magic.image_to_ascii input.png -o output.txt
 
 ### ASCII Colorization (`colorize_ascii.py`)
 
-Add colors to existing ASCII art:
+Add colors to existing ASCII art (preferred: installed console script):
 
 ```bash
+colorize-ascii image.png ascii.txt output.ans
+# or, during development:
 python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
 ```
 
@@ -60,13 +64,17 @@ python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
 
 ## Example Workflow
 
-1. Convert image to ASCII:
+1. Convert image to ASCII (preferred: console script):
    ```bash
+   image-to-ascii photo.png -o art.txt
+   # or during development:
    python -m ascii_magic.image_to_ascii photo.png -o art.txt
    ```
 
-2. Colorize the output:
+2. Colorize the output (preferred: console script):
    ```bash
+   colorize-ascii photo.png art.txt output.ans --max-rows 30
+   # or during development:
    python -m ascii_magic.colorize_ascii photo.png art.txt output.ans --max-rows 30
    ```
 
@@ -82,3 +90,43 @@ python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
 ## License
 
 Apache License 2.0
+
+## Text to ASCII (`text_to_ascii.py`)
+
+Render plain text into an image and convert it to ASCII art. This module provides a small CLI and programmatic API for producing several simple ASCII styles.
+
+Usage (console script):
+
+```bash
+text-to-ascii "Hello, world" -s block -w 80 --font-size 24
+```
+
+Or via the module:
+
+```bash
+python -m ascii_magic.text_to_ascii "Hello, world" --style block --width 80 --font-size 24
+```
+
+Options:
+- `--stdin` : Read text from standard input (useful for piping)
+- `-o, --output` : Write ASCII output to a file (default: stdout)
+- `-s, --style` : Style to use (`block`, `small`, `shadow`, `box`, `banner`) — `block` is the default
+- `-w, --width` : Output width in characters (default: 80)
+- `--font-size` : Font size used when rendering text (default: 24)
+- `--font` : Path to a .ttf font file to use for rendering
+- `-c, --char` : Character to use for the `banner` style
+- `--log-level` : CLI logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
+
+Notes about rendering behavior:
+- The text renderer now measures the ink bounding box (not just a rough font box) and draws text with a small safety margin. That reduces the need for large, conservative padding and avoids clipped glyphs (accents, descenders, negative bearings).
+- Debug logging is available (use `--log-level DEBUG`) and will emit measurements and drawing offsets when rendering text.
+
+## Console script entry points
+
+This project installs three console scripts (see `pyproject.toml`):
+
+- `image-to-ascii` -> `ascii_magic.image_to_ascii:main`
+- `colorize-ascii` -> `ascii_magic.colorize_ascii:main`
+- `text-to-ascii` -> `ascii_magic.text_to_ascii:main`
+
+Prefer calling the installed console scripts (above) after `pip install -e .` or using `pipx` for a global install. You can also invoke modules directly with `python -m ascii_magic.<module>` when developing.
