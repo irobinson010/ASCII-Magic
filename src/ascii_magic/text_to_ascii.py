@@ -67,24 +67,58 @@ def render_text_to_image(
     font_path: str | None = None,
     bg_color: str = "white",
     text_color: str = "black",
-    padding: int = 20,
+    padding: int = 2,
 ) -> Image.Image:
     """Render text to an image."""
     logger = logging.getLogger(__name__)
     logger.debug("Rendering text to image; font_size=%d padding=%d", font_size, padding)
     font = load_font(font_path, font_size)
-    text_width, text_height = measure_text(text, font)
 
-    # Add padding
-    img_width = text_width + (padding * 2)
-    img_height = text_height + (padding * 2)
+    # Rough text measurement to size temporary canvas
+    rough_w, rough_h = measure_text(text, font)
+    # Create a temporary image to compute the ink bbox accurately
+    tmp_w = max(rough_w + 64, 256)
+    tmp_h = max(rough_h + 64, 256)
+    tmp = Image.new("L", (tmp_w, tmp_h), color=0)
+    tmp_draw = ImageDraw.Draw(tmp)
 
-    # Create image
+    try:
+        bbox = tmp_draw.textbbox((0, 0), text, font=font)
+    except Exception:
+        # Fallback: use font.getbbox
+        bbox = font.getbbox(text)
+
+    # bbox: (left, top, right, bottom)
+    left, top, right, bottom = bbox
+    text_w = right - left
+    text_h = bottom - top
+
+    # Small safety pad to account for antialiasing/rounding
+    safety = max(1, int(round(font_size * 0.05)))
+    pad = max(1, padding)
+
+    img_width = text_w + (pad * 2) + (safety * 2)
+    img_height = text_h + (pad * 2) + (safety * 2)
+
+    logger.debug(
+        "Measured text bbox=%s size=(%d,%d) final_size=(%d,%d) pad=%d safety=%d",
+        bbox,
+        text_w,
+        text_h,
+        img_width,
+        img_height,
+        pad,
+        safety,
+    )
+
     img = Image.new("RGB", (img_width, img_height), color=bg_color)
     draw = ImageDraw.Draw(img)
 
-    # Draw text
-    draw.text((padding, padding), text, font=font, fill=text_color)
+    # Draw text offset so actual ink aligns within the image with padding
+    x = pad + safety - left
+    y = pad + safety - top
+    logger.debug("Drawing text at offset=(%d,%d)", x, y)
+    draw.text((x, y), text, font=font, fill=text_color)
 
     return img
 
