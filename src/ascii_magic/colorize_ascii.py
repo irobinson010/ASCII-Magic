@@ -2,6 +2,8 @@
 import sys
 import os
 import html
+import logging
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
 from PIL import Image
@@ -38,13 +40,51 @@ class Options:
     keep_top: int = 0
     color_top: bool = False
 
+    debug: bool = False
+    log_path: Optional[str] = None
+
     size: SizeOptions = field(default_factory=SizeOptions)
     html: HtmlOptions = field(default_factory=HtmlOptions)
-
 
 # -----------------------------
 # Utilities / core logic
 # -----------------------------
+
+def print_usage(file=sys.stderr):
+    print(
+        "usage: colorize_ascii.py <image> <ascii.txt> <out.ans|out.html> "
+        "[--format ansi|html] "
+        "[--max-rows N] [--max-cols N] "
+        "[--rows N] [--cols N] "
+        "[--keep-top N] [--color-top] "
+        "[--debug] [--log FILE]"
+        "[--html-font-size PX] [--html-line-height PX] [--html-fill-spaces]",
+        file=file,
+    )
+
+
+LOG = logging.getLogger("colorize_ascii")
+def setup_logging(debug: bool, log_path: str | None = None) -> None:
+    level = logging.DEBUG if debug else logging.WARNING
+    LOG.setLevel(level)
+
+    fmt = logging.Formatter("%(levelname)s: %(message)s")
+
+    handlers: list[logging.Handler] = []
+
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setLevel(level)
+    sh.setFormatter(fmt)
+    handlers.append(sh)
+
+    if log_path:
+        fh = logging.FileHandler(log_path, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+        handlers.append(fh)
+
+    LOG.handlers[:] = handlers
+    LOG.propagate = False       # prevent double logging via root logger
 
 def require_value(argv, i, flag):
     if i + 1 >= len(argv):
@@ -70,18 +110,12 @@ def scale_grid(lines, target_h, target_w):
 
 
 def parse_args(argv) -> Tuple[str, str, str, Options]:
-    # usage:
-    # colorize_ascii.py image.png ascii.txt out.ans|out.html [options]
+    if "-h" in argv or "--help" in argv:
+        print_usage(file=sys.stdout)
+        sys.exit(0)
+
     if len(argv) < 4:
-        print(
-            "usage: colorize_ascii.py <image> <ascii.txt> <out.ans|out.html> "
-            "[--format ansi|html] "
-            "[--max-rows N] [--max-cols N] "
-            "[--rows N] [--cols N] "
-            "[--keep-top N] [--color-top] "
-            "[--html-font-size PX] [--html-line-height PX] [--html-fill-spaces]",
-            file=sys.stderr,
-        )
+        print_usage(file=sys.stderr)
         sys.exit(2)
 
     img_path, ascii_path, out_path = argv[1], argv[2], argv[3]
@@ -110,6 +144,12 @@ def parse_args(argv) -> Tuple[str, str, str, Options]:
             opt.html.line_height_px = int(require_value(argv, i, a)); i += 2
         elif a == "--html-fill-spaces":
             opt.html.fill_spaces = True; i += 1
+        elif a == "--debug":
+            opt.debug = True
+            i += 1
+        elif a == "--log":
+            opt.log_path = require_value(argv, i, a)
+            i += 2
         else:
             raise SystemExit(f"Unknown arg: {a}")
 
@@ -342,17 +382,35 @@ def render_html(header: Sequence[str], art: Sequence[str], img: Image.Image, col
 def main():
     img_path, ascii_path, out_path, opt = parse_args(sys.argv)
 
+    t0 = time.perf_counter()
+    setup_logging(opt.debug, opt.log_path)
+
+    LOG.debug("Starting")
+    LOG.debug("Args: out_format=%s keep_top=%d color_top=%s", opt.out_format, opt.keep_top, opt.color_top)
+    LOG.debug("Size: max_rows=%s max_cols=%s rows=%s cols=%s",
+              opt.size.max_rows, opt.size.max_cols, opt.size.rows, opt.size.cols)
+    LOG.debug("HTML: font=%spx line_height=%s fill_spaces=%s",
+              opt.html.font_size_px, opt.html.line_height_px, opt.html.fill_spaces)
+
+
     lines = read_ascii_file(ascii_path)
+    LOG.debug("Loaded ASCII: %d lines", len(lines))
     if not lines:
         open(out_path, "w", encoding="utf-8").close()
         return
 
     header, art_lines = split_header(lines, opt.keep_top)
+    LOG.debug("Header lines: %d | Art lines: %d", len(header), len(art_lines))
     base_img = Image.open(img_path).convert("RGB")
 
     target_art_h = compute_target_art_height(opt.size.max_rows, len(header), len(art_lines))
+    LOG.debug("Target art height (after header): %d", target_art_h)
+    
+    LOG.debug("Scaling art...")
     scaled_art = scale_art_block(art_lines, target_art_h, opt.size)
-
+    LOG.debug("Scaled art: %d lines", len(scaled_art))
+    
+    LOG.debug("Writing %s output to %s", opt.out_format, out_path)
     if opt.out_format == "ansi":
         out_lines = render_ansi(header, scaled_art, base_img, opt.color_top)
         with open(out_path, "w", encoding="utf-8") as out:
@@ -365,7 +423,7 @@ def main():
 
         with open(out_path, "w", encoding="utf-8") as out:
             out.write(doc)
-
+    LOG.debug("Done in %.3fs", time.perf_counter() - t0)
 
 if __name__ == "__main__":
     main()
