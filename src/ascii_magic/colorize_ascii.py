@@ -2,9 +2,54 @@
 import sys
 import os
 import html
+from dataclasses import dataclass, field
+from typing import List, Optional, Sequence, Tuple
 from PIL import Image
 
 ESC = "\x1b"
+
+
+# -----------------------------
+# Data model / options
+# -----------------------------
+
+@dataclass
+class HtmlOptions:
+    font_size_px: int = 12
+    line_height_px: Optional[int] = None  # None => match font-size
+    fill_spaces: bool = False
+
+
+@dataclass
+class SizeOptions:
+    # exact sizing of the ART block
+    rows: Optional[int] = None
+    cols: Optional[int] = None
+
+    # max sizing (ART block height is affected by header size)
+    max_rows: Optional[int] = None
+    max_cols: Optional[int] = None
+
+
+@dataclass
+class Options:
+    out_format: Optional[str] = None  # "ansi" | "html" (None => infer from output extension)
+
+    keep_top: int = 0
+    color_top: bool = False
+
+    size: SizeOptions = field(default_factory=SizeOptions)
+    html: HtmlOptions = field(default_factory=HtmlOptions)
+
+
+# -----------------------------
+# Utilities / core logic
+# -----------------------------
+
+def require_value(argv, i, flag):
+    if i + 1 >= len(argv):
+        raise SystemExit(f"{flag} requires a value")
+    return argv[i + 1]
 
 
 def scale_grid(lines, target_h, target_w):
@@ -24,13 +69,7 @@ def scale_grid(lines, target_h, target_w):
     return out
 
 
-def require_value(argv, i, flag):
-    if i + 1 >= len(argv):
-        raise SystemExit(f"{flag} requires a value")
-    return argv[i + 1]
-
-
-def parse_args(argv):
+def parse_args(argv) -> Tuple[str, str, str, Options]:
     # usage:
     # colorize_ascii.py image.png ascii.txt out.ans|out.html [options]
     if len(argv) < 4:
@@ -46,84 +85,104 @@ def parse_args(argv):
         sys.exit(2)
 
     img_path, ascii_path, out_path = argv[1], argv[2], argv[3]
-
-    # sizing
-    rows = None
-    cols = None
-    max_rows = None
-    max_cols = None
-
-    # header behavior
-    keep_top = 0
-    color_top = False
-
-    # output format
-    out_format = None  # "ansi" | "html"
-
-    # html tuning
-    html_font_size_px = 12
-    html_line_height_px = None  # None => match font-size
-    html_fill_spaces = False
+    opt = Options()
 
     i = 4
     while i < len(argv):
         a = argv[i]
         if a == "--max-rows":
-            max_rows = int(require_value(argv, i, a))
-            i += 2
+            opt.size.max_rows = int(require_value(argv, i, a)); i += 2
         elif a == "--max-cols":
-            max_cols = int(require_value(argv, i, a))
-            i += 2
+            opt.size.max_cols = int(require_value(argv, i, a)); i += 2
         elif a == "--rows":
-            rows = int(require_value(argv, i, a))
-            i += 2
+            opt.size.rows = int(require_value(argv, i, a)); i += 2
         elif a == "--cols":
-            cols = int(require_value(argv, i, a))
-            i += 2
+            opt.size.cols = int(require_value(argv, i, a)); i += 2
         elif a == "--keep-top":
-            keep_top = int(require_value(argv, i, a))
-            i += 2
+            opt.keep_top = int(require_value(argv, i, a)); i += 2
         elif a == "--color-top":
-            color_top = True
-            i += 1
+            opt.color_top = True; i += 1
         elif a == "--format":
-            out_format = require_value(argv, i, a).lower()
-            i += 2
+            opt.out_format = require_value(argv, i, a).lower(); i += 2
         elif a == "--html-font-size":
-            html_font_size_px = int(require_value(argv, i, a))
-            i += 2
+            opt.html.font_size_px = int(require_value(argv, i, a)); i += 2
         elif a == "--html-line-height":
-            html_line_height_px = int(require_value(argv, i, a))
-            i += 2
+            opt.html.line_height_px = int(require_value(argv, i, a)); i += 2
         elif a == "--html-fill-spaces":
-            html_fill_spaces = True
-            i += 1
+            opt.html.fill_spaces = True; i += 1
         else:
             raise SystemExit(f"Unknown arg: {a}")
 
-    if out_format is None:
+    # Infer output format if not explicitly set
+    if opt.out_format is None:
         ext = os.path.splitext(out_path)[1].lower()
-        out_format = "html" if ext == ".html" else "ansi"
+        opt.out_format = "html" if ext == ".html" else "ansi"
 
-    if out_format not in ("ansi", "html"):
+    if opt.out_format not in ("ansi", "html"):
         raise SystemExit("--format must be 'ansi' or 'html'")
 
-    return (
-        img_path,
-        ascii_path,
-        out_path,
-        max_rows,
-        max_cols,
-        rows,
-        cols,
-        keep_top,
-        color_top,
-        out_format,
-        html_font_size_px,
-        html_line_height_px,
-        html_fill_spaces,
-    )
+    return img_path, ascii_path, out_path, opt
 
+
+def read_ascii_file(path: str) -> List[str]:
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        return [ln.rstrip("\n") for ln in f]
+
+
+def split_header(lines: Sequence[str], keep_top: int) -> Tuple[List[str], List[str]]:
+    keep_top = max(0, min(keep_top, len(lines)))
+    return list(lines[:keep_top]), list(lines[keep_top:])
+
+
+def compute_target_art_height(max_rows: Optional[int], header_len: int, art_len: int) -> int:
+    if max_rows is None:
+        return art_len
+    return max(0, max_rows - header_len)
+
+
+def scale_art_block(art_lines: Sequence[str], target_art_h: int, opt: SizeOptions) -> List[str]:
+    """
+    Scale art:
+      - If rows/cols is set: exact mode (optionally deriving the other dimension to preserve aspect)
+      - Else: fit mode using target_art_h and max_cols preserving aspect
+    """
+    if not art_lines or target_art_h <= 0:
+        return []
+
+    src_h = len(art_lines)
+    src_w = max(len(ln) for ln in art_lines)
+    art_rect = [ln.ljust(src_w) for ln in art_lines]
+
+    # EXACT size mode (wins over max-* constraints)
+    if opt.rows is not None or opt.cols is not None:
+        target_h = opt.rows if opt.rows is not None else src_h
+        target_w = opt.cols if opt.cols is not None else src_w
+
+        # If only one provided, keep aspect by deriving the other
+        if opt.rows is not None and opt.cols is None:
+            target_w = max(1, round(src_w * (target_h / src_h)))
+        elif opt.cols is not None and opt.rows is None:
+            target_h = max(1, round(src_h * (target_w / src_w)))
+
+        return scale_grid(art_rect, max(1, target_h), max(1, target_w))
+
+    # FIT mode (preserve aspect)
+    scale = 1.0
+    scale = min(scale, target_art_h / src_h)
+    if opt.max_cols is not None and opt.max_cols > 0:
+        scale = min(scale, opt.max_cols / src_w)
+
+    if scale < 1.0:
+        target_h = max(1, round(src_h * scale))
+        target_w = max(1, round(src_w * scale))
+        return scale_grid(art_rect, target_h, target_w)
+
+    return art_rect
+
+
+# -----------------------------
+# Rendering (unchanged logic)
+# -----------------------------
 
 def colorize_lines_ansi(lines, img, color_spaces=False):
     """Return list of ANSI-colored lines."""
@@ -189,10 +248,7 @@ def colorize_lines_html(lines, img, color_spaces=False, fill_spaces=False):
                     span_open = False
                     prev = None
                 if fill_spaces:
-                    # Use &nbsp; so background is visibly applied
-                    row.append(
-                        f'<span style="background-color: rgb({r},{g},{b})">&nbsp;</span>'
-                    )
+                    row.append(f'<span style="background-color: rgb({r},{g},{b})">&nbsp;</span>')
                 else:
                     row.append(" ")
                 continue
@@ -247,125 +303,66 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
     )
 
 
+def render_ansi(header: Sequence[str], art: Sequence[str], img: Image.Image, color_top: bool) -> List[str]:
+    out_lines: List[str] = []
+    if header:
+        if color_top:
+            out_lines.extend(colorize_lines_ansi(header, img, color_spaces=False))
+        else:
+            out_lines.extend(header)
+    if art:
+        out_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
+    return out_lines
+
+
+def render_html(header: Sequence[str], art: Sequence[str], img: Image.Image, color_top: bool, html_opt: HtmlOptions) -> str:
+    pre_lines: List[str] = []
+
+    if header:
+        if color_top:
+            pre_lines.extend(colorize_lines_html(header, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
+        else:
+            pre_lines.extend([html.escape(ln) for ln in header])
+
+    if art:
+        pre_lines.extend(colorize_lines_html(art, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
+
+    return wrap_html(
+        pre_lines,
+        title="ASCII Art",
+        font_size_px=html_opt.font_size_px,
+        line_height_px=html_opt.line_height_px,
+    )
+
+
+# -----------------------------
+# main
+# -----------------------------
+
 def main():
-    (
-        img_path,
-        ascii_path,
-        out_path,
-        max_rows,
-        max_cols,
-        rows,
-        cols,
-        keep_top,
-        color_top,
-        out_format,
-        html_font_size_px,
-        html_line_height_px,
-        html_fill_spaces,
-    ) = parse_args(sys.argv)
+    img_path, ascii_path, out_path, opt = parse_args(sys.argv)
 
-    with open(ascii_path, "r", encoding="utf-8", errors="replace") as f:
-        lines = [ln.rstrip("\n") for ln in f]
-
+    lines = read_ascii_file(ascii_path)
     if not lines:
         open(out_path, "w", encoding="utf-8").close()
         return
 
-    keep_top = max(0, min(keep_top, len(lines)))
-    header = lines[:keep_top]
-    art_lines = lines[keep_top:]
-
+    header, art_lines = split_header(lines, opt.keep_top)
     base_img = Image.open(img_path).convert("RGB")
 
-    # Art height allowed when using max-rows (header counts toward total)
-    if max_rows is None:
-        target_art_h = len(art_lines)
-    else:
-        target_art_h = max(0, max_rows - len(header))
+    target_art_h = compute_target_art_height(opt.size.max_rows, len(header), len(art_lines))
+    scaled_art = scale_art_block(art_lines, target_art_h, opt.size)
 
-    # Scale art (fit or force exact dimensions)
-    scaled_art = []
-    if art_lines and target_art_h > 0:
-        src_h = len(art_lines)
-        src_w = max(len(ln) for ln in art_lines)
-        art_rect = [ln.ljust(src_w) for ln in art_lines]
-
-        # EXACT size mode (wins over max-rows/max-cols)
-        if rows is not None or cols is not None:
-            target_h = rows if rows is not None else src_h
-            target_w = cols if cols is not None else src_w
-
-            # If only one provided, keep aspect by deriving the other
-            if rows is not None and cols is None:
-                target_w = max(1, round(src_w * (target_h / src_h)))
-            elif cols is not None and rows is None:
-                target_h = max(1, round(src_h * (target_w / src_w)))
-
-            scaled_art = scale_grid(art_rect, target_h, target_w)
-
-        else:
-            # FIT mode (preserve aspect) using max constraints
-            scale = 1.0
-            if target_art_h is not None and target_art_h > 0:
-                scale = min(scale, target_art_h / src_h)
-            if max_cols is not None and max_cols > 0:
-                scale = min(scale, max_cols / src_w)
-
-            if scale < 1.0:
-                target_h = max(1, round(src_h * scale))
-                target_w = max(1, round(src_w * scale))
-                scaled_art = scale_grid(art_rect, target_h, target_w)
-            else:
-                scaled_art = art_rect
-
-    if out_format == "ansi":
-        out_lines = []
-        if header:
-            if color_top:
-                out_lines.extend(
-                    colorize_lines_ansi(header, base_img, color_spaces=False)
-                )
-            else:
-                out_lines.extend(header)
-        if scaled_art:
-            out_lines.extend(
-                colorize_lines_ansi(scaled_art, base_img, color_spaces=False)
-            )
-
+    if opt.out_format == "ansi":
+        out_lines = render_ansi(header, scaled_art, base_img, opt.color_top)
         with open(out_path, "w", encoding="utf-8") as out:
             out.write("\n".join(out_lines) + "\n")
-
     else:
-        pre_lines = []
-        if header:
-            if color_top:
-                pre_lines.extend(
-                    colorize_lines_html(
-                        header,
-                        base_img,
-                        color_spaces=False,
-                        fill_spaces=html_fill_spaces,
-                    )
-                )
-            else:
-                pre_lines.extend([html.escape(ln) for ln in header])
+        doc = render_html(header, scaled_art, base_img, opt.color_top, opt.html)
 
-        if scaled_art:
-            pre_lines.extend(
-                colorize_lines_html(
-                    scaled_art,
-                    base_img,
-                    color_spaces=False,
-                    fill_spaces=html_fill_spaces,
-                )
-            )
+        # keep same title behavior as before (basename)
+        doc = doc.replace("<title>ASCII Art</title>", f"<title>{html.escape(os.path.basename(out_path))}</title>", 1)
 
-        doc = wrap_html(
-            pre_lines,
-            title=os.path.basename(out_path),
-            font_size_px=html_font_size_px,
-            line_height_px=html_line_height_px,
-        )
         with open(out_path, "w", encoding="utf-8") as out:
             out.write(doc)
 
