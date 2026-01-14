@@ -6,7 +6,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
-from PIL import Image
+from PIL import Image, ImageFilter
 import random
 
 ESC = "\x1b"
@@ -75,11 +75,14 @@ def print_usage(file=sys.stderr):
         "[--max-rows N] [--max-cols N] "
         "[--rows N] [--cols N] "
         "[--keep-top N] [--color-top] "
-        "[--debug] [--log FILE]"
-        "[--html-font-size PX] [--html-line-height PX] [--html-fill-spaces]"
+        "[--debug] [--log FILE] "
+        "[--html-font-size PX] [--html-line-height PX] [--html-fill-spaces] "
         "[--matrix] [--matrix-top] [--matrix-seed N] [--matrix-gamma F] "
         "[--matrix-fg-min N] [--matrix-fg-max N] [--matrix-bg-min N] [--matrix-bg-max N] "
-        "[--matrix-chars STR] [--matrix-fill-spaces]",
+        "[--matrix-chars STR] [--matrix-fill-spaces] "
+        "\n"
+        "If out.* is omitted: defaults to ANSI and prints to stdout.\n"
+        "To print HTML to stdout, pass --format html.\n",
         file=file,
     )
 
@@ -110,7 +113,10 @@ def setup_logging(debug: bool, log_path: str | None = None) -> None:
 def require_value(argv, i, flag):
     if i + 1 >= len(argv):
         raise SystemExit(f"{flag} requires a value")
-    return argv[i + 1]
+    v = argv[i + 1]
+    if v.startswith("--"):
+        raise SystemExit(f"{flag} requires a value")
+    return v
 
 
 def scale_grid(lines, target_h, target_w):
@@ -130,19 +136,28 @@ def scale_grid(lines, target_h, target_w):
     return out
 
 
-def parse_args(argv) -> Tuple[str, str, str, Options]:
+def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
     if "-h" in argv or "--help" in argv:
         print_usage(file=sys.stdout)
         sys.exit(0)
 
-    if len(argv) < 4:
+    if len(argv) < 3:
         print_usage(file=sys.stderr)
         sys.exit(2)
 
-    img_path, ascii_path, out_path = argv[1], argv[2], argv[3]
+    img_path = argv[1]
+    ascii_path = argv[2]
+    out_path: Optional[str] = None
+    i = 3
+    if i < len(argv) and not argv[i].startswith("-"):
+        cand = argv[i]
+        ext = os.path.splitext(cand)[1].lower()
+        if cand == "-" or ext in (".ans", ".html"):
+            out_path = argv[i]
+            i += 1
+
     opt = Options()
 
-    i = 4
     while i < len(argv):
         a = argv[i]
         if a == "--max-rows":
@@ -192,12 +207,20 @@ def parse_args(argv) -> Tuple[str, str, str, Options]:
         elif a == "--matrix-fill-spaces":
             opt.matrix.fill_spaces = True; i += 1
         else:
+            if not a.startswith("-"):
+                raise SystemExit(
+                        f"Unexpected bare value: {a}\n"
+                        f"Did you forget a flag (e.g. --keep-top {a}) or mean output file (e.g out.ans)?"
+                    )
             raise SystemExit(f"Unknown arg: {a}")
 
     # Infer output format if not explicitly set
     if opt.out_format is None:
-        ext = os.path.splitext(out_path)[1].lower()
-        opt.out_format = "html" if ext == ".html" else "ansi"
+        if out_path is None:
+            opt.out_format = "ansi"
+        else:
+            ext = os.path.splitext(out_path)[1].lower()
+            opt.out_format = "html" if ext == ".html" else "ansi"
 
     if opt.out_format not in ("ansi", "html"):
         raise SystemExit("--format must be 'ansi' or 'html'")
@@ -260,22 +283,46 @@ def scale_art_block(art_lines: Sequence[str], target_art_h: int, opt: SizeOption
 
     return art_rect
 
-def _luminance01(r: int, g: int, b: int) -> float:
-    # perceptual luminance
-    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
-
+def _percentile_stretch(vals, lo=0.02, hi=0.98):
+    # vals: list of 0..255 ints
+    if not vals:
+        return 0, 255
+    s = sorted(vals)
+    n = len(s)
+    lo_v = s[int(lo * (n - 1))]
+    hi_v = s[int(hi * (n - 1))]
+    if hi_v <= lo_v:
+        return 0, 255
+    return lo_v, hi_v
 
 def matrix_lines_ansi(lines, img, m: MatrixOptions):
-    """ANSI Matrix mode: ignore ASCII characters, render green glyphs by image brightness."""
+    """ANSI Matrix mode: green glyphs with subject emphasis (edges + stretched luminance)."""
     if not lines:
         return []
 
     h = len(lines)
     w = max(len(ln) for ln in lines)
-    grid = [ln.ljust(w) for ln in lines]  # only used for shape
+    _ = [ln.ljust(w) for ln in lines]  # shape only
 
-    img = img.resize((w, h), Image.Resampling.LANCZOS)
-    px = img.load()
+    # Resize once for sampling
+    img = img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
+
+    # Build luminance + edge maps
+    gray = img.convert("L")
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+
+    gpx = gray.load()
+    epx = edges.load()
+
+    # Percentile stretch luminance (2%..98%)
+    lum_vals = list(gray.get_flattened_data())  # 0..255
+    lo_v, hi_v = _percentile_stretch(lum_vals, lo=0.02, hi=0.98)
+    denom = (hi_v - lo_v) if hi_v > lo_v else 1
+
+    # Tunables (hardcoded for now)
+    edge_weight = 0.35   # how much edges contribute to "subjectness"
+    edge_gamma = 0.7     # emphasize edges a bit
+    base_density = 0.12  # minimum glyph probability
 
     rng = random.Random(m.seed)
 
@@ -285,16 +332,26 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
         row = []
 
         for x in range(w):
-            r, g, b = px[x, y]
-            lum = _luminance01(r, g, b)
-            lum = max(0.0, min(1.0, lum))
-            lum_adj = lum ** m.gamma
+            lum_byte = gpx[x, y]  # 0..255
+            # stretched luminance 0..1
+            lum = (lum_byte - lo_v) / denom
+            lum = 0.0 if lum < 0.0 else (1.0 if lum > 1.0 else lum)
 
-            fg_g = int(m.fg_min + lum_adj * (m.fg_max - m.fg_min))
-            bg_g = int(m.bg_min + lum_adj * (m.bg_max - m.bg_min))
+            edge = epx[x, y] / 255.0
+            edge = edge ** edge_gamma
 
-            # Glyph density: mostly driven by brightness; tweak if you want “more code”
-            p = 0.25 + 0.75 * lum_adj
+            # subject score: brightness + edges
+            subject = (1.0 - edge_weight) * lum + edge_weight * max(lum, edge)
+            subject = subject ** m.gamma
+
+            # Background stays driven mainly by luminance (prevents noisy backgrounds)
+            bg_score = (lum ** max(0.1, (m.gamma * 0.9)))
+
+            fg_g = int(m.fg_min + subject * (m.fg_max - m.fg_min))
+            bg_g = int(m.bg_min + bg_score * (m.bg_max - m.bg_min))
+
+            # Glyph density follows subjectness
+            p = base_density + (1.0 - base_density) * subject
             ch = rng.choice(m.chars) if (rng.random() < p) else " "
 
             if ch == " " and not m.fill_spaces:
@@ -317,22 +374,35 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
     return out_lines
 
 def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
-    """HTML Matrix mode: ignore ASCII characters; render green glyphs by image brightness."""
+    """HTML Matrix mode: green glyphs with subject emphasis (edges + stretched luminance)."""
     if not lines:
         return []
 
     h = len(lines)
     w = max(len(ln) for ln in lines)
-    grid = [ln.ljust(w) for ln in lines]  # shape only
+    _ = [ln.ljust(w) for ln in lines]  # shape only
 
-    img = img.resize((w, h), Image.Resampling.LANCZOS)
-    px = img.load()
+    img = img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
+
+    gray = img.convert("L")
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+
+    gpx = gray.load()
+    epx = edges.load()
+
+    lum_vals = list(gray.get_flattened_data())
+    lo_v, hi_v = _percentile_stretch(lum_vals, lo=0.02, hi=0.98)
+    denom = (hi_v - lo_v) if hi_v > lo_v else 1
+
+    edge_weight = 0.35
+    edge_gamma = 0.7
+    base_density = 0.12
 
     rng = random.Random(m.seed)
 
     out_lines = []
     for y in range(h):
-        prev_style = None  # (fg_g, bg_g) or None
+        prev_style = None
         span_open = False
         row = []
 
@@ -343,15 +413,22 @@ def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
                 span_open = False
 
         for x in range(w):
-            r, g, b = px[x, y]
-            lum = _luminance01(r, g, b)
-            lum = max(0.0, min(1.0, lum))
-            lum_adj = lum ** m.gamma
+            lum_byte = gpx[x, y]
+            lum = (lum_byte - lo_v) / denom
+            lum = 0.0 if lum < 0.0 else (1.0 if lum > 1.0 else lum)
 
-            fg_g = int(m.fg_min + lum_adj * (m.fg_max - m.fg_min))
-            bg_g = int(m.bg_min + lum_adj * (m.bg_max - m.bg_min))
+            edge = epx[x, y] / 255.0
+            edge = edge ** edge_gamma
 
-            p = 0.10 + 0.90 * lum_adj
+            subject = (1.0 - edge_weight) * lum + edge_weight * max(lum, edge)
+            subject = subject ** m.gamma
+
+            bg_score = (lum ** max(0.1, (m.gamma * 0.9)))
+
+            fg_g = int(m.fg_min + subject * (m.fg_max - m.fg_min))
+            bg_g = int(m.bg_min + bg_score * (m.bg_max - m.bg_min))
+
+            p = base_density + (1.0 - base_density) * subject
             ch = rng.choice(m.chars) if (rng.random() < p) else " "
 
             effective_fill = fill_spaces or m.fill_spaces
@@ -364,9 +441,7 @@ def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
             style = (fg_g, bg_g)
             if style != prev_style:
                 close()
-                row.append(
-                    f'<span style="color: rgb(0,{fg_g},0); background-color: rgb(0,{bg_g},0)">'
-                )
+                row.append(f'<span style="color: rgb(0,{fg_g},0); background-color: rgb(0,{bg_g},0)">')
                 span_open = True
                 prev_style = style
 
@@ -519,7 +594,7 @@ def render_ansi(
         if m.enabled:
             out_lines.extend(matrix_lines_ansi(art, img, m))
         else:
-            passout_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
+            out_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
     
     return out_lines
 
@@ -543,7 +618,7 @@ def render_html(
 
     if art:
         if m.enabled:
-            pre_lines.extended(matrix_lines_html(art, img, m, fill_spaces=html_opt.fill_spaces))
+            pre_lines.extend(matrix_lines_html(art, img, m, fill_spaces=html_opt.fill_spaces))
         else:
             pre_lines.extend(colorize_lines_html(art, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
 
@@ -576,7 +651,8 @@ def main():
     lines = read_ascii_file(ascii_path)
     LOG.debug("Loaded ASCII: %d lines", len(lines))
     if not lines:
-        open(out_path, "w", encoding="utf-8").close()
+        if out_path:
+            open(out_path, "w", encoding="utf-8").close()
         return
 
     header, art_lines = split_header(lines, opt.keep_top)
@@ -593,16 +669,23 @@ def main():
     LOG.debug("Writing %s output to %s", opt.out_format, out_path)
     if opt.out_format == "ansi":
         out_lines = render_ansi(header, scaled_art, base_img, opt.color_top, opt.matrix)
-        with open(out_path, "w", encoding="utf-8") as out:
-            out.write("\n".join(out_lines) + "\n")
+        text = "\n".join(out_lines) + "\n"
+        if out_path:
+            with open(out_path, "w", encoding="utf-8") as out:
+                out.write(text)
+        else:
+            sys.stdout.write(text)
     else:
         doc = render_html(header, scaled_art, base_img, opt.color_top, opt.html, opt.matrix)
+        title = html.escape(os.path.basename(out_path)) if out_path else "ASCII Art"
+        doc = doc.replace("<title>ASCII Art</title>", f"<title>{title}</title>", 1)
 
-        # keep same title behavior as before (basename)
-        doc = doc.replace("<title>ASCII Art</title>", f"<title>{html.escape(os.path.basename(out_path))}</title>", 1)
+        if out_path:
+            with open(out_path, "w", encoding="utf-8") as out:
+                out.write(doc)
+        else:
+            sys.stdout.write(doc)
 
-        with open(out_path, "w", encoding="utf-8") as out:
-            out.write(doc)
     LOG.debug("Done in %.3fs", time.perf_counter() - t0)
 
 if __name__ == "__main__":
