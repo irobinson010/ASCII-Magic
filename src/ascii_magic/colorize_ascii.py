@@ -50,6 +50,12 @@ class MatrixOptions:
     chars: str = r"01ABCDEFGHIJKLMNOPQRSTUVWXYZ@$%&*+;:,.?/\\|[]{}()<>"
     fill_spaces: bool = False  # keep background color even on spaces?
 
+    use_mask: bool = False
+    mask_boost: float = 0.30          # add to subject score on non-space pixels (0..1)
+    mask_density_floor: float = 0.35  # minimum glyph probability on subject pixels
+    bg_dim: float = 0.80              # multiply subject score on background pixels
+    bg_density: float = 0.75          # multiply glyph probability on background pixels
+
 @dataclass
 class Options:
     out_format: Optional[str] = None  # "ansi" | "html" (None => infer from output extension)
@@ -80,6 +86,8 @@ def print_usage(file=sys.stderr):
         "[--matrix] [--matrix-top] [--matrix-seed N] [--matrix-gamma F] "
         "[--matrix-fg-min N] [--matrix-fg-max N] [--matrix-bg-min N] [--matrix-bg-max N] "
         "[--matrix-chars STR] [--matrix-fill-spaces] "
+        "[--matrix-mask] [--matrix-mask-boost F] [--matrix-mask-density-floor F] "
+        "[--matrix-bg-dim F] [--matrix-bg-density F] "
         "\n"
         "If out.* is omitted: defaults to ANSI and prints to stdout.\n"
         "To print HTML to stdout, pass --format html.\n",
@@ -206,6 +214,16 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
             opt.matrix.chars = require_value(argv, i, a); i += 2
         elif a == "--matrix-fill-spaces":
             opt.matrix.fill_spaces = True; i += 1
+        elif a == "--matrix-mask":
+            opt.matrix.use_mask = True; i += 1
+        elif a == "--matrix-mask-boost":
+            opt.matrix.mask_boost = float(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-mask-density-floor":
+            opt.matrix.mask_density_floor = float(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-bg-dim":
+            opt.matrix.bg_dim = float(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-bg-density":
+            opt.matrix.bg_density = float(require_value(argv, i, a)); i += 2
         else:
             if not a.startswith("-"):
                 raise SystemExit(
@@ -295,6 +313,42 @@ def _percentile_stretch(vals, lo=0.02, hi=0.98):
         return 0, 255
     return lo_v, hi_v
 
+_DENSITY_RAMP = " .'`^\",:;Il!i~+_-?][}{1)(|\\/*tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$"
+
+_BLOCK_MAP = {
+    " ": 0.0,
+    "░": 0.25,
+    "▒": 0.50,
+    "▓": 0.75,
+    "█": 1.00,
+}
+
+def ink_strength(ch: str) -> float:
+    """Estimate how 'filled' a character is: 0.0 (empty) .. 1.0 (solid)."""
+    if not ch:
+        return 0.0
+
+    # Common block characters
+    if ch in _BLOCK_MAP:
+        return _BLOCK_MAP[ch]
+
+    o = ord(ch)
+
+    # Braille patterns U+2800..U+28FF (8-dot). Density = number of raised dots / 8.
+    if 0x2800 <= o <= 0x28FF:
+        bits = o - 0x2800
+        # Python 3.8+: int.bit_count()
+        return bits.bit_count() / 8.0
+
+    # ASCII density ramp (best-effort)
+    idx = _DENSITY_RAMP.find(ch)
+    if idx != -1:
+        return idx / (len(_DENSITY_RAMP) - 1)
+
+    # Anything else: treat as a “medium” ink by default (tweak if you want)
+    if ch.isspace():
+        return 0.0
+    return 0.35
 def matrix_lines_ansi(lines, img, m: MatrixOptions):
     """ANSI Matrix mode: green glyphs with subject emphasis (edges + stretched luminance)."""
     if not lines:
@@ -302,7 +356,7 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
 
     h = len(lines)
     w = max(len(ln) for ln in lines)
-    _ = [ln.ljust(w) for ln in lines]  # shape only
+    grid = [ln.ljust(w) for ln in lines]
 
     # Resize once for sampling
     img = img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
@@ -346,12 +400,24 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
 
             # Background stays driven mainly by luminance (prevents noisy backgrounds)
             bg_score = (lum ** max(0.1, (m.gamma * 0.9)))
+            
+            ink = ink_strength(grid[y][x]) if m.use_mask else 0.0
+
+            is_subject = (grid[y][x] != " ") if m.use_mask else False
+
+            if m.use_mask:
+                subject = min(1.0, subject + ink * m.mask_boost)
+                subject *= (m.bg_dim + (1.0 - m.bg_dim) * ink)
 
             fg_g = int(m.fg_min + subject * (m.fg_max - m.fg_min))
             bg_g = int(m.bg_min + bg_score * (m.bg_max - m.bg_min))
 
             # Glyph density follows subjectness
             p = base_density + (1.0 - base_density) * subject
+            if m.use_mask:
+                p = max(p, ink * m.mask_density_floor)
+                p *= (m.bg_density + (1.0 - m.bg_density) * ink)
+
             ch = rng.choice(m.chars) if (rng.random() < p) else " "
 
             if ch == " " and not m.fill_spaces:
@@ -380,7 +446,7 @@ def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
 
     h = len(lines)
     w = max(len(ln) for ln in lines)
-    _ = [ln.ljust(w) for ln in lines]  # shape only
+    grid = [ln.ljust(w) for ln in lines]  # shape only
 
     img = img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
 
@@ -425,10 +491,22 @@ def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
 
             bg_score = (lum ** max(0.1, (m.gamma * 0.9)))
 
+            ink = ink_strength(grid[y][x]) if m.use_mask else 0.0
+
+            is_subject = (grid[y][x] != " ") if m.use_mask else False
+
+            if m.use_mask:
+                subject = min(1.0, subject + ink * m.mask_boost)
+                subject *= (m.bg_dim + (1.0 - m.bg_dim) * ink)
+                    
             fg_g = int(m.fg_min + subject * (m.fg_max - m.fg_min))
             bg_g = int(m.bg_min + bg_score * (m.bg_max - m.bg_min))
 
             p = base_density + (1.0 - base_density) * subject
+            if m.use_mask:
+                p = max(p, ink * m.mask_density_floor)
+                p *= (m.bg_density + (1.0 - m.bg_density) * ink)
+
             ch = rng.choice(m.chars) if (rng.random() < p) else " "
 
             effective_fill = fill_spaces or m.fill_spaces
