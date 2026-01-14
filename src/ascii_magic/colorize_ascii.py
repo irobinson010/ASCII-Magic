@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
 from PIL import Image
+import random
 
 ESC = "\x1b"
 
@@ -32,6 +33,22 @@ class SizeOptions:
     max_rows: Optional[int] = None
     max_cols: Optional[int] = None
 
+@dataclass
+class MatrixOptions:
+    enabled: bool = False
+    top: bool = False          # apply to header too
+    seed: Optional[int] = None
+    gamma: float = 2.0
+
+    # green intensity ranges (0..255)
+    fg_min: int = 20
+    fg_max: int = 255
+    bg_min: int = 0
+    bg_max: int = 60
+
+    # glyph behavior
+    chars: str = r"01ABCDEFGHIJKLMNOPQRSTUVWXYZ@$%&*+;:,.?/\\|[]{}()<>"
+    fill_spaces: bool = False  # keep background color even on spaces?
 
 @dataclass
 class Options:
@@ -45,6 +62,7 @@ class Options:
 
     size: SizeOptions = field(default_factory=SizeOptions)
     html: HtmlOptions = field(default_factory=HtmlOptions)
+    matrix: MatrixOptions = field(default_factory=MatrixOptions)
 
 # -----------------------------
 # Utilities / core logic
@@ -58,7 +76,10 @@ def print_usage(file=sys.stderr):
         "[--rows N] [--cols N] "
         "[--keep-top N] [--color-top] "
         "[--debug] [--log FILE]"
-        "[--html-font-size PX] [--html-line-height PX] [--html-fill-spaces]",
+        "[--html-font-size PX] [--html-line-height PX] [--html-fill-spaces]"
+        "[--matrix] [--matrix-top] [--matrix-seed N] [--matrix-gamma F] "
+        "[--matrix-fg-min N] [--matrix-fg-max N] [--matrix-bg-min N] [--matrix-bg-max N] "
+        "[--matrix-chars STR] [--matrix-fill-spaces]",
         file=file,
     )
 
@@ -150,6 +171,26 @@ def parse_args(argv) -> Tuple[str, str, str, Options]:
         elif a == "--log":
             opt.log_path = require_value(argv, i, a)
             i += 2
+        elif a == "--matrix":
+            opt.matrix.enabled = True; i += 1
+        elif a == "--matrix-top":
+            opt.matrix.top = True; i += 1
+        elif a == "--matrix-seed":
+            opt.matrix.seed = int(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-gamma":
+            opt.matrix.gamma = float(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-fg-min":
+            opt.matrix.fg_min = int(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-fg-max":
+            opt.matrix.fg_max = int(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-bg-min":
+            opt.matrix.bg_min = int(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-bg-max":
+            opt.matrix.bg_max = int(require_value(argv, i, a)); i += 2
+        elif a == "--matrix-chars":
+            opt.matrix.chars = require_value(argv, i, a); i += 2
+        elif a == "--matrix-fill-spaces":
+            opt.matrix.fill_spaces = True; i += 1
         else:
             raise SystemExit(f"Unknown arg: {a}")
 
@@ -219,6 +260,122 @@ def scale_art_block(art_lines: Sequence[str], target_art_h: int, opt: SizeOption
 
     return art_rect
 
+def _luminance01(r: int, g: int, b: int) -> float:
+    # perceptual luminance
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+
+
+def matrix_lines_ansi(lines, img, m: MatrixOptions):
+    """ANSI Matrix mode: ignore ASCII characters, render green glyphs by image brightness."""
+    if not lines:
+        return []
+
+    h = len(lines)
+    w = max(len(ln) for ln in lines)
+    grid = [ln.ljust(w) for ln in lines]  # only used for shape
+
+    img = img.resize((w, h), Image.Resampling.LANCZOS)
+    px = img.load()
+
+    rng = random.Random(m.seed)
+
+    out_lines = []
+    for y in range(h):
+        prev_style = None  # (fg_g, bg_g) or None
+        row = []
+
+        for x in range(w):
+            r, g, b = px[x, y]
+            lum = _luminance01(r, g, b)
+            lum = max(0.0, min(1.0, lum))
+            lum_adj = lum ** m.gamma
+
+            fg_g = int(m.fg_min + lum_adj * (m.fg_max - m.fg_min))
+            bg_g = int(m.bg_min + lum_adj * (m.bg_max - m.bg_min))
+
+            # Glyph density: mostly driven by brightness; tweak if you want “more code”
+            p = 0.25 + 0.75 * lum_adj
+            ch = rng.choice(m.chars) if (rng.random() < p) else " "
+
+            if ch == " " and not m.fill_spaces:
+                if prev_style is not None:
+                    row.append(f"{ESC}[0m")
+                    prev_style = None
+                row.append(" ")
+                continue
+
+            style = (fg_g, bg_g)
+            if style != prev_style:
+                row.append(f"{ESC}[0m{ESC}[38;2;0;{fg_g};0m{ESC}[48;2;0;{bg_g};0m")
+                prev_style = style
+
+            row.append(ch)
+
+        row.append(f"{ESC}[0m")
+        out_lines.append("".join(row))
+
+    return out_lines
+
+def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
+    """HTML Matrix mode: ignore ASCII characters; render green glyphs by image brightness."""
+    if not lines:
+        return []
+
+    h = len(lines)
+    w = max(len(ln) for ln in lines)
+    grid = [ln.ljust(w) for ln in lines]  # shape only
+
+    img = img.resize((w, h), Image.Resampling.LANCZOS)
+    px = img.load()
+
+    rng = random.Random(m.seed)
+
+    out_lines = []
+    for y in range(h):
+        prev_style = None  # (fg_g, bg_g) or None
+        span_open = False
+        row = []
+
+        def close():
+            nonlocal span_open
+            if span_open:
+                row.append("</span>")
+                span_open = False
+
+        for x in range(w):
+            r, g, b = px[x, y]
+            lum = _luminance01(r, g, b)
+            lum = max(0.0, min(1.0, lum))
+            lum_adj = lum ** m.gamma
+
+            fg_g = int(m.fg_min + lum_adj * (m.fg_max - m.fg_min))
+            bg_g = int(m.bg_min + lum_adj * (m.bg_max - m.bg_min))
+
+            p = 0.10 + 0.90 * lum_adj
+            ch = rng.choice(m.chars) if (rng.random() < p) else " "
+
+            effective_fill = fill_spaces or m.fill_spaces
+            if ch == " " and not effective_fill:
+                close()
+                prev_style = None
+                row.append(" ")
+                continue
+
+            style = (fg_g, bg_g)
+            if style != prev_style:
+                close()
+                row.append(
+                    f'<span style="color: rgb(0,{fg_g},0); background-color: rgb(0,{bg_g},0)">'
+                )
+                span_open = True
+                prev_style = style
+
+            row.append("&nbsp;" if ch == " " else html.escape(ch))
+
+        close()
+        out_lines.append("".join(row))
+
+    return out_lines
 
 # -----------------------------
 # Rendering (unchanged logic)
@@ -343,29 +500,52 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
     )
 
 
-def render_ansi(header: Sequence[str], art: Sequence[str], img: Image.Image, color_top: bool) -> List[str]:
+def render_ansi(
+        header: Sequence[str],
+        art: Sequence[str],
+        img: Image.Image,
+        color_top: bool,
+        m: MatrixOptions
+) -> List[str]:
     out_lines: List[str] = []
     if header:
-        if color_top:
+        if m.enabled and m.top:
+            out_lines.extend(matrix_lines_ansi(header, img, m))
+        elif color_top:
             out_lines.extend(colorize_lines_ansi(header, img, color_spaces=False))
         else:
             out_lines.extend(header)
     if art:
-        out_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
+        if m.enabled:
+            out_lines.extend(matrix_lines_ansi(art, img, m))
+        else:
+            passout_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
+    
     return out_lines
 
-
-def render_html(header: Sequence[str], art: Sequence[str], img: Image.Image, color_top: bool, html_opt: HtmlOptions) -> str:
+def render_html(
+        header: Sequence[str],
+        art: Sequence[str],
+        img: Image.Image,
+        color_top: bool,
+        html_opt: HtmlOptions,
+        m: MatrixOptions
+) -> str:
     pre_lines: List[str] = []
 
     if header:
-        if color_top:
+        if m.enabled and m.top:
+            pre_lines.extend(matrix_lines_html(header, img, m, fill_spaces=html_opt.fill_spaces))
+        elif color_top:
             pre_lines.extend(colorize_lines_html(header, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
         else:
             pre_lines.extend([html.escape(ln) for ln in header])
 
     if art:
-        pre_lines.extend(colorize_lines_html(art, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
+        if m.enabled:
+            pre_lines.extended(matrix_lines_html(art, img, m, fill_spaces=html_opt.fill_spaces))
+        else:
+            pre_lines.extend(colorize_lines_html(art, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
 
     return wrap_html(
         pre_lines,
@@ -412,11 +592,11 @@ def main():
     
     LOG.debug("Writing %s output to %s", opt.out_format, out_path)
     if opt.out_format == "ansi":
-        out_lines = render_ansi(header, scaled_art, base_img, opt.color_top)
+        out_lines = render_ansi(header, scaled_art, base_img, opt.color_top, opt.matrix)
         with open(out_path, "w", encoding="utf-8") as out:
             out.write("\n".join(out_lines) + "\n")
     else:
-        doc = render_html(header, scaled_art, base_img, opt.color_top, opt.html)
+        doc = render_html(header, scaled_art, base_img, opt.color_top, opt.html, opt.matrix)
 
         # keep same title behavior as before (basename)
         doc = doc.replace("<title>ASCII Art</title>", f"<title>{html.escape(os.path.basename(out_path))}</title>", 1)
