@@ -349,6 +349,7 @@ def ink_strength(ch: str) -> float:
     if ch.isspace():
         return 0.0
     return 0.35
+
 def matrix_lines_ansi(lines, img, m: MatrixOptions):
     """ANSI Matrix mode: green glyphs with subject emphasis (edges + stretched luminance)."""
     if not lines:
@@ -403,20 +404,23 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
             
             ink = ink_strength(grid[y][x]) if m.use_mask else 0.0
 
-            is_subject = (grid[y][x] != " ") if m.use_mask else False
-
             if m.use_mask:
-                subject = min(1.0, subject + ink * m.mask_boost)
-                subject *= (m.bg_dim + (1.0 - m.bg_dim) * ink)
+                subject_bg = subject * m.bg_dim
+                subject_fg = min(1.0, subject + m.mask_boost)
 
+                subject = subject_bg * (1.0 - ink) + subject_fg * ink
+                bg_score = bg_score * (1.0 - 0.25 * ink) + min(1.0, bg_score + 0.15 * ink)
+                
             fg_g = int(m.fg_min + subject * (m.fg_max - m.fg_min))
             bg_g = int(m.bg_min + bg_score * (m.bg_max - m.bg_min))
 
             # Glyph density follows subjectness
             p = base_density + (1.0 - base_density) * subject
             if m.use_mask:
-                p = max(p, ink * m.mask_density_floor)
-                p *= (m.bg_density + (1.0 - m.bg_density) * ink)
+                p_bg = p * m.bg_density
+                p_fg = max(p, m.mask_density_floor)
+
+                p = p_bg * (1.0 - ink) + p_fg * ink
 
             ch = rng.choice(m.chars) if (rng.random() < p) else " "
 
@@ -493,19 +497,22 @@ def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
 
             ink = ink_strength(grid[y][x]) if m.use_mask else 0.0
 
-            is_subject = (grid[y][x] != " ") if m.use_mask else False
-
             if m.use_mask:
-                subject = min(1.0, subject + ink * m.mask_boost)
-                subject *= (m.bg_dim + (1.0 - m.bg_dim) * ink)
+                subject_bg = subject * m.bg_dim
+                subject_fg = min(1.0, subject + m.mask_boost)
+
+                subject = subject_bg * (1.0 - ink) + subject_fg * ink
+                bg_score = bg_score * (1.0 - 0.25 * ink) + min(1.0, bg_score + 0.15 * ink)
                     
             fg_g = int(m.fg_min + subject * (m.fg_max - m.fg_min))
             bg_g = int(m.bg_min + bg_score * (m.bg_max - m.bg_min))
 
             p = base_density + (1.0 - base_density) * subject
             if m.use_mask:
-                p = max(p, ink * m.mask_density_floor)
-                p *= (m.bg_density + (1.0 - m.bg_density) * ink)
+                p_bg = p * m.bg_density
+                p_fg = max(p, m.mask_density_floor)
+
+                p = p_bg * (1.0 - ink) + p_fg * ink
 
             ch = rng.choice(m.chars) if (rng.random() < p) else " "
 

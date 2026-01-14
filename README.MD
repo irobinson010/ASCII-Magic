@@ -40,38 +40,88 @@ python -m ascii_magic.image_to_ascii input.png -o output.txt
 
 ### ASCII Colorization (`colorize_ascii.py`)
 
-Add colors to existing ASCII art:
+Colorize existing ASCII text by sampling colors from the source image. Supports ANSI (terminal) and HTML output, plus an optional “Matrix” green-code mode.
+
+Basic usage (write to a file):
 
 ```bash
 python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
-```
+If you omit the output file, it defaults to ANSI and prints to stdout (great for piping):
 
-**Output formats:** `.ans` (ANSI), `.html` (HTML)
+bash
+Copy code
+python -m ascii_magic.colorize_ascii image.png ascii.txt
+To print HTML to stdout:
 
-**Options:**
-- `--format` - Output format: `ansi` or `html`
-- `--max-rows, --max-cols` - Maximum output dimensions
-- `--rows, --cols` - Exact output dimensions
-- `--keep-top N` - Preserve top N lines without colorization
-- `--color-top` - Apply colors to kept header lines
-- `--html-font-size PX` - HTML font size (default: 12)
-- `--html-line-height PX` - HTML line height
-- `--html-fill-spaces` - Colorize spaces in HTML output
+bash
+Copy code
+python -m ascii_magic.colorize_ascii image.png ascii.txt --format html > out.html
+Output formats: .ans (ANSI), .html (HTML)
 
-## Example Workflow
+Common options
+--format ansi|html — Force output format (otherwise inferred from output extension; if no output file, defaults to ansi)
 
-1. Convert image to ASCII:
-   ```bash
-   python -m ascii_magic.image_to_ascii photo.png -o art.txt
-   ```
+--max-rows N, --max-cols N — Fit output within max dimensions (preserves aspect)
 
-2. Colorize the output:
-   ```bash
-   python -m ascii_magic.colorize_ascii photo.png art.txt output.ans --max-rows 30
-   ```
+--rows N, --cols N — Exact output dimensions (derives the other dimension if only one is provided)
 
-3. View in terminal or browser
+--keep-top N — Preserve the top N lines as a “header” (excluded from scaling)
 
+--color-top — Apply colorization to the kept header lines too
+
+--debug — Enable verbose debug logging (to stderr)
+
+--log FILE — Write debug logs to a file
+
+HTML tuning
+--html-font-size PX — HTML font size (default: 12)
+
+--html-line-height PX — HTML line height (default: same as font size)
+
+--html-fill-spaces — In HTML output, render spaces with background colors (uses &nbsp; spans)
+
+Matrix mode (green “code rain”)
+Matrix mode ignores the original ASCII glyphs and renders green glyphs driven by the image (brightness/edges), with adjustable density and colors.
+
+--matrix — Enable Matrix mode
+
+--matrix-top — Apply Matrix mode to the header too
+
+--matrix-seed N — RNG seed (same seed ⇒ same glyph pattern; omit for a different pattern each run)
+
+--matrix-gamma F — Brightness shaping (lower = brighter mids; higher = darker mids)
+
+--matrix-fg-min N, --matrix-fg-max N — Foreground green range (0..255)
+
+--matrix-bg-min N, --matrix-bg-max N — Background green range (0..255)
+
+--matrix-chars STR — Character set to sample from
+
+--matrix-fill-spaces — Keep background color even where the chosen glyph is a space
+
+Matrix subject mask (uses your ASCII art as a subject hint)
+If your ASCII text already captures the subject well (non-space characters), you can bias Matrix rendering so the subject “pops” more than the background.
+
+--matrix-mask — Enable mask-based subject emphasis
+
+--matrix-mask-boost F — Boost subject intensity on inked pixels (default: 0.30)
+
+--matrix-mask-density-floor F — Minimum glyph probability on subject pixels (default: 0.35)
+
+--matrix-bg-dim F — Dim subject score on background pixels (default: 0.80)
+
+--matrix-bg-density F — Reduce glyph density on background pixels (default: 0.75)
+
+Example (Matrix + mask + sizing + header):
+
+bash
+Copy code
+python -m ascii_magic.colorize_ascii image.png ascii.txt out.ans \
+  --rows 30 --cols 90 \
+  --keep-top 6 --color-top \
+  --matrix --matrix-mask \
+  --matrix-seed 1 --matrix-gamma 1.2 \
+  --matrix-bg-max 90 --matrix-fill-spaces
 ## Tips
 
 - Cartoon or anime-styled images work best for ASCII conversion
