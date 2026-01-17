@@ -4,7 +4,6 @@
 import argparse
 import os, sys
 import logging
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 
