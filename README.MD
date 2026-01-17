@@ -50,6 +50,13 @@ colorize-ascii image.png ascii.txt output.ans
 python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
 ```
 
+If you omit the output file, the tool defaults to ANSI and prints to stdout (convenient for piping). To print HTML to stdout, pass `--format html` and redirect, for example:
+
+```bash
+python -m ascii_magic.colorize_ascii image.png ascii.txt
+python -m ascii_magic.colorize_ascii image.png ascii.txt --format html > out.html
+```
+
 **Output formats:** `.ans` (ANSI), `.html` (HTML)
 
 **Options:**
@@ -61,6 +68,7 @@ python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
 - `--html-font-size PX` - HTML font size (default: 12)
 - `--html-line-height PX` - HTML line height
 - `--html-fill-spaces` - Colorize spaces in HTML output
+- `--log FILE` — Write debug logs to a file
 
 ### Matrix mode
 
@@ -92,6 +100,10 @@ Example (HTML Matrix output with larger font):
 ```bash
 colorize-ascii photo.png art.txt output.html --format html --html-font-size 16 --matrix --matrix-mask --matrix-mask-boost 0.4
 ```
+
+Matrix subject mask (uses your ASCII art as a subject hint)
+
+If your ASCII text already captures the subject well (non-space characters), enabling `--matrix-mask` will bias Matrix glyph placement so the subject "pops" more than the background. Use `--matrix-mask-boost` and `--matrix-mask-density-floor` to tune how strongly inked characters influence glyph density and intensity.
 
 ## Example Workflow
 
