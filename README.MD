@@ -62,6 +62,37 @@ python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
 - `--html-line-height PX` - HTML line height
 - `--html-fill-spaces` - Colorize spaces in HTML output
 
+### Matrix mode
+
+A special colorization mode that produces the classic "Matrix" effect: green glyphs drawn with emphasis on subject areas (edges and stretched luminance). Enable with `--matrix` and tune behavior with the flags below.
+
+**Options:**
+- `--matrix` : Enable Matrix mode (green glyphs driven by image luminance/edges)
+- `--matrix-top` : Apply Matrix mode to the header/header-lines preserved by `--keep-top`
+- `--matrix-seed N` : Deterministic RNG seed (integer). Use to reproduce the same random glyph placement.
+- `--matrix-gamma F` : Gamma applied to the subject score (default: 2.0). Higher values emphasize bright/edge regions.
+- `--matrix-fg-min N`, `--matrix-fg-max N` : Foreground (glyph) green intensity range (0..255). Defaults: `20..255`.
+- `--matrix-bg-min N`, `--matrix-bg-max N` : Background green intensity range (0..255). Defaults: `0..60`.
+- `--matrix-chars STR` : String of glyphs to choose from (default includes digits, letters, and symbols).
+- `--matrix-fill-spaces` : Keep background color on space characters (fills spaces with background color instead of leaving them blank).
+- `--matrix-mask` : Use the input ASCII glyphs as a mask to bias glyph placement toward inked characters.
+- `--matrix-mask-boost F` : When `--matrix-mask` is enabled, how much to boost subject score on inked pixels (0..1, default ~0.30).
+- `--matrix-mask-density-floor F` : Minimum glyph probability on masked/subject pixels (0..1, default ~0.35).
+- `--matrix-bg-dim F` : Multiply subject score on background pixels (0..1, default ~0.80).
+- `--matrix-bg-density F` : Multiply glyph probability on background pixels (0..1, default ~0.75).
+
+Example (ANSI Matrix output):
+
+```bash
+colorize-ascii photo.png art.txt output.ans --matrix --matrix-seed 42 --matrix-gamma 2.2 --matrix-fill-spaces
+```
+
+Example (HTML Matrix output with larger font):
+
+```bash
+colorize-ascii photo.png art.txt output.html --format html --html-font-size 16 --matrix --matrix-mask --matrix-mask-boost 0.4
+```
+
 ## Example Workflow
 
 1. Convert image to ASCII (preferred: console script):
