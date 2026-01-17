@@ -191,11 +191,7 @@ def text_to_ascii_art(
         for col in range(target_w):
             val = pixels[row * target_w + col]
             idx = int((val / 255) * (len(ramp) - 1))
-            # For shadow style, invert mapping so dark->densest
-            if style == "shadow":
-                ch = ramp[idx]
-            else:
-                ch = ramp[idx]
+            ch = ramp[idx]
             line_chars.append(ch)
         lines.append("".join(line_chars))
 
