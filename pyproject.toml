@@ -22,5 +22,10 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.scripts]
+image-to-ascii = "ascii_magic.image_to_ascii:main"
+colorize-ascii = "ascii_magic.colorize_ascii:main"
+text-to-ascii = "ascii_magic.text_to_ascii:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}

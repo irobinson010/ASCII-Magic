@@ -19,9 +19,11 @@ pip install -e .
 
 ### Image to ASCII (`image_to_ascii.py`)
 
-Convert an image directly to ASCII art:
+Convert an image directly to ASCII art (preferred: installed console script):
 
 ```bash
+image-to-ascii input.png -o output.txt
+# or, during development:
 python -m ascii_magic.image_to_ascii input.png -o output.txt
 ```
 
@@ -40,88 +42,87 @@ python -m ascii_magic.image_to_ascii input.png -o output.txt
 
 ### ASCII Colorization (`colorize_ascii.py`)
 
-Colorize existing ASCII text by sampling colors from the source image. Supports ANSI (terminal) and HTML output, plus an optional “Matrix” green-code mode.
-
-Basic usage (write to a file):
+Add colors to existing ASCII art (preferred: installed console script):
 
 ```bash
+colorize-ascii image.png ascii.txt output.ans
+# or, during development:
 python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
-If you omit the output file, it defaults to ANSI and prints to stdout (great for piping):
+```
 
-bash
-Copy code
+If you omit the output file, the tool defaults to ANSI and prints to stdout (convenient for piping). To print HTML to stdout, pass `--format html` and redirect, for example:
+
+```bash
 python -m ascii_magic.colorize_ascii image.png ascii.txt
-To print HTML to stdout:
-
-bash
-Copy code
 python -m ascii_magic.colorize_ascii image.png ascii.txt --format html > out.html
-Output formats: .ans (ANSI), .html (HTML)
+```
 
-Common options
---format ansi|html — Force output format (otherwise inferred from output extension; if no output file, defaults to ansi)
+**Output formats:** `.ans` (ANSI), `.html` (HTML)
 
---max-rows N, --max-cols N — Fit output within max dimensions (preserves aspect)
+**Options:**
+- `--format` - Output format: `ansi` or `html`
+- `--max-rows, --max-cols` - Maximum output dimensions
+- `--rows, --cols` - Exact output dimensions
+- `--keep-top N` - Preserve top N lines without colorization
+- `--color-top` - Apply colors to kept header lines
+- `--html-font-size PX` - HTML font size (default: 12)
+- `--html-line-height PX` - HTML line height
+- `--html-fill-spaces` - Colorize spaces in HTML output
+- `--log FILE` — Write debug logs to a file
 
---rows N, --cols N — Exact output dimensions (derives the other dimension if only one is provided)
+### Matrix mode
 
---keep-top N — Preserve the top N lines as a “header” (excluded from scaling)
+A special colorization mode that produces the classic "Matrix" effect: green glyphs drawn with emphasis on subject areas (edges and stretched luminance). Enable with `--matrix` and tune behavior with the flags below.
 
---color-top — Apply colorization to the kept header lines too
+**Options:**
+- `--matrix` : Enable Matrix mode (green glyphs driven by image luminance/edges)
+- `--matrix-top` : Apply Matrix mode to the header/header-lines preserved by `--keep-top`
+- `--matrix-seed N` : Deterministic RNG seed (integer). Use to reproduce the same random glyph placement.
+- `--matrix-gamma F` : Gamma applied to the subject score (default: 2.0). Higher values emphasize bright/edge regions.
+- `--matrix-fg-min N`, `--matrix-fg-max N` : Foreground (glyph) green intensity range (0..255). Defaults: `20..255`.
+- `--matrix-bg-min N`, `--matrix-bg-max N` : Background green intensity range (0..255). Defaults: `0..60`.
+- `--matrix-chars STR` : String of glyphs to choose from (default includes digits, letters, and symbols).
+- `--matrix-fill-spaces` : Keep background color on space characters (fills spaces with background color instead of leaving them blank).
+- `--matrix-mask` : Use the input ASCII glyphs as a mask to bias glyph placement toward inked characters.
+- `--matrix-mask-boost F` : When `--matrix-mask` is enabled, how much to boost subject score on inked pixels (0..1, default ~0.30).
+- `--matrix-mask-density-floor F` : Minimum glyph probability on masked/subject pixels (0..1, default ~0.35).
+- `--matrix-bg-dim F` : Multiply subject score on background pixels (0..1, default ~0.80).
+- `--matrix-bg-density F` : Multiply glyph probability on background pixels (0..1, default ~0.75).
 
---debug — Enable verbose debug logging (to stderr)
+Example (ANSI Matrix output):
 
---log FILE — Write debug logs to a file
+```bash
+colorize-ascii photo.png art.txt output.ans --matrix --matrix-seed 42 --matrix-gamma 2.2 --matrix-fill-spaces
+```
 
-HTML tuning
---html-font-size PX — HTML font size (default: 12)
+Example (HTML Matrix output with larger font):
 
---html-line-height PX — HTML line height (default: same as font size)
-
---html-fill-spaces — In HTML output, render spaces with background colors (uses &nbsp; spans)
-
-Matrix mode (green “code rain”)
-Matrix mode ignores the original ASCII glyphs and renders green glyphs driven by the image (brightness/edges), with adjustable density and colors.
-
---matrix — Enable Matrix mode
-
---matrix-top — Apply Matrix mode to the header too
-
---matrix-seed N — RNG seed (same seed ⇒ same glyph pattern; omit for a different pattern each run)
-
---matrix-gamma F — Brightness shaping (lower = brighter mids; higher = darker mids)
-
---matrix-fg-min N, --matrix-fg-max N — Foreground green range (0..255)
-
---matrix-bg-min N, --matrix-bg-max N — Background green range (0..255)
-
---matrix-chars STR — Character set to sample from
-
---matrix-fill-spaces — Keep background color even where the chosen glyph is a space
+```bash
+colorize-ascii photo.png art.txt output.html --format html --html-font-size 16 --matrix --matrix-mask --matrix-mask-boost 0.4
+```
 
 Matrix subject mask (uses your ASCII art as a subject hint)
-If your ASCII text already captures the subject well (non-space characters), you can bias Matrix rendering so the subject “pops” more than the background.
 
---matrix-mask — Enable mask-based subject emphasis
+If your ASCII text already captures the subject well (non-space characters), enabling `--matrix-mask` will bias Matrix glyph placement so the subject "pops" more than the background. Use `--matrix-mask-boost` and `--matrix-mask-density-floor` to tune how strongly inked characters influence glyph density and intensity.
 
---matrix-mask-boost F — Boost subject intensity on inked pixels (default: 0.30)
+## Example Workflow
 
---matrix-mask-density-floor F — Minimum glyph probability on subject pixels (default: 0.35)
+1. Convert image to ASCII (preferred: console script):
+   ```bash
+   image-to-ascii photo.png -o art.txt
+   # or during development:
+   python -m ascii_magic.image_to_ascii photo.png -o art.txt
+   ```
 
---matrix-bg-dim F — Dim subject score on background pixels (default: 0.80)
+2. Colorize the output (preferred: console script):
+   ```bash
+   colorize-ascii photo.png art.txt output.ans --max-rows 30
+   # or during development:
+   python -m ascii_magic.colorize_ascii photo.png art.txt output.ans --max-rows 30
+   ```
 
---matrix-bg-density F — Reduce glyph density on background pixels (default: 0.75)
+3. View in terminal or browser
 
-Example (Matrix + mask + sizing + header):
-
-bash
-Copy code
-python -m ascii_magic.colorize_ascii image.png ascii.txt out.ans \
-  --rows 30 --cols 90 \
-  --keep-top 6 --color-top \
-  --matrix --matrix-mask \
-  --matrix-seed 1 --matrix-gamma 1.2 \
-  --matrix-bg-max 90 --matrix-fill-spaces
 ## Tips
 
 - Cartoon or anime-styled images work best for ASCII conversion
@@ -132,3 +133,43 @@ python -m ascii_magic.colorize_ascii image.png ascii.txt out.ans \
 ## License
 
 Apache License 2.0
+
+## Text to ASCII (`text_to_ascii.py`)
+
+Render plain text into an image and convert it to ASCII art. This module provides a small CLI and programmatic API for producing several simple ASCII styles.
+
+Usage (console script):
+
+```bash
+text-to-ascii "Hello, world" -s block -w 80 --font-size 24
+```
+
+Or via the module:
+
+```bash
+python -m ascii_magic.text_to_ascii "Hello, world" --style block --width 80 --font-size 24
+```
+
+Options:
+- `--stdin` : Read text from standard input (useful for piping)
+- `-o, --output` : Write ASCII output to a file (default: stdout)
+- `-s, --style` : Style to use (`block`, `small`, `shadow`, `box`, `banner`) — `block` is the default
+- `-w, --width` : Output width in characters (default: 80)
+- `--font-size` : Font size used when rendering text (default: 24)
+- `--font` : Path to a .ttf font file to use for rendering
+- `-c, --char` : Character to use for the `banner` style
+- `--log-level` : CLI logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
+
+Notes about rendering behavior:
+- The text renderer now measures the ink bounding box (not just a rough font box) and draws text with a small safety margin. That reduces the need for large, conservative padding and avoids clipped glyphs (accents, descenders, negative bearings).
+- Debug logging is available (use `--log-level DEBUG`) and will emit measurements and drawing offsets when rendering text.
+
+## Console script entry points
+
+This project installs three console scripts (see `pyproject.toml`):
+
+- `image-to-ascii` -> `ascii_magic.image_to_ascii:main`
+- `colorize-ascii` -> `ascii_magic.colorize_ascii:main`
+- `text-to-ascii` -> `ascii_magic.text_to_ascii:main`
+
+Prefer calling the installed console scripts (above) after `pip install -e .` or using `pipx` for a global install. You can also invoke modules directly with `python -m ascii_magic.<module>` when developing.
