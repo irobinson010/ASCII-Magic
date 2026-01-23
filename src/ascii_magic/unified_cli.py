@@ -12,7 +12,7 @@ COMMANDS = {
 
 
 def usage(prog: Optional[str] = None) -> None:
-    prog = prog or "ascii-magic"
+    prog = "ascii-magic"
     cmds = ", ".join(sorted(COMMANDS))
     print(f"Usage: {prog} <command> [args...]")
     print(f"Commands: {cmds}")
