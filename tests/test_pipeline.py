@@ -1,3 +1,4 @@
+import pytest
 from PIL import Image
 
 from ascii_magic.colorize_ascii import Options
@@ -41,3 +42,22 @@ def test_context_text_to_ascii_uses_rendered_image_for_colorize():
 
     out = colorize(ctx, opt=Options(out_format="ansi"))
     assert "\x1b[" in out
+
+
+def test_context_text_to_ascii_box_clears_rendered_image():
+    ctx = AsciiPipelineContext()
+    text_to_ascii(ctx, "Hello", style="block", width=20)
+    assert ctx.rendered_text_image is not None
+
+    text_to_ascii(ctx, "Hello", style="box", width=20)
+    assert ctx.rendered_text_image is None
+
+    with pytest.raises(ValueError, match="No source image in context"):
+        colorize(ctx, opt=Options(out_format="ansi"))
+
+
+def test_context_image_to_ascii_rejects_invalid_mode():
+    ctx = AsciiPipelineContext(source_image=Image.new("RGB", (32, 32), color=(20, 30, 40)))
+
+    with pytest.raises(ValueError, match="Unsupported mode"):
+        image_to_ascii(ctx, mode="invalid", cols=12)

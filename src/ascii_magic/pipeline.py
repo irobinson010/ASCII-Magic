@@ -44,8 +44,10 @@ def text_to_ascii(
 
     if style == "box":
         ascii_out = text_mod.text_to_box(text, width=width)
+        ctx.rendered_text_image = None
     elif style == "banner":
         ascii_out = text_mod.text_to_banner(text, char=banner_char)
+        ctx.rendered_text_image = None
     else:
         ascii_out = text_mod.text_to_ascii_art(
             text=text,
@@ -88,6 +90,8 @@ def image_to_ascii(
         ctx.source_image = img
     if img is None:
         raise ValueError("No source image in context. Call load_image(...) first.")
+    if mode not in ("glyph", "braille"):
+        raise ValueError(f"Unsupported mode: {mode}. Expected 'glyph' or 'braille'.")
 
     if charset_file:
         with open(charset_file, "r", encoding="utf-8") as f:
