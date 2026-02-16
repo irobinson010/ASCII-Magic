@@ -715,6 +715,35 @@ def render_html(
     )
 
 
+def colorize_ascii_text(
+    image: Image.Image,
+    ascii_text: str,
+    opt: Optional[Options] = None,
+) -> str:
+    """
+    Colorize an ASCII text block using an in-memory PIL image.
+
+    This is a programmatic API intended for orchestration layers where
+    different modules share runtime context.
+    """
+    if opt is None:
+        opt = Options()
+
+    lines = [ln.rstrip("\n") for ln in ascii_text.splitlines()]
+    if not lines:
+        return ""
+
+    header, art_lines = split_header(lines, opt.keep_top)
+    target_art_h = compute_target_art_height(opt.size.max_rows, len(header), len(art_lines))
+    scaled_art = scale_art_block(art_lines, target_art_h, opt.size)
+
+    if opt.out_format == "html":
+        return render_html(header, scaled_art, image.convert("RGB"), opt.color_top, opt.html, opt.matrix)
+
+    out_lines = render_ansi(header, scaled_art, image.convert("RGB"), opt.color_top, opt.matrix)
+    return "\n".join(out_lines) + "\n"
+
+
 # -----------------------------
 # main
 # -----------------------------

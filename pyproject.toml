@@ -29,3 +29,7 @@ text-to-ascii = "ascii_magic.text_to_ascii:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["bin", "lib", "lib64", ".git", ".venv", "venv", "env"]
