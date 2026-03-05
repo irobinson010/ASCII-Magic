@@ -29,8 +29,15 @@ def text_to_ascii_main(*args, **kwargs):
     return _m(*args, **kwargs)
 
 
+def new_pipeline_context(*args, **kwargs):
+    from .pipeline import AsciiPipelineContext as _ctx
+
+    return _ctx(*args, **kwargs)
+
+
 __all__ = [
     "colorize_main",
     "image_to_ascii_main",
     "text_to_ascii_main",
+    "new_pipeline_context",
 ]
