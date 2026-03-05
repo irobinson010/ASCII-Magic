@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "colorize-ASCII"
 version = "0.1.6"
 description = "This project takes in a png file then a text file and outputs a colored ans file"
-requires-python = ">=3.0"
+requires-python = ">=3.10"
 dependencies = [
     "Pillow>=10",
     "numpy>=2",
