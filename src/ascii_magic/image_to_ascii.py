@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import math
 import os
 import platform
 import numpy as np
@@ -260,6 +259,37 @@ def image_to_text_glyph_mode(
     topk: int,
 ):
     img = Image.open(image_path).convert("L")
+    return image_to_text_glyph_from_image(
+        img=img,
+        cols=cols,
+        cell_w=cell_w,
+        cell_h=cell_h,
+        charset=charset,
+        quality=quality,
+        font_path=font_path,
+        font_size=font_size,
+        autocontrast=autocontrast,
+        gamma=gamma,
+        invert=invert,
+        topk=topk,
+    )
+
+
+def image_to_text_glyph_from_image(
+    img: Image.Image,
+    cols: int,
+    cell_w: int,
+    cell_h: int,
+    charset: str,
+    quality: str,
+    font_path: str | None,
+    font_size: int | None,
+    autocontrast: bool,
+    gamma: float,
+    invert: bool,
+    topk: int,
+):
+    img = img.convert("L")
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 
     W, H = img.size
@@ -344,6 +374,25 @@ def image_to_braille(
     threshold: float,
 ):
     img = Image.open(image_path).convert("L")
+    return image_to_braille_from_image(
+        img=img,
+        cols=cols,
+        autocontrast=autocontrast,
+        gamma=gamma,
+        invert=invert,
+        threshold=threshold,
+    )
+
+
+def image_to_braille_from_image(
+    img: Image.Image,
+    cols: int,
+    autocontrast: bool,
+    gamma: float,
+    invert: bool,
+    threshold: float,
+):
+    img = img.convert("L")
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 
     W, H = img.size
@@ -464,8 +513,6 @@ def main():
     )
 
     args = ap.parse_args()
-    resolved_font = args.font or find_default_mono_font()
-
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
             charset = "".join(ch for ch in f.read())

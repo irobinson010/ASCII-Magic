@@ -123,6 +123,28 @@ If your ASCII text already captures the subject well (non-space characters), ena
 
 3. View in terminal or browser
 
+## In-memory pipeline (no intermediate files)
+
+You can run image -> ASCII -> colorized output entirely in memory:
+
+```python
+from PIL import Image
+from ascii_magic.pipeline import AsciiPipelineContext, image_to_ascii, colorize
+from ascii_magic.colorize_ascii import Options
+
+img = Image.open("photo.png").convert("RGB")
+ctx = AsciiPipelineContext(source_image=img)
+
+ascii_text = image_to_ascii(ctx, mode="braille", cols=120)
+ansi_output = colorize(ctx, opt=Options(out_format="ansi"))
+html_output = colorize(ctx, opt=Options(out_format="html"))
+```
+
+There are also lower-level in-memory helpers if you do not want the context object:
+- `ascii_magic.image_to_ascii.image_to_text_glyph_from_image(...)`
+- `ascii_magic.image_to_ascii.image_to_braille_from_image(...)`
+- `ascii_magic.colorize_ascii.colorize_ascii_text(...)`
+
 ## Tips
 
 - Cartoon or anime-styled images work best for ASCII conversion
