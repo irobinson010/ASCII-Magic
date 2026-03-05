@@ -139,6 +139,15 @@ class TestMain:
             assert result == 0
             assert "Usage: ascii-magic" in captured.out
 
+    def test_main_version_flag(self, capsys):
+        """Test main with version flags."""
+        for flag in ["-V", "--version"]:
+            result = main([flag])
+            captured = capsys.readouterr()
+
+            assert result == 0
+            assert "ascii-magic" in captured.out
+
     def test_main_unknown_command(self, capsys):
         """Test main with unknown command."""
         result = main(["unknown"])

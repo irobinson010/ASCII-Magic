@@ -49,6 +49,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         usage(sys.argv[0])
         return 0
 
+    if argv[0] in ("-V", "--version"):
+        from ascii_magic import __version__
+
+        print(f"ascii-magic {__version__}")
+        return 0
+
     cmd, *args = argv
     module_path = COMMANDS.get(cmd)
     if not module_path:
