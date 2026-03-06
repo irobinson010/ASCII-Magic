@@ -191,6 +191,27 @@ There are also lower-level in-memory helpers if you do not want the context obje
 - `ascii_magic.image_to_ascii.image_to_braille_from_image(...)`
 - `ascii_magic.colorize_ascii.colorize_ascii_text(...)`
 
+## Container Usage
+
+ASCII Magic is available as a container image from GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/irobinson010/ascii-magic:latest
+```
+
+Mount your working directory and run commands directly:
+
+```bash
+# Convert an image to ASCII art
+docker run --rm -v "$(pwd):/data" ghcr.io/irobinson010/ascii-magic image photo.png -o art.txt
+
+# Colorize ASCII art
+docker run --rm -v "$(pwd):/data" ghcr.io/irobinson010/ascii-magic colorize photo.png art.txt output.ans
+
+# Render text as ASCII art
+docker run --rm -v "$(pwd):/data" ghcr.io/irobinson010/ascii-magic text "Hello" -s block
+```
+
 ## Tips
 
 - Cartoon or anime-styled images work best for ASCII conversion
