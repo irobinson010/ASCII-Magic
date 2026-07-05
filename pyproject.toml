@@ -36,7 +36,7 @@ dev = [
 ]
 
 [project.scripts]
-ascii-magic = "ascii_magic.cli:main"
+ascii-magic = "ascii_magic.unified_cli:main"
 image-to-ascii = "ascii_magic.image_to_ascii:main"
 colorize-ascii = "ascii_magic.colorize_ascii:main"
 text-to-ascii = "ascii_magic.text_to_ascii:main"
@@ -51,6 +51,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 ascii_magic = ["static/*"]
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

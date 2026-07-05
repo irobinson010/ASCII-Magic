@@ -1,42 +1,38 @@
+"""End-to-end unified CLI dispatch plus colorize argparse coverage.
+
+Mock-based unit tests for unified_cli live in test_unified_cli.py; these
+exercise the real modules through the dispatcher.
+"""
+
 import pytest
 
-from ascii_magic import cli
+from ascii_magic.unified_cli import COMMANDS, main as cli_main
 from ascii_magic.colorize_ascii import parse_args
 
 
-def test_no_args_prints_command_list(capsys):
-    assert cli.main(["ascii-magic"]) == 0
-    out = capsys.readouterr().out
-    for cmd in ("convert", "text", "colorize", "greet", "web"):
-        assert cmd in out
-
-
-def test_unknown_command_exits_2(capsys):
-    assert cli.main(["ascii-magic", "frobnicate"]) == 2
-    assert "unknown command" in capsys.readouterr().err
-
-
-def test_version(capsys):
-    from ascii_magic import __version__
-
-    assert cli.main(["ascii-magic", "--version"]) == 0
-    assert __version__ in capsys.readouterr().out
+def test_new_subcommands_registered():
+    for cmd in ("greet", "web", "image", "text", "colorize"):
+        assert cmd in COMMANDS
 
 
 def test_dispatch_text_banner(capsys):
-    assert cli.main(["ascii-magic", "text", "Hi", "-s", "banner", "-c", "*"]) == 0
-    out = capsys.readouterr().out
-    assert "* Hi *" in out
+    assert cli_main(["text", "Hi", "-s", "banner", "-c", "*"]) == 0
+    assert "* Hi *" in capsys.readouterr().out
 
 
 def test_dispatch_greet_status(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    assert cli.main(["ascii-magic", "greet", "status"]) == 0
+    assert cli_main(["greet", "status"]) == 0
     assert "Greeting file" in capsys.readouterr().out
 
 
-# ---- colorize argparse migration ----
+def test_unknown_command_exits_2(capsys):
+    assert cli_main(["frobnicate"]) == 2
+    assert "Unknown command" in capsys.readouterr().err
+
+
+# ---- colorize argparse ----
 
 def _parse(*args):
     return parse_args(["colorize-ascii", *args])

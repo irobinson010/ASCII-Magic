@@ -18,6 +18,30 @@ pip install -e .          # CLI tools only
 pip install -e ".[web]"   # CLI tools + web GUI
 ```
 
+## Quick Start (Unified CLI)
+
+The `ascii-magic` command is the recommended entry point. It provides all tools under one command:
+
+```bash
+# Convert image to ASCII art
+ascii-magic image input.png -o output.txt
+
+# Render text as ASCII art
+ascii-magic text "Hello, world" -s block -w 80
+
+# Colorize ASCII art with an image
+ascii-magic colorize image.png ascii.txt output.ans
+
+# Install art as a login greeting / start the web GUI
+ascii-magic greet install output.ans
+ascii-magic web
+
+# Show version
+ascii-magic --version
+```
+
+The individual commands (`image-to-ascii`, `colorize-ascii`, `text-to-ascii`) continue to work as before.
+
 ## Development setup
 
 The repo pins its Python version in `.python-version` and locks exact dependency versions in `uv.lock`, so a fresh clone builds the same environment on any OS. With [uv](https://docs.astral.sh/uv/) installed (a single binary — it downloads the right Python by itself):
@@ -147,6 +171,32 @@ colorize-ascii photo.png art.txt --animate --loops 3                   # play in
 
 All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing) apply to the rain too. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `ascii_magic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
 
+### Text to ASCII (`text_to_ascii.py`)
+
+Render plain text into an image and convert it to ASCII art. This module provides a small CLI and programmatic API for producing several simple ASCII styles.
+
+Usage (console script):
+
+```bash
+text-to-ascii "Hello, world" -s block -w 80 --font-size 24
+```
+
+Or via the unified CLI:
+
+```bash
+ascii-magic text "Hello, world" --style block --width 80 --font-size 24
+```
+
+Options:
+- `--stdin` : Read text from standard input (useful for piping)
+- `-o, --output` : Write ASCII output to a file (default: stdout)
+- `-s, --style` : Style to use (`block`, `small`, `shadow`, `box`, `banner`) — `block` is the default
+- `-w, --width` : Output width in characters (default: 80)
+- `--font-size` : Font size used when rendering text (default: 24)
+- `--font` : Path to a .ttf font file to use for rendering
+- `-c, --char` : Character to use for the `banner` style
+- `--log-level` : CLI logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
+
 ## Example Workflow
 
 1. Convert image to ASCII (preferred: console script):
@@ -237,42 +287,12 @@ Then open http://localhost:8000. The image bundles DejaVu Sans Mono so glyph-mat
 
 Apache License 2.0
 
-## Text to ASCII (`text_to_ascii.py`)
-
-Render plain text into an image and convert it to ASCII art. This module provides a small CLI and programmatic API for producing several simple ASCII styles.
-
-Usage (console script):
-
-```bash
-text-to-ascii "Hello, world" -s block -w 80 --font-size 24
-```
-
-Or via the module:
-
-```bash
-python -m ascii_magic.text_to_ascii "Hello, world" --style block --width 80 --font-size 24
-```
-
-Options:
-- `--stdin` : Read text from standard input (useful for piping)
-- `-o, --output` : Write ASCII output to a file (default: stdout)
-- `-s, --style` : Style to use (`block`, `small`, `shadow`, `box`, `banner`) — `block` is the default
-- `-w, --width` : Output width in characters (default: 80)
-- `--font-size` : Font size used when rendering text (default: 24)
-- `--font` : Path to a .ttf font file to use for rendering
-- `-c, --char` : Character to use for the `banner` style
-- `--log-level` : CLI logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
-
-Notes about rendering behavior:
-- The text renderer now measures the ink bounding box (not just a rough font box) and draws text with a small safety margin. That reduces the need for large, conservative padding and avoids clipped glyphs (accents, descenders, negative bearings).
-- Debug logging is available (use `--log-level DEBUG`) and will emit measurements and drawing offsets when rendering text.
-
 ## Console script entry points
 
-The unified `ascii-magic` command wraps everything as subcommands:
+The unified `ascii-magic` command (recommended) wraps everything as subcommands:
 
 ```bash
-ascii-magic convert photo.png --mode braille --dither -o art.txt
+ascii-magic image photo.png --mode braille --dither -o art.txt
 ascii-magic colorize photo.png art.txt out.gif --animate
 ascii-magic greet install out.frames
 ascii-magic web
@@ -280,11 +300,11 @@ ascii-magic web
 
 The standalone scripts remain and behave identically:
 
-- `ascii-magic` -> `ascii_magic.cli:main` (subcommands: convert, text, colorize, greet, web)
+- `ascii-magic` -> `ascii_magic.unified_cli:main` (subcommands: image, text, colorize, greet, web)
 - `image-to-ascii` -> `ascii_magic.image_to_ascii:main`
 - `colorize-ascii` -> `ascii_magic.colorize_ascii:main`
 - `text-to-ascii` -> `ascii_magic.text_to_ascii:main`
 - `ascii-magic-greet` -> `ascii_magic.greet:main`
 - `ascii-magic-web` -> `ascii_magic.webapp:main` (requires the `[web]` extra)
 
-Prefer calling the installed console scripts (above) after `pip install -e .` or using `pipx` for a global install. You can also invoke modules directly with `python -m ascii_magic.<module>` when developing.
+Prefer calling `ascii-magic` or the individual console scripts after `pip install -e .`. You can also invoke modules directly with `python -m ascii_magic.<module>` when developing.
