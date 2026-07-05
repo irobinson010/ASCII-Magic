@@ -559,6 +559,13 @@ def main():
         help="Braille mode: Floyd-Steinberg dithering (preserves smooth gradients)",
     )
 
+    ap.add_argument(
+        "--color",
+        action="store_true",
+        help="Colorize the result from the source image in one step "
+        "(ANSI, or HTML when the output file ends in .html)",
+    )
+
     args = ap.parse_args()
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
@@ -600,6 +607,17 @@ def main():
             invert=args.invert,
             topk=args.topk,
         )
+
+    if args.color:
+        from .colorize_ascii import Options
+        from .pipeline import AsciiPipelineContext, colorize
+
+        ctx = AsciiPipelineContext(
+            source_image=Image.open(args.input).convert("RGB"),
+            ascii_text=art,
+        )
+        fmt = "html" if (args.output or "").lower().endswith(".html") else "ansi"
+        art = colorize(ctx, opt=Options(out_format=fmt)).rstrip("\n")
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
