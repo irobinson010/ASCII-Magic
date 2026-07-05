@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASCII Magic</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#10047;</text></svg>">
+</head>
+<body>
+  <header>
+    <h1>ASCII<span>✦</span>Magic</h1>
+    <div class="header-controls">
+      <label class="profile-label">Profile
+        <select id="profile">
+          <option value="terminal">Terminal</option>
+          <option value="web">Web page</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="auto" checked> Auto-render</label>
+      <button id="render" class="primary">Render</button>
+      <span class="downloads">
+        <button id="dl-ans" disabled>.ans</button>
+        <button id="dl-html" disabled>.html</button>
+        <button id="dl-txt" disabled>.txt</button>
+        <button id="dl-gif" disabled>.gif</button>
+      </span>
+    </div>
+  </header>
+
+  <main>
+    <aside id="controls">
+      <nav class="tabs">
+        <button id="tab-image" class="tab active">Image</button>
+        <button id="tab-text" class="tab">Text</button>
+      </nav>
+
+      <section id="panel-image">
+        <div id="dropzone" tabindex="0">
+          <input type="file" id="file" accept="image/*" hidden>
+          <img id="thumb" alt="" hidden>
+          <p id="drop-hint">Drop an image here<br>or click to browse</p>
+        </div>
+
+        <div class="field">
+          <label for="mode">Mode</label>
+          <select id="mode">
+            <option value="braille">Braille (high detail)</option>
+            <option value="glyph">Glyph matching</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="cols">Width (chars)</label>
+          <input type="number" id="cols" value="100" min="10" max="500">
+        </div>
+
+        <div id="braille-knobs">
+          <div class="field">
+            <label for="threshold">Dot threshold <output id="threshold-out">0.5</output></label>
+            <input type="range" id="threshold" min="0" max="1" step="0.05" value="0.5">
+          </div>
+          <label class="check"><input type="checkbox" id="dither" checked> Dither (smoother gradients)</label>
+        </div>
+
+        <div id="glyph-knobs" hidden>
+          <div class="field">
+            <label for="quality">Quality</label>
+            <select id="quality">
+              <option value="fast">Fast</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="best">Best</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="ascii_preset">Charset</label>
+            <select id="ascii_preset">
+              <option value="dense">Dense ramp</option>
+              <option value="printable">Printable ASCII</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="unicode_mode">Unicode</label>
+            <select id="unicode_mode">
+              <option value="off">Off</option>
+              <option value="blocks">Blocks</option>
+              <option value="big">Big set</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="cell_w">Cell W</label><input type="number" id="cell_w" value="8" min="2" max="32"></div>
+            <div class="field"><label for="cell_h">Cell H</label><input type="number" id="cell_h" value="16" min="4" max="64"></div>
+            <div class="field"><label for="topk">Top-K</label><input type="number" id="topk" value="24" min="1" max="200"></div>
+          </div>
+        </div>
+
+        <details>
+          <summary>Image adjustments</summary>
+          <div class="field">
+            <label for="gamma">Gamma <output id="gamma-out">1.0</output></label>
+            <input type="range" id="gamma" min="0.2" max="3" step="0.1" value="1">
+          </div>
+          <label class="check"><input type="checkbox" id="autocontrast"> Auto-contrast</label>
+          <label class="check"><input type="checkbox" id="invert"> Invert</label>
+        </details>
+      </section>
+
+      <section id="panel-text" hidden>
+        <div class="field">
+          <label for="text">Text</label>
+          <textarea id="text" rows="3" placeholder="Hello, world"></textarea>
+        </div>
+        <div class="field">
+          <label for="text_style">Style</label>
+          <select id="text_style">
+            <option value="block">Block</option>
+            <option value="small">Small</option>
+            <option value="shadow">Shadow</option>
+            <option value="box">Box</option>
+            <option value="banner">Banner</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="text_width">Width</label><input type="number" id="text_width" value="80" min="10" max="400"></div>
+          <div class="field" id="text-font-field"><label for="text_font_size">Font size</label><input type="number" id="text_font_size" value="24" min="8" max="120"></div>
+          <div class="field" id="banner-char-field" hidden><label for="banner_char">Char</label><input type="text" id="banner_char" value="#" maxlength="1"></div>
+        </div>
+        <p class="hint">Box and banner styles are plain text — upload an image on the Image tab if you want them colorized.</p>
+      </section>
+
+      <section>
+        <label class="check section-toggle"><input type="checkbox" id="colorize" checked> <strong>Colorize</strong></label>
+        <div id="color-knobs">
+          <div class="field-row">
+            <div class="field"><label for="keep_top">Keep top lines</label><input type="number" id="keep_top" value="0" min="0"></div>
+            <div class="field check-field"><label class="check"><input type="checkbox" id="color_top"> Color kept lines</label></div>
+          </div>
+          <details>
+            <summary>Output sizing</summary>
+            <div class="field-row">
+              <div class="field"><label for="max_rows">Max rows</label><input type="number" id="max_rows" min="1" placeholder="–"></div>
+              <div class="field"><label for="max_cols">Max cols</label><input type="number" id="max_cols" min="1" placeholder="–"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="out_rows">Exact rows</label><input type="number" id="out_rows" min="1" placeholder="–"></div>
+              <div class="field"><label for="out_cols">Exact cols</label><input type="number" id="out_cols" min="1" placeholder="–"></div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section>
+        <label class="check section-toggle"><input type="checkbox" id="matrix"> <strong>Matrix mode</strong></label>
+        <div id="matrix-knobs" hidden>
+          <div class="field-row">
+            <div class="field seed-field">
+              <label for="matrix_seed">Seed</label>
+              <span class="seed-row">
+                <input type="number" id="matrix_seed" placeholder="random">
+                <button id="reroll" title="New random seed">🎲</button>
+              </span>
+            </div>
+            <div class="field">
+              <label for="matrix_gamma">Gamma <output id="matrix_gamma-out">2.0</output></label>
+              <input type="range" id="matrix_gamma" min="0.5" max="4" step="0.1" value="2">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="matrix_fg_min">FG min</label><input type="number" id="matrix_fg_min" value="20" min="0" max="255"></div>
+            <div class="field"><label for="matrix_fg_max">FG max</label><input type="number" id="matrix_fg_max" value="255" min="0" max="255"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="matrix_bg_min">BG min</label><input type="number" id="matrix_bg_min" value="0" min="0" max="255"></div>
+            <div class="field"><label for="matrix_bg_max">BG max</label><input type="number" id="matrix_bg_max" value="60" min="0" max="255"></div>
+          </div>
+          <div class="field">
+            <label for="matrix_chars">Glyphs</label>
+            <input type="text" id="matrix_chars" value="01ABCDEFGHIJKLMNOPQRSTUVWXYZ@$%&amp;*+;:,.?/\|[]{}()&lt;&gt;">
+          </div>
+          <label class="check"><input type="checkbox" id="matrix_fill_spaces"> Fill spaces</label>
+          <label class="check"><input type="checkbox" id="matrix_top"> Apply to kept top lines</label>
+          <label class="check"><input type="checkbox" id="matrix_mask"> Use ASCII as subject mask</label>
+          <div id="mask-knobs" hidden>
+            <div class="field-row">
+              <div class="field"><label for="matrix_mask_boost">Mask boost</label><input type="number" id="matrix_mask_boost" value="0.30" min="0" max="1" step="0.05"></div>
+              <div class="field"><label for="matrix_mask_density_floor">Density floor</label><input type="number" id="matrix_mask_density_floor" value="0.35" min="0" max="1" step="0.05"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="matrix_bg_dim">BG dim</label><input type="number" id="matrix_bg_dim" value="0.80" min="0" max="1" step="0.05"></div>
+              <div class="field"><label for="matrix_bg_density">BG density</label><input type="number" id="matrix_bg_density" value="0.75" min="0" max="1" step="0.05"></div>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="animate"> <strong>Animate</strong> (matrix rain)</label>
+          <div id="anim-knobs" hidden>
+            <div class="field-row">
+              <div class="field"><label for="anim_frames">Frames</label><input type="number" id="anim_frames" value="60" min="2" max="240"></div>
+              <div class="field"><label for="anim_fps">FPS</label><input type="number" id="anim_fps" value="12" min="1" max="30"></div>
+              <div class="field"><label for="anim_tail">Tail</label><input type="number" id="anim_tail" value="6" min="1" max="40"></div>
+            </div>
+            <p class="hint">Animation loops seamlessly. Download as .gif, or .html for a self-playing page.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <details>
+          <summary>HTML output</summary>
+          <div class="field-row">
+            <div class="field"><label for="html_font_size">Font px</label><input type="number" id="html_font_size" value="12" min="4" max="40"></div>
+            <div class="field"><label for="html_line_height">Line px</label><input type="number" id="html_line_height" min="4" max="60" placeholder="=font"></div>
+          </div>
+          <label class="check"><input type="checkbox" id="html_fill_spaces"> Fill spaces (HTML)</label>
+        </details>
+      </section>
+    </aside>
+
+    <section id="preview-pane">
+      <div id="status">Upload an image or enter text to begin.</div>
+      <iframe id="preview" sandbox="allow-scripts" title="Preview"></iframe>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
