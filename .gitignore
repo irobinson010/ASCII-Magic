@@ -80,7 +80,7 @@ profile_default/
 ipython_config.py
 
 # pyenv
-.python-version
+# (.python-version is committed on purpose — it pins the project's Python for uv/pyenv/CI)
 
 # pipenv
 Pipfile.lock
