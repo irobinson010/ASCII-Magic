@@ -83,6 +83,7 @@ def image_to_ascii(
     gamma: float = 1.0,
     invert: bool = False,
     threshold: float = 0.5,
+    dither: bool = False,
 ) -> str:
     img = ctx.source_image
     if img is None and ctx.source_image_path:
@@ -111,6 +112,7 @@ def image_to_ascii(
             gamma=gamma,
             invert=invert,
             threshold=threshold,
+            dither=dither,
         )
     else:
         ascii_out = image_mod.image_to_text_glyph_from_image(
@@ -133,10 +135,7 @@ def image_to_ascii(
     return ascii_out
 
 
-def colorize(
-    ctx: AsciiPipelineContext,
-    opt: Optional[colorize_mod.Options] = None,
-) -> str:
+def _require_reference_image(ctx: AsciiPipelineContext) -> Image.Image:
     if ctx.source_image is None:
         if ctx.rendered_text_image is not None:
             ctx.source_image = ctx.rendered_text_image.convert("RGB")
@@ -144,11 +143,37 @@ def colorize(
             ctx.source_image = Image.open(ctx.source_image_path).convert("RGB")
         else:
             raise ValueError("No source image in context. Call load_image(...) first.")
+    return ctx.source_image
+
+
+def colorize(
+    ctx: AsciiPipelineContext,
+    opt: Optional[colorize_mod.Options] = None,
+) -> str:
+    img = _require_reference_image(ctx)
 
     if not ctx.ascii_text:
         raise ValueError("No ASCII text in context. Run text_to_ascii(...) or image_to_ascii(...) first.")
 
-    out = colorize_mod.colorize_ascii_text(ctx.source_image, ctx.ascii_text, opt=opt)
+    out = colorize_mod.colorize_ascii_text(img, ctx.ascii_text, opt=opt)
     ctx.colorized_output = out
     ctx.colorized_format = (opt.out_format if opt and opt.out_format else "ansi")
     return out
+
+
+def animate(
+    ctx: AsciiPipelineContext,
+    matrix: Optional[colorize_mod.MatrixOptions] = None,
+    anim=None,
+):
+    """Generate a MatrixAnimation from the context's ASCII text and image."""
+    from .animate import generate
+
+    img = _require_reference_image(ctx)
+
+    if not ctx.ascii_text:
+        raise ValueError("No ASCII text in context. Run text_to_ascii(...) or image_to_ascii(...) first.")
+
+    result = generate(ctx.ascii_text, img, m=matrix, a=anim)
+    ctx.metadata["animated"] = True
+    return result

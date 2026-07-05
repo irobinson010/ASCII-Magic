@@ -143,9 +143,17 @@ def preprocess_image(img: Image.Image, autocontrast: bool, gamma: float, invert:
 # -----------------------------
 # Glyph library (render chars to bitmap cells)
 # -----------------------------
+_GLYPH_CACHE: dict = {}
+
+
 def render_glyphs(
     charset: str, cell_w: int, cell_h: int, font_path: str | None, font_size: int | None
 ):
+    cache_key = (charset, cell_w, cell_h, font_path, font_size)
+    cached = _GLYPH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     if font_size is None:
         # heuristic
         font_size = cell_h
@@ -208,7 +216,9 @@ def render_glyphs(
     sd = glyph_feats.std(axis=0, keepdims=True) + 1e-6
     glyph_feats_n = (glyph_feats - mu) / sd
 
-    return glyph_imgs, glyph_feats_n, chars, (mu.reshape(-1), sd.reshape(-1))
+    result = (glyph_imgs, glyph_feats_n, chars, (mu.reshape(-1), sd.reshape(-1)))
+    _GLYPH_CACHE[cache_key] = result
+    return result
 
 
 # -----------------------------
@@ -311,40 +321,41 @@ def image_to_text_glyph_from_image(
         font_size=font_size,
     )
 
-    out_lines = []
-    for r in range(rows):
-        line = []
-        y0, y1 = r * cell_h, (r + 1) * cell_h
-        for c in range(cols):
-            x0, x1 = c * cell_w, (c + 1) * cell_w
+    # Batch all cells: (rows, cols, cell_h, cell_w)
+    cells = ink.reshape(rows, cell_h, cols, cell_w).transpose(0, 2, 1, 3)
+    cmag = mag.reshape(rows, cell_h, cols, cell_w).transpose(0, 2, 1, 3)
+    cang = ang.reshape(rows, cell_h, cols, cell_w).transpose(0, 2, 1, 3)
 
-            cell_ink = ink[y0:y1, x0:x1]
-            cell_mag = mag[y0:y1, x0:x1]
-            cell_ang = ang[y0:y1, x0:x1]
+    mean_ink = cells.mean(axis=(2, 3))
+    mean_mag = cmag.mean(axis=(2, 3))
+    vx = (np.cos(cang) * cmag).mean(axis=(2, 3))
+    vy = (np.sin(cang) * cmag).mean(axis=(2, 3))
+    feats_n = (np.stack([mean_ink, mean_mag, vx, vy], axis=-1).astype(np.float32) - mu) / sd
 
-            mean_ink = float(np.mean(cell_ink))
-            mean_mag = float(np.mean(cell_mag))
-            vx = float(np.mean(np.cos(cell_ang) * cell_mag))
-            vy = float(np.mean(np.sin(cell_ang) * cell_mag))
+    n_cells = rows * cols
+    feats_flat = feats_n.reshape(n_cells, 4)
+    cell_vecs = cells.reshape(n_cells, -1).astype(np.float32)
+    d_feat = ((feats_flat[:, None, :] - glyph_feats_n[None, :, :]) ** 2).sum(axis=2)  # (M, N)
 
-            cell_feat = np.array([mean_ink, mean_mag, vx, vy], dtype=np.float32)
-            cell_feat_n = (cell_feat - mu) / sd
+    if quality == "fast":
+        best = d_feat.argmin(axis=1)
+    elif quality == "best":
+        # argmin of MSE == argmin of mean(g^2) - (2/P) * (c . g); the c^2 term is
+        # constant per cell, so one matmul replaces the full distance matrix.
+        n_px = glyph_imgs.shape[1]
+        g2 = (glyph_imgs ** 2).mean(axis=1)
+        best = (g2[None, :] - (2.0 / n_px) * (cell_vecs @ glyph_imgs.T)).argmin(axis=1)
+    else:  # "balanced": feature shortlist -> MSE refine
+        k = min(topk, d_feat.shape[1])
+        shortlist = np.argpartition(d_feat, k - 1, axis=1)[:, :k]
+        best = np.empty(n_cells, dtype=np.int64)
+        for i in range(n_cells):
+            idx = shortlist[i]
+            d = ((glyph_imgs[idx] - cell_vecs[i]) ** 2).mean(axis=1)
+            best[i] = idx[d.argmin()]
 
-            if quality == "fast":
-                best = pick_char_fast(cell_feat_n, glyph_feats_n)
-            else:
-                cell_vec = cell_ink.reshape(-1).astype(np.float32)
-                if quality == "balanced":
-                    best = pick_char_balanced(
-                        cell_feat_n, cell_vec, glyph_feats_n, glyph_imgs, topk=topk
-                    )
-                else:  # "best"
-                    best = pick_char_best(cell_vec, glyph_imgs)
-
-            line.append(chars[best])
-        out_lines.append("".join(line))
-
-    return "\n".join(out_lines)
+    char_grid = np.array(chars)[best].reshape(rows, cols)
+    return "\n".join("".join(row) for row in char_grid.tolist())
 
 
 # -----------------------------
@@ -365,6 +376,31 @@ _BRAILLE_BITS = {
 }
 
 
+def _floyd_steinberg_dots(ink: np.ndarray, threshold: float) -> np.ndarray:
+    """Error-diffusion dither: returns a boolean dot map preserving gradients
+    that a hard threshold would flatten."""
+    arr = ink.astype(np.float32).copy()
+    h, w = arr.shape
+    out = np.zeros((h, w), dtype=bool)
+    for y in range(h):
+        row = arr[y]
+        below = arr[y + 1] if y + 1 < h else None
+        for x in range(w):
+            old = row[x]
+            new = old >= threshold
+            out[y, x] = new
+            err = old - (1.0 if new else 0.0)
+            if x + 1 < w:
+                row[x + 1] += err * (7 / 16)
+            if below is not None:
+                if x > 0:
+                    below[x - 1] += err * (3 / 16)
+                below[x] += err * (5 / 16)
+                if x + 1 < w:
+                    below[x + 1] += err * (1 / 16)
+    return out
+
+
 def image_to_braille(
     image_path: str,
     cols: int,
@@ -372,6 +408,7 @@ def image_to_braille(
     gamma: float,
     invert: bool,
     threshold: float,
+    dither: bool = False,
 ):
     img = Image.open(image_path).convert("L")
     return image_to_braille_from_image(
@@ -381,6 +418,7 @@ def image_to_braille(
         gamma=gamma,
         invert=invert,
         threshold=threshold,
+        dither=dither,
     )
 
 
@@ -391,6 +429,7 @@ def image_to_braille_from_image(
     gamma: float,
     invert: bool,
     threshold: float,
+    dither: bool = False,
 ):
     img = img.convert("L")
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
@@ -407,6 +446,11 @@ def image_to_braille_from_image(
     gray = np.asarray(img, dtype=np.float32) / 255.0
     ink = 1.0 - gray  # 1=dark
 
+    if dither:
+        dots = _floyd_steinberg_dots(ink, threshold)
+    else:
+        dots = ink >= threshold
+
     out_lines = []
     for r in range(rows):
         line = []
@@ -414,11 +458,9 @@ def image_to_braille_from_image(
         for c in range(cols):
             x0 = c * cell_w
             bits = 0
-            # decide each dot based on threshold
             for dy in range(4):
                 for dx in range(2):
-                    v = ink[y0 + dy, x0 + dx]
-                    if v >= threshold:
+                    if dots[y0 + dy, x0 + dx]:
                         bits |= 1 << _BRAILLE_BITS[(dx, dy)]
             line.append(chr(0x2800 + bits))
         out_lines.append("".join(line))
@@ -511,6 +553,11 @@ def main():
         default=0.5,
         help="Braille mode: dot threshold in [0,1] (higher = fewer dots)",
     )
+    ap.add_argument(
+        "--dither",
+        action="store_true",
+        help="Braille mode: Floyd-Steinberg dithering (preserves smooth gradients)",
+    )
 
     args = ap.parse_args()
     if args.charset_file:
@@ -536,6 +583,7 @@ def main():
             gamma=args.gamma,
             invert=args.invert,
             threshold=float(np.clip(args.threshold, 0.0, 1.0)),
+            dither=args.dither,
         )
     else:
         art = image_to_text_glyph_mode(
