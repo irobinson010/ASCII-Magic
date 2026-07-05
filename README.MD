@@ -268,12 +268,19 @@ The **Profile** switch in the header applies sensible defaults per target: *Term
 
 ## Docker
 
+One image covers both the web GUI and one-shot CLI runs (it bundles DejaVu Sans Mono, so glyph matching works out of the box):
+
 ```bash
 docker build -t ascii-magic .
-docker run --rm -p 8000:8000 ascii-magic
-```
 
-Then open http://localhost:8000. The image bundles DejaVu Sans Mono so glyph-matching mode works out of the box.
+# Web GUI (default command) — open http://localhost:8000
+docker run --rm -p 8000:8000 ascii-magic
+
+# One-shot CLI: mount your working directory at /data and pass any subcommand
+docker run --rm -v "$(pwd):/data" ascii-magic image photo.png -o art.txt
+docker run --rm -v "$(pwd):/data" ascii-magic colorize photo.png art.txt output.ans
+docker run --rm -v "$(pwd):/data" ascii-magic text "Hello" -s block
+```
 
 ## Tips
 
