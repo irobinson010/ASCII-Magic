@@ -57,6 +57,8 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
     m = opt.matrix
     m.enabled = bool(o.get("matrix"))
     if m.enabled:
+        if o.get("matrix_color"):
+            m.tint = colorize_mod.parse_matrix_color(o["matrix_color"])
         m.top = bool(o.get("matrix_top"))
         m.seed = int(o["matrix_seed"]) if o.get("matrix_seed") not in (None, "") else None
         m.gamma = float(o.get("matrix_gamma") or m.gamma)
@@ -106,6 +108,12 @@ async def render(
             raise ValueError("options must be a JSON object")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Bad options JSON: {e}")
+
+    if o.get("matrix_color"):
+        try:
+            colorize_mod.parse_matrix_color(o["matrix_color"])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     t0 = time.perf_counter()
     ctx = AsciiPipelineContext()

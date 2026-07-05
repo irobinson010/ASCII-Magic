@@ -114,6 +114,20 @@ def test_render_animate_same_seed_same_gif():
     assert r1.json()["gif_b64"] == r2.json()["gif_b64"]
 
 
+def test_render_matrix_color_theme_and_hex():
+    for color in ("amber", "#ff00ff"):
+        r = _render(
+            {"source": "image", "cols": 12, "matrix": True, "matrix_seed": 3, "matrix_color": color}
+        )
+        assert r.status_code == 200
+        assert "\x1b[38;2;" in r.json()["ansi"]
+
+
+def test_render_bad_matrix_color_400():
+    r = _render({"source": "image", "cols": 12, "matrix": True, "matrix_color": "plaid"})
+    assert r.status_code == 400
+
+
 def test_render_colorize_off_returns_plain():
     r = _render({"source": "image", "mode": "braille", "cols": 16, "colorize": False})
     body = r.json()

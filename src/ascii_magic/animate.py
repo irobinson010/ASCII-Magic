@@ -27,7 +27,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .colorize_ascii import ESC, MatrixOptions, matrix_field
+from .colorize_ascii import ESC, MatrixOptions, matrix_field, tint_rgb
 from .image_to_ascii import find_default_mono_font
 
 # Rain look tunables
@@ -55,10 +55,19 @@ class MatrixAnimation:
         frames: List[Tuple[np.ndarray, np.ndarray, np.ndarray]],
         chars: str,
         fps: float,
+        tint: Tuple[int, int, int] = (0, 255, 0),
     ):
-        self.frames = frames  # per frame: (glyph idx int16, green uint8, head bool)
+        self.frames = frames  # per frame: (glyph idx int16, intensity uint8, head bool)
         self.chars = chars
         self.fps = fps
+        self.tint = tint
+
+    def _cell_rgb(self, intensity: int, is_head: bool) -> Tuple[int, int, int]:
+        base = tint_rgb(intensity, self.tint)
+        if not is_head:
+            return base
+        # Heads glow toward white, scaled by their intensity.
+        return tuple(c + (intensity - c) * 4 // 5 for c in base)
 
     @property
     def size(self) -> Tuple[int, int]:
@@ -83,12 +92,10 @@ class MatrixAnimation:
                             prev = None
                         row.append(" ")
                         continue
-                    g = int(green[y, x])
-                    wb = int(g * 0.8) if head[y, x] else 0  # whiten heads
-                    style = (wb, g)
-                    if style != prev:
-                        row.append(f"{ESC}[38;2;{wb};{g};{wb}m")
-                        prev = style
+                    r, g, b = self._cell_rgb(int(green[y, x]), bool(head[y, x]))
+                    if (r, g, b) != prev:
+                        row.append(f"{ESC}[38;2;{r};{g};{b}m")
+                        prev = (r, g, b)
                     row.append(self.chars[i])
                 if prev is not None:
                     row.append(f"{ESC}[0m")
@@ -153,12 +160,11 @@ class MatrixAnimation:
             ys, xs = np.nonzero(idx >= 0)
             for y, x in zip(ys, xs):
                 a = glyph_alpha(int(idx[y, x]))
-                g = int(green[y, x])
-                wb = int(g * 0.8) if head[y, x] else 0
+                r, g, b = self._cell_rgb(int(green[y, x]), bool(head[y, x]))
                 block = canvas[y * cell_h:(y + 1) * cell_h, x * cell_w:(x + 1) * cell_w]
-                block[:, :, 0] = (a * wb).astype(np.uint8)
+                block[:, :, 0] = (a * r).astype(np.uint8)
                 block[:, :, 1] = (a * g).astype(np.uint8)
-                block[:, :, 2] = (a * wb).astype(np.uint8)
+                block[:, :, 2] = (a * b).astype(np.uint8)
             images.append(Image.fromarray(canvas))
 
         buf = io.BytesIO()
@@ -211,8 +217,13 @@ class MatrixAnimation:
             frame_strings.append("\n".join(lines))
 
         css_levels = "\n".join(
-            f"    .c{i} {{ color: rgb(0,{min(255, i * 17)},0); }}" for i in range(16)
+            "    .c{i} {{ color: rgb({r},{g},{b}); }}".format(
+                i=i, r=r, g=g, b=b
+            )
+            for i in range(16)
+            for (r, g, b) in [tint_rgb(min(255, i * 17), self.tint)]
         )
+        hr, hg, hb = (c + (255 - c) * 216 // 255 for c in self.tint)
         return (
             "<!doctype html>\n<html>\n<head>\n"
             '  <meta charset="utf-8">\n'
@@ -225,7 +236,7 @@ class MatrixAnimation:
             f"      font-size: {font_size_px}px;\n      line-height: {font_size_px}px;\n"
             "    }\n"
             f"{css_levels}\n"
-            "    .h { color: #d8ffd8; }\n"
+            f"    .h {{ color: rgb({hr},{hg},{hb}); }}\n"
             "  </style>\n</head>\n<body>\n"
             '  <pre id="m"></pre>\n'
             "  <script>\n"
@@ -303,4 +314,4 @@ def generate(
         idx = np.where(visible, idx_table[slot], np.int16(-1))
         frames.append((idx, np.where(visible, green, 0).astype(np.uint8), head_mask & visible))
 
-    return MatrixAnimation(frames, m.chars, a.fps)
+    return MatrixAnimation(frames, m.chars, a.fps, tint=m.tint)

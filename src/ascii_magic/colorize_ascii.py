@@ -34,12 +34,50 @@ class SizeOptions:
     max_rows: Optional[int] = None
     max_cols: Optional[int] = None
 
+_MATRIX_THEMES = {
+    "green": (0, 255, 0),
+    "amber": (255, 176, 0),
+    "cyan": (0, 229, 255),
+    "crimson": (255, 45, 85),
+    "violet": (186, 85, 255),
+    "white": (255, 255, 255),
+}
+
+
+def parse_matrix_color(value) -> Tuple[int, int, int]:
+    """Accepts a theme name, '#RRGGBB', or an RGB tuple."""
+    if isinstance(value, (tuple, list)) and len(value) == 3:
+        return tuple(max(0, min(255, int(c))) for c in value)
+    s = str(value).strip().lower()
+    if s in _MATRIX_THEMES:
+        return _MATRIX_THEMES[s]
+    if s.startswith("#") and len(s) == 7:
+        try:
+            return tuple(int(s[i:i + 2], 16) for i in (1, 3, 5))
+        except ValueError:
+            pass
+    raise ValueError(
+        f"Unknown matrix color: {value!r}. Use one of "
+        f"{', '.join(_MATRIX_THEMES)} or #RRGGBB."
+    )
+
+
+def tint_rgb(intensity: int, tint: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    """Scale a tint color by an intensity byte (0..255)."""
+    return (
+        intensity * tint[0] // 255,
+        intensity * tint[1] // 255,
+        intensity * tint[2] // 255,
+    )
+
+
 @dataclass
 class MatrixOptions:
     enabled: bool = False
     top: bool = False          # apply to header too
     seed: Optional[int] = None
     gamma: float = 2.0
+    tint: Tuple[int, int, int] = (0, 255, 0)  # see parse_matrix_color / _MATRIX_THEMES
 
     # green intensity ranges (0..255)
     fg_min: int = 20
@@ -169,6 +207,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--matrix-fg-max", type=int, default=255, metavar="N")
     g.add_argument("--matrix-bg-min", type=int, default=0, metavar="N")
     g.add_argument("--matrix-bg-max", type=int, default=60, metavar="N")
+    g.add_argument("--matrix-color", default="green", metavar="COLOR",
+                   help=f"Rain color: {', '.join(_MATRIX_THEMES)}, or #RRGGBB (default: green)")
     g.add_argument("--matrix-chars", default=MatrixOptions.chars, metavar="STR")
     g.add_argument("--matrix-fill-spaces", action="store_true")
     g.add_argument("--matrix-mask", action="store_true",
@@ -226,6 +266,7 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
             top=ns.matrix_top,
             seed=ns.matrix_seed,
             gamma=ns.matrix_gamma,
+            tint=parse_matrix_color(ns.matrix_color),
             fg_min=ns.matrix_fg_min,
             fg_max=ns.matrix_fg_max,
             bg_min=ns.matrix_bg_min,
@@ -466,7 +507,9 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
 
             style = (fg_g, bg_g)
             if style != prev_style:
-                row.append(f"{ESC}[0m{ESC}[38;2;0;{fg_g};0m{ESC}[48;2;0;{bg_g};0m")
+                fr, fg, fb = tint_rgb(fg_g, m.tint)
+                br, bg, bb = tint_rgb(bg_g, m.tint)
+                row.append(f"{ESC}[0m{ESC}[38;2;{fr};{fg};{fb}m{ESC}[48;2;{br};{bg};{bb}m")
                 prev_style = style
 
             row.append(ch)
@@ -509,7 +552,12 @@ def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
             style = (fg_g, bg_g)
             if style != prev_style:
                 close()
-                row.append(f'<span style="color: rgb(0,{fg_g},0); background-color: rgb(0,{bg_g},0)">')
+                fr, fg, fb = tint_rgb(fg_g, m.tint)
+                br, bg, bb = tint_rgb(bg_g, m.tint)
+                row.append(
+                    f'<span style="color: rgb({fr},{fg},{fb}); '
+                    f'background-color: rgb({br},{bg},{bb})">'
+                )
                 span_open = True
                 prev_style = style
 

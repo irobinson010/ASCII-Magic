@@ -130,6 +130,7 @@ A special colorization mode that produces the classic "Matrix" effect: green gly
 - `--matrix-gamma F` : Gamma applied to the subject score (default: 2.0). Higher values emphasize bright/edge regions.
 - `--matrix-fg-min N`, `--matrix-fg-max N` : Foreground (glyph) green intensity range (0..255). Defaults: `20..255`.
 - `--matrix-bg-min N`, `--matrix-bg-max N` : Background green intensity range (0..255). Defaults: `0..60`.
+- `--matrix-color COLOR` : Rain color — `green` (classic, default), `amber`, `cyan`, `crimson`, `violet`, `white`, or any `#RRGGBB`.
 - `--matrix-chars STR` : String of glyphs to choose from (default includes digits, letters, and symbols).
 - `--matrix-fill-spaces` : Keep background color on space characters (fills spaces with background color instead of leaving them blank).
 - `--matrix-mask` : Use the input ASCII glyphs as a mask to bias glyph placement toward inked characters.
@@ -170,7 +171,7 @@ colorize-ascii photo.png art.txt --animate --loops 3                   # play in
 - `--tail F` : Fade length in rows behind each drop head (default: 6)
 - `--loops N` : Terminal playback repeats; `0` plays until Ctrl-C (default: 3)
 
-All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing) apply to the rain too. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `ascii_magic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
+All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing, `--matrix-color` themes) apply to the rain too. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `ascii_magic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
 
 ### Text to ASCII (`text_to_ascii.py`)
 

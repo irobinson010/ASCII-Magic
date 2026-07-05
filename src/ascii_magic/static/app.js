@@ -64,6 +64,9 @@ function collectOptions() {
     matrix_top: $("matrix_top").checked,
     matrix_seed: num("matrix_seed"),
     matrix_gamma: num("matrix_gamma"),
+    matrix_color: $("matrix_theme").value === "custom"
+      ? $("matrix_custom_color").value
+      : $("matrix_theme").value,
     matrix_fg_min: num("matrix_fg_min"),
     matrix_fg_max: num("matrix_fg_max"),
     matrix_bg_min: num("matrix_bg_min"),
@@ -214,6 +217,7 @@ function syncVisibility() {
   $("matrix-knobs").hidden = !$("matrix").checked;
   $("mask-knobs").hidden = !$("matrix_mask").checked;
   $("anim-knobs").hidden = !$("animate").checked;
+  $("custom-color-field").hidden = $("matrix_theme").value !== "custom";
 }
 
 // ---------- profiles ----------
