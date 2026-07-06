@@ -189,6 +189,45 @@ def test_render_bad_image_400():
     assert r.status_code == 400
 
 
+def test_upload_size_cap_413(monkeypatch):
+    from ascii_magic import webapp
+
+    monkeypatch.setattr(webapp, "MAX_UPLOAD_BYTES", 100)
+    r = _render({"source": "image", "cols": 10})
+    assert r.status_code == 413
+
+
+def test_pixel_cap_400(monkeypatch):
+    from ascii_magic import webapp
+
+    monkeypatch.setattr(webapp, "MAX_IMAGE_PIXELS", 500)  # 32x32 png = 1024 px
+    r = _render({"source": "image", "cols": 10})
+    assert r.status_code == 400
+
+
+def test_huge_knobs_are_clamped_server_side():
+    r = _render({"source": "image", "mode": "braille", "cols": 999999})
+    assert r.status_code == 200
+    width = max(len(ln) for ln in r.json()["ascii"].splitlines())
+    assert width <= 500
+
+
+def test_garbage_numeric_options_do_not_500():
+    r = _render(
+        {
+            "source": "image",
+            "cols": "abc",
+            "gamma": "",
+            "matrix": True,
+            "matrix_fg_min": "nope",
+            "matrix_seed": "1",
+            "html_font_size": [],
+            "keep_top": None,
+        }
+    )
+    assert r.status_code == 200
+
+
 def test_render_bad_options_400():
     r = client.post("/api/render", data={"options": "not json"})
     assert r.status_code == 400

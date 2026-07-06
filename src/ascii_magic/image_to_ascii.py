@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import functools
 import os
 import platform
 import numpy as np
@@ -143,26 +144,21 @@ def preprocess_image(img: Image.Image, autocontrast: bool, gamma: float, invert:
 # -----------------------------
 # Glyph library (render chars to bitmap cells)
 # -----------------------------
-_GLYPH_CACHE: dict = {}
-
-
 def render_glyphs(
     charset: str, cell_w: int, cell_h: int, font_path: str | None, font_size: int | None
 ):
-    cache_key = (charset, cell_w, cell_h, font_path, font_size)
-    cached = _GLYPH_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-
+    # Resolve defaults before the cache key so equivalent calls share an entry.
     if font_size is None:
-        # heuristic
         font_size = cell_h
-
-    # Try provided font_path first; otherwise fall back to a default mono font if available;
-    # otherwise use PIL's built-in default font.
     if not font_path:
         font_path = find_default_mono_font()
+    return _render_glyphs_cached(charset, cell_w, cell_h, font_path, font_size)
 
+
+@functools.lru_cache(maxsize=8)
+def _render_glyphs_cached(
+    charset: str, cell_w: int, cell_h: int, font_path: str | None, font_size: int
+):
     if font_path:
         font = ImageFont.truetype(font_path, font_size)
     else:
@@ -216,9 +212,7 @@ def render_glyphs(
     sd = glyph_feats.std(axis=0, keepdims=True) + 1e-6
     glyph_feats_n = (glyph_feats - mu) / sd
 
-    result = (glyph_imgs, glyph_feats_n, chars, (mu.reshape(-1), sd.reshape(-1)))
-    _GLYPH_CACHE[cache_key] = result
-    return result
+    return glyph_imgs, glyph_feats_n, chars, (mu.reshape(-1), sd.reshape(-1))
 
 
 # -----------------------------
@@ -299,6 +293,11 @@ def image_to_text_glyph_from_image(
     invert: bool,
     topk: int,
 ):
+    if cols < 1:
+        raise ValueError("cols must be >= 1")
+    if cell_w < 1 or cell_h < 1:
+        raise ValueError("cell dimensions must be >= 1")
+
     img = img.convert("L")
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 
@@ -431,6 +430,9 @@ def image_to_braille_from_image(
     threshold: float,
     dither: bool = False,
 ):
+    if cols < 1:
+        raise ValueError("cols must be >= 1")
+
     img = img.convert("L")
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 

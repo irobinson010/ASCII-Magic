@@ -85,8 +85,8 @@ class MatrixOptions:
     bg_min: int = 0
     bg_max: int = 60
 
-    # glyph behavior
-    chars: str = r"01ABCDEFGHIJKLMNOPQRSTUVWXYZ@$%&*+;:,.?/\\|[]{}()<>"
+    # glyph behavior (raw string: single literal backslash in the set)
+    chars: str = r"01ABCDEFGHIJKLMNOPQRSTUVWXYZ@$%&*+;:,.?/\|[]{}()<>"
     fill_spaces: bool = False  # keep background color even on spaces?
 
     use_mask: bool = False

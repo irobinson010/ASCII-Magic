@@ -186,7 +186,9 @@ class MatrixAnimation:
                 lines.append("".join(row))
             if cap_rows is not None:
                 lines = self._with_caption_rows(lines, cap_rows)
-            out.append("\n".join(lines))
+            # Trailing reset so color state never leaks past a frame into
+            # the terminal or downstream .frames consumers.
+            out.append("\n".join(lines) + f"{ESC}[0m")
         return out
 
     def play(self, loops: Optional[int] = None, out=None) -> None:
@@ -213,7 +215,9 @@ class MatrixAnimation:
             except BrokenPipeError:
                 # Stop the interpreter-shutdown flush from complaining too.
                 if out is sys.stdout:
-                    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+                    fd = os.open(os.devnull, os.O_WRONLY)
+                    os.dup2(fd, sys.stdout.fileno())
+                    os.close(fd)
 
     # ---- GIF ----
 
@@ -486,15 +490,21 @@ def generate(
     a: Optional[AnimationOptions] = None,
     caption: Optional[CaptionOptions] = None,
 ) -> MatrixAnimation:
-    """Simulate matrix rain over the subject field. Deterministic for a given seed."""
+    """Simulate matrix rain over the subject field.
+
+    Deterministic for a given ``m.seed``; ``seed=None`` (the default) draws
+    fresh entropy on every call and is intentionally non-reproducible.
+    """
     m = m or MatrixOptions(enabled=True)
     a = a or AnimationOptions()
 
     lines = [ln for ln in ascii_text.splitlines()]
-    if not lines:
+    if not lines or max(len(ln) for ln in lines) == 0:
         raise ValueError("Empty ASCII text; nothing to animate.")
     if a.frames < 1:
         raise ValueError("frames must be >= 1")
+    if not m.chars:
+        raise ValueError("matrix chars must not be empty")
 
     grid, field = matrix_field(lines, image, m)
     H = len(grid)

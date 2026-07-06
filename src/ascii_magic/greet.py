@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import sys
 import time
@@ -27,35 +28,74 @@ MARK_BEGIN = "# >>> ascii-magic greeting >>>"
 MARK_END = "# <<< ascii-magic greeting <<<"
 
 
+def _home() -> Path:
+    # Path.home() reads USERPROFILE on Windows and ignores a HOME override;
+    # honor HOME explicitly so tests and unusual setups behave predictably.
+    env = os.environ.get("HOME")
+    return Path(env) if env else Path.home()
+
+
 def config_dir() -> Path:
     xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(xdg) if xdg else Path.home() / ".config"
+    base = Path(xdg) if xdg else _home() / ".config"
     return base / "ascii-magic"
 
 
 def default_rc_path() -> Path:
     shell = os.path.basename(os.environ.get("SHELL", "bash"))
     rc = ".zshrc" if shell == "zsh" else ".bashrc"
-    return Path.home() / rc
+    return _home() / rc
 
 
 def _strip_block(text: str) -> str:
+    """Remove the greeting block. Raises ValueError on unbalanced markers so
+    a hand-damaged block never causes silent loss of the rc content below it."""
     lines = text.splitlines()
     out: List[str] = []
     inside = False
     for ln in lines:
         if ln.strip() == MARK_BEGIN:
+            if inside:
+                raise ValueError("nested begin marker")
             inside = True
             continue
         if ln.strip() == MARK_END:
+            if not inside:
+                raise ValueError("end marker without begin marker")
             inside = False
             continue
         if not inside:
             out.append(ln)
+    if inside:
+        raise ValueError("begin marker without matching end marker")
     # Drop trailing blank lines left behind by a removed block
     while out and out[-1] == "":
         out.pop()
     return "\n".join(out) + ("\n" if out else "")
+
+
+def _write_rc(rc: Path, content: str) -> None:
+    """Atomic replace so a crash mid-write can never truncate the rc file."""
+    tmp = rc.parent / (rc.name + ".ascii-magic-tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, rc)
+
+
+def _rewrite_rc(rc: Path, make_content) -> bool:
+    """Strip our block (validated) and write the result atomically.
+    Returns False (after printing) if the block markers are damaged."""
+    existing = rc.read_text(encoding="utf-8") if rc.exists() else ""
+    try:
+        cleaned = _strip_block(existing)
+    except ValueError as e:
+        print(
+            f"error: greeting block in {rc} looks damaged ({e}); "
+            "fix or remove the marker lines by hand, then retry.",
+            file=sys.stderr,
+        )
+        return False
+    _write_rc(rc, make_content(cleaned))
+    return True
 
 
 def _greeting_block(target: Path) -> str:
@@ -65,14 +105,30 @@ def _greeting_block(target: Path) -> str:
             "&& ascii-magic-greet show"
         )
     else:
-        cmd = f'cat "{target}"'
+        q = shlex.quote(str(target))
+        cmd = f"[ -r {q} ] && cat {q}"
     return (
         f"{MARK_BEGIN}\n"
-        f'if [ -t 1 ] && [ -z "$ASCII_MAGIC_NO_GREETING" ]; then\n'
-        f"    {cmd}\n"
-        f"fi\n"
+        'case "$-" in *i*)\n'
+        f'    if [ -t 1 ] && [ -z "$ASCII_MAGIC_NO_GREETING" ]; then\n'
+        f"        {cmd}\n"
+        "    fi\n"
+        ";;\n"
+        "esac\n"
         f"{MARK_END}\n"
     )
+
+
+def _rc_supported(rc: Path) -> bool:
+    """The block is POSIX-shell syntax; refuse targets it would break."""
+    name = rc.name.lower()
+    if "fish" in name or "csh" in name:
+        print(f"error: {rc.name} is not a POSIX shell rc file; only bash/zsh-style rc files are supported.", file=sys.stderr)
+        return False
+    if rc.is_symlink():
+        print(f"error: {rc} is a symlink; pass the real rc file with --rc.", file=sys.stderr)
+        return False
+    return True
 
 
 def installed_greeting() -> Optional[Path]:
@@ -123,18 +179,31 @@ def play_frames(frames: List[str], fps: float, loops: int, out=None) -> None:
         except BrokenPipeError:
             # Stop the interpreter-shutdown flush from complaining too.
             if out is sys.stdout:
-                os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+                fd = os.open(os.devnull, os.O_WRONLY)
+                os.dup2(fd, sys.stdout.fileno())
+                os.close(fd)
 
 
 # ---- commands ----
 
 def cmd_install(args) -> int:
+    if os.name == "nt":
+        print(
+            "error: greet install targets POSIX shells (.bashrc/.zshrc) and is "
+            "not supported on Windows.",
+            file=sys.stderr,
+        )
+        return 1
     src = Path(args.file)
     if not src.exists():
         print(f"error: {src} not found", file=sys.stderr)
         return 1
     if src.suffix not in (".ans", ".txt", ".frames"):
         print("error: greeting must be a .ans, .txt, or .frames file", file=sys.stderr)
+        return 1
+
+    rc = Path(args.rc) if args.rc else default_rc_path()
+    if not _rc_supported(rc):
         return 1
 
     d = config_dir()
@@ -146,11 +215,15 @@ def cmd_install(args) -> int:
     target = d / f"greeting{ext}"
     shutil.copyfile(src, target)
 
-    rc = Path(args.rc) if args.rc else default_rc_path()
-    existing = rc.read_text(encoding="utf-8") if rc.exists() else ""
-    cleaned = _strip_block(existing)
     block = _greeting_block(target)
-    rc.write_text(cleaned + ("\n" if cleaned and not cleaned.endswith("\n\n") else "") + block, encoding="utf-8")
+    ok = _rewrite_rc(
+        rc,
+        lambda cleaned: cleaned
+        + ("\n" if cleaned and not cleaned.endswith("\n\n") else "")
+        + block,
+    )
+    if not ok:
+        return 1
 
     print(f"Installed greeting: {target}")
     print(f"Shell hook added to: {rc}")
@@ -163,7 +236,8 @@ def cmd_install(args) -> int:
 def cmd_remove(args) -> int:
     rc = Path(args.rc) if args.rc else default_rc_path()
     if rc.exists():
-        rc.write_text(_strip_block(rc.read_text(encoding="utf-8")), encoding="utf-8")
+        if not _rewrite_rc(rc, lambda cleaned: cleaned):
+            return 1
         print(f"Removed shell hook from: {rc}")
     removed = False
     for name in ("greeting.ans", "greeting.frames"):

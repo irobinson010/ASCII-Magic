@@ -86,8 +86,23 @@ def test_play_writes_frames_and_restores_cursor():
 
 
 def test_empty_ascii_rejected():
-    with pytest.raises(ValueError):
-        generate("", _image())
+    for bad in ("", "\n", "\n\n"):
+        with pytest.raises(ValueError, match="Empty ASCII"):
+            generate(bad, _image())
+
+
+def test_empty_matrix_chars_rejected():
+    with pytest.raises(ValueError, match="chars"):
+        generate(ASCII, _image(), m=MatrixOptions(enabled=True, chars=""))
+
+
+def test_default_matrix_chars_single_backslash():
+    assert MatrixOptions().chars.count("\\") == 1
+
+
+def test_ansi_frames_end_with_reset():
+    for f in _gen(frames=3).frames_ansi():
+        assert f.endswith("\x1b[0m")
 
 
 def test_pipeline_animate():

@@ -12,12 +12,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # Oldest supported (pyproject requires-python) and the pinned dev version
+        python: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Sync environment (pinned Python + locked deps)
-        run: uv sync --all-extras
+      - name: Sync environment (locked deps)
+        run: uv sync --all-extras --python ${{ matrix.python }}
       - name: Run tests
         run: uv run pytest -q

@@ -95,6 +95,17 @@ def test_glyph_cache_reused():
     assert a is b
 
 
+def test_degenerate_cols_raise_value_error():
+    import pytest
+
+    img = _photo()
+    with pytest.raises(ValueError, match="cols"):
+        image_to_braille_from_image(img, cols=0, autocontrast=False, gamma=1.0,
+                                    invert=False, threshold=0.5)
+    with pytest.raises(ValueError, match="cols"):
+        _glyph(img, "fast", cols=0)
+
+
 def test_braille_dither_differs_and_preserves_gradient():
     img = _gradient()
     hard = image_to_braille_from_image(

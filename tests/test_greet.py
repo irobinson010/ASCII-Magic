@@ -1,8 +1,13 @@
 import io
+import os
+import shlex
 
 import pytest
 
 from ascii_magic import greet
+
+# greet writes POSIX shell rc blocks; install is gated off on Windows.
+pytestmark = pytest.mark.skipif(os.name == "nt", reason="greet targets POSIX shells")
 
 
 @pytest.fixture
@@ -29,7 +34,9 @@ def test_install_copies_file_and_hooks_rc(home, tmp_path, capsys):
     rc = (home / ".bashrc").read_text()
     assert greet.MARK_BEGIN in rc
     assert greet.MARK_END in rc
-    assert f'cat "{target}"' in rc
+    assert f"cat {shlex.quote(str(target))}" in rc
+    assert f"[ -r {shlex.quote(str(target))} ]" in rc  # skip quietly if file vanishes
+    assert 'case "$-" in *i*)' in rc  # interactive shells only
     assert "[ -t 1 ]" in rc
     assert "ASCII_MAGIC_NO_GREETING" in rc
 
@@ -110,6 +117,47 @@ def test_install_frames_uses_show_hook(home, tmp_path):
     rc = (home / ".bashrc").read_text()
     assert "ascii-magic-greet show" in rc
     assert (home / ".config" / "ascii-magic" / "greeting.frames").exists()
+
+
+def test_greeting_block_quotes_hostile_paths():
+    from pathlib import Path
+
+    evil = Path('/tmp/a"b$(rm -rf ~)/greeting.ans')
+    block = greet._greeting_block(evil)
+    assert shlex.quote(str(evil)) in block
+    assert f'cat "{evil}"' not in block  # the old injectable form
+
+
+def test_damaged_markers_refuse_to_rewrite(home, tmp_path, capsys):
+    art = _art(tmp_path)
+    greet.main(["install", str(art)])
+    rc_path = home / ".bashrc"
+    damaged = rc_path.read_text().replace(greet.MARK_END, "# gone")
+    rc_path.write_text(damaged)
+
+    assert greet.main(["install", str(art)]) == 1
+    assert "damaged" in capsys.readouterr().err
+    assert rc_path.read_text() == damaged  # untouched
+
+    assert greet.main(["remove"]) == 1
+    assert rc_path.read_text() == damaged
+
+
+def test_install_refuses_fish_rc(home, tmp_path, capsys):
+    art = _art(tmp_path)
+    rc = home / "config.fish"
+    assert greet.main(["install", str(art), "--rc", str(rc)]) == 1
+    assert "POSIX" in capsys.readouterr().err
+
+
+def test_install_refuses_symlinked_rc(home, tmp_path, capsys):
+    art = _art(tmp_path)
+    real = home / ".bashrc_real"
+    real.write_text("")
+    link = home / ".bashrc"
+    link.symlink_to(real)
+    assert greet.main(["install", str(art)]) == 1
+    assert "symlink" in capsys.readouterr().err
 
 
 def test_install_frames_then_static_leaves_one_greeting(home, tmp_path):
