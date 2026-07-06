@@ -35,6 +35,7 @@ function collectOptions() {
     // video source
     video_fps: num("video_fps"),
     video_max_frames: num("video_max_frames"),
+    video_mode: $("video_mode").value,
     // text source
     text: $("text").value,
     text_style: $("text_style").value,
@@ -86,8 +87,8 @@ function collectOptions() {
     matrix_mask_density_floor: num("matrix_mask_density_floor"),
     matrix_bg_dim: num("matrix_bg_dim"),
     matrix_bg_density: num("matrix_bg_density"),
-    // animation
-    animate: $("matrix").checked && $("animate").checked,
+    // animation (rain animation is an image-mode feature; video is already animated)
+    animate: state.tab !== "video" && $("matrix").checked && $("animate").checked,
     anim_frames: num("anim_frames"),
     anim_fps: num("anim_fps"),
     anim_tail: num("anim_tail"),
@@ -297,11 +298,15 @@ function syncVisibility() {
   $("custom-color-field").hidden = $("matrix_theme").value !== "custom";
   $("caption-color-field").hidden = $("caption_color_mode").value !== "custom";
 
-  // Colorize/matrix/caption don't apply to video renders (yet)
+  // Colorize/caption don't apply to video renders (yet); matrix DOES —
+  // its knobs drive the per-frame matrix render — but rain animation
+  // doesn't (video is already animated).
   const isVideo = state.tab === "video";
-  for (const id of ["sec-caption", "sec-colorize", "sec-matrix", "sec-html"]) {
+  for (const id of ["sec-caption", "sec-colorize", "sec-html"]) {
     $(id).hidden = isVideo;
   }
+  $("animate-row").hidden = isVideo;
+  if (isVideo) $("anim-knobs").hidden = true;
 }
 
 // ---------- profiles ----------

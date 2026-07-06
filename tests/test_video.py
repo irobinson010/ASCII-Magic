@@ -80,3 +80,40 @@ def test_cli_writes_gif(clip, tmp_path):
 def test_cli_rejects_bad_extension(clip, tmp_path):
     with pytest.raises(SystemExit):
         video_mod.main([str(clip), str(tmp_path / "out.html")])
+
+
+def test_video_glyph_mode(clip):
+    v = video_mod.video_to_ascii(str(clip), cols=20, max_frames=3, mode="glyph")
+    lines, _ = v.frames[0]
+    # glyph mode emits dense-charset characters, not braille
+    assert not any("⠀" <= ch <= "⣿" for ch in "".join(lines))
+
+
+def test_video_matrix_render_deterministic_and_tinted(clip):
+    from ascii_magic.colorize_ascii import MatrixOptions, parse_matrix_color
+
+    m = MatrixOptions(enabled=True, seed=7, tint=parse_matrix_color("amber"))
+    a = video_mod.video_to_ascii(str(clip), cols=20, max_frames=3, matrix=m)
+    b = video_mod.video_to_ascii(str(clip), cols=20, max_frames=3, matrix=m)
+    fa, fb = a.frames_ansi(), b.frames_ansi()
+    assert fa == fb                      # seeded => deterministic
+    assert fa[0] != fa[1]                # seed advances per frame => flicker
+    reds = [int(c.split(";")[0]) for c in "".join(fa).split("\x1b[38;2;")[1:]]
+    assert any(r > 0 for r in reds)      # amber tint reaches the output
+
+    gif = a.to_gif_bytes()
+    assert gif[:4] == b"GIF8"
+
+
+def test_video_matrix_cli_flags(clip, tmp_path):
+    out = tmp_path / "m.frames"
+    rc = video_mod.main([
+        str(clip), str(out), "-c", "20", "--max-frames", "3",
+        "--matrix", "--matrix-seed", "5", "--matrix-color", "cyan",
+    ])
+    assert rc == 0
+    from ascii_magic.greet import read_frames_file
+
+    frames, _, _ = read_frames_file(out)
+    assert len(frames) == 3
+    assert "\x1b[38;2;" in frames[0]

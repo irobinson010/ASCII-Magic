@@ -532,6 +532,21 @@ def matrix_field(lines, img, m: MatrixOptions):
     return grid, field
 
 
+def matrix_render_cells(lines, img, m: MatrixOptions, rng):
+    """Per-cell (char, fg_rgb|None) for matrix mode, sampling in the same rng
+    order as matrix_lines_ansi so ANSI and bitmap sinks agree. Background
+    color is omitted (bitmap sinks draw on black)."""
+    grid, field = matrix_field(lines, img, m)
+    rows = []
+    for frow in field:
+        row = []
+        for (fg_g, _bg_g, p, _subject) in frow:
+            ch = rng.choice(m.chars) if (rng.random() < p) else " "
+            row.append((ch, tint_rgb(fg_g, m.tint) if ch != " " else None))
+        rows.append(row)
+    return rows
+
+
 def matrix_lines_ansi(lines, img, m: MatrixOptions):
     """ANSI Matrix mode: green glyphs with subject emphasis (edges + stretched luminance)."""
     if not lines:

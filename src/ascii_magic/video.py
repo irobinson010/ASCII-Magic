@@ -12,15 +12,28 @@ Outputs: animated GIF, a ``.frames`` file (for ``ascii-magic greet`` /
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import io
+import random
 import sys
 from typing import List, Optional, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .colorize_ascii import colorize_lines_ansi
-from .image_to_ascii import find_default_mono_font, image_to_braille_from_image
+from .colorize_ascii import (
+    MatrixOptions,
+    colorize_lines_ansi,
+    matrix_lines_ansi,
+    matrix_render_cells,
+    parse_matrix_color,
+)
+from .image_to_ascii import (
+    find_default_mono_font,
+    image_to_braille_from_image,
+    image_to_text_glyph_from_image,
+    make_charset,
+)
 
 # Braille blank: no ink to draw
 _BLANKS = (" ", "⠀")
@@ -79,15 +92,31 @@ def read_video_frames(
 class AsciiVideo:
     """Sampled video frames converted to ASCII, plus the sinks."""
 
-    def __init__(self, frames: List[Tuple[List[str], Image.Image]], fps: float):
+    def __init__(
+        self,
+        frames: List[Tuple[List[str], Image.Image]],
+        fps: float,
+        matrix: Optional[MatrixOptions] = None,
+    ):
         self.frames = frames  # per frame: (ascii lines, source frame image)
         self.fps = fps
+        self.matrix = matrix if (matrix and matrix.enabled) else None
+
+    def _frame_matrix(self, index: int) -> MatrixOptions:
+        # Advance the seed per frame: deterministic overall, flickering glyphs.
+        m = self.matrix
+        seed = (m.seed + index) if m.seed is not None else None
+        return dataclasses.replace(m, seed=seed)
 
     def frames_ansi(self) -> List[str]:
-        return [
-            "\n".join(colorize_lines_ansi(lines, img, color_spaces=False))
-            for lines, img in self.frames
-        ]
+        out = []
+        for i, (lines, img) in enumerate(self.frames):
+            if self.matrix:
+                rows = matrix_lines_ansi(lines, img, self._frame_matrix(i))
+            else:
+                rows = colorize_lines_ansi(lines, img, color_spaces=False)
+            out.append("\n".join(rows) + "\x1b[0m")
+        return out
 
     def to_gif_bytes(self, font_path: Optional[str] = None, font_size: int = 14) -> bytes:
         font_path = font_path or find_default_mono_font()
@@ -112,21 +141,32 @@ class AsciiVideo:
             return a
 
         images = []
-        for lines, frame_img in self.frames:
+        for i, (lines, frame_img) in enumerate(self.frames):
             h = len(lines)
             w = max(len(ln) for ln in lines)
             grid = [ln.ljust(w) for ln in lines]
-            small = frame_img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
-            px = small.load()
+
+            if self.matrix:
+                mi = self._frame_matrix(i)
+                cells = matrix_render_cells(lines, frame_img, mi, random.Random(mi.seed))
+            else:
+                small = frame_img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
+                px = small.load()
 
             canvas = np.zeros((h * cell_h, w * cell_w, 3), dtype=np.uint8)
             for y in range(h):
                 for x in range(w):
-                    ch = grid[y][x]
-                    if ch in _BLANKS:
-                        continue
+                    if self.matrix:
+                        ch, color = cells[y][x]
+                        if color is None:
+                            continue
+                        r, g, b = color
+                    else:
+                        ch = grid[y][x]
+                        if ch in _BLANKS:
+                            continue
+                        r, g, b = px[x, y]
                     a = glyph_alpha(ch)
-                    r, g, b = px[x, y]
                     block = canvas[y * cell_h:(y + 1) * cell_h, x * cell_w:(x + 1) * cell_w]
                     block[:, :, 0] = (a * r).astype(np.uint8)
                     block[:, :, 1] = (a * g).astype(np.uint8)
@@ -160,21 +200,41 @@ def video_to_ascii(
     gamma: float = 1.0,
     autocontrast: bool = False,
     invert: bool = False,
+    mode: str = "braille",
+    quality: str = "balanced",
+    matrix: Optional[MatrixOptions] = None,
 ) -> AsciiVideo:
     frames, out_fps = read_video_frames(path, sample_fps=sample_fps, max_frames=max_frames)
+    charset = make_charset(unicode_mode="off", ascii_preset="dense") if mode == "glyph" else None
     converted = []
     for img in frames:
-        art = image_to_braille_from_image(
-            img,
-            cols=cols,
-            autocontrast=autocontrast,
-            gamma=gamma,
-            invert=invert,
-            threshold=threshold,
-            dither=dither,
-        )
+        if mode == "glyph":
+            art = image_to_text_glyph_from_image(
+                img=img,
+                cols=cols,
+                cell_w=8,
+                cell_h=16,
+                charset=charset,
+                quality=quality,
+                font_path=None,
+                font_size=None,
+                autocontrast=autocontrast,
+                gamma=gamma,
+                invert=invert,
+                topk=24,
+            )
+        else:
+            art = image_to_braille_from_image(
+                img,
+                cols=cols,
+                autocontrast=autocontrast,
+                gamma=gamma,
+                invert=invert,
+                threshold=threshold,
+                dither=dither,
+            )
         converted.append((art.splitlines(), img))
-    return AsciiVideo(converted, out_fps)
+    return AsciiVideo(converted, out_fps, matrix=matrix)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -191,6 +251,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="Target sample/playback fps (default: 10)")
     ap.add_argument("--max-frames", type=int, default=300,
                     help="Cap on sampled frames (default: 300)")
+    ap.add_argument("--mode", choices=["braille", "glyph"], default="braille",
+                    help="Per-frame conversion (default: braille)")
+    ap.add_argument("--quality", choices=["fast", "balanced", "best"], default="balanced",
+                    help="Glyph mode matching quality")
+    ap.add_argument("--matrix", action="store_true",
+                    help="Render frames as matrix glyphs driven by each frame")
+    ap.add_argument("--matrix-color", default="green", metavar="COLOR",
+                    help="Matrix tint: theme name or #RRGGBB")
+    ap.add_argument("--matrix-seed", type=int, default=None, metavar="N",
+                    help="Deterministic glyph placement (advances per frame)")
+    ap.add_argument("--matrix-gamma", type=float, default=2.0, metavar="F")
+    ap.add_argument("--matrix-mask", action="store_true",
+                    help="Bias matrix glyphs toward inked ASCII cells")
     ap.add_argument("--no-dither", action="store_true",
                     help="Disable Floyd-Steinberg dithering")
     ap.add_argument("--threshold", type=float, default=0.5)
@@ -205,6 +278,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.out and not args.out.lower().endswith((".gif", ".frames")):
         raise SystemExit("Output must be .gif or .frames (or omitted for terminal playback)")
 
+    matrix = None
+    if args.matrix:
+        matrix = MatrixOptions(
+            enabled=True,
+            seed=args.matrix_seed,
+            gamma=args.matrix_gamma,
+            tint=parse_matrix_color(args.matrix_color),
+            use_mask=args.matrix_mask,
+        )
+
     try:
         video = video_to_ascii(
             args.input,
@@ -216,6 +299,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             gamma=args.gamma,
             autocontrast=args.autocontrast,
             invert=args.invert,
+            mode=args.mode,
+            quality=args.quality,
+            matrix=matrix,
         )
     except RuntimeError as e:
         raise SystemExit(str(e))

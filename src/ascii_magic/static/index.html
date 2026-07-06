@@ -154,7 +154,14 @@
           <div class="field"><label for="video_fps">FPS</label><input type="number" id="video_fps" value="8" min="1" max="30"></div>
           <div class="field"><label for="video_max_frames">Max frames</label><input type="number" id="video_max_frames" value="60" min="1" max="120"></div>
         </div>
-        <p class="hint">Videos render server-side and take a few seconds — press <strong>Render</strong> after changing knobs (no live auto-render). Uses Dither/Invert/Gamma from the Image tab adjustments. Download as .gif, or .frames for an animated login greeting.</p>
+        <div class="field">
+          <label for="video_mode">Frame mode</label>
+          <select id="video_mode">
+            <option value="braille">Braille dots (fast, detailed)</option>
+            <option value="glyph">Glyph matching (character art)</option>
+          </select>
+        </div>
+        <p class="hint">Videos render server-side and take a few seconds — press <strong>Render</strong> after changing knobs (no live auto-render). Matrix mode below applies per frame; Dither/Invert/Gamma come from the Image tab adjustments. Download as .gif, or .frames for an animated login greeting.</p>
       </section>
 
       <section id="sec-caption">
@@ -296,7 +303,7 @@
               <div class="field"><label for="matrix_bg_density">BG density</label><input type="number" id="matrix_bg_density" value="0.75" min="0" max="1" step="0.05"></div>
             </div>
           </div>
-          <label class="check"><input type="checkbox" id="animate"> <strong>Animate</strong> (matrix rain)</label>
+          <label class="check" id="animate-row"><input type="checkbox" id="animate"> <strong>Animate</strong> (matrix rain)</label>
           <div id="anim-knobs" hidden>
             <div class="field-row">
               <div class="field"><label for="anim_frames">Frames</label><input type="number" id="anim_frames" value="60" min="2" max="240"></div>
