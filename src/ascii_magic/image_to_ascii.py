@@ -595,7 +595,7 @@ def main():
                     help="Render TEXT as ASCII and stitch it onto the art")
     ap.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
     ap.add_argument("--caption-style",
-                    choices=["block", "small", "shadow", "box", "banner"], default="block")
+                    choices=["block", "small", "shadow", "box", "banner", "figlet"], default="block")
     ap.add_argument("--caption-scale", type=float, default=0.6, metavar="F",
                     help="Caption width as a fraction of art width")
     ap.add_argument("--caption-gap", type=int, default=1, metavar="N")

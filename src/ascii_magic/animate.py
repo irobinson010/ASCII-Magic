@@ -28,10 +28,11 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from .colorize_ascii import (
+    _CAPTION_IMAGE_COLORS,
     CaptionOptions,
     ESC,
     MatrixOptions,
-    caption_image_strip,
+    caption_ref_image,
     matrix_field,
     parse_matrix_color,
     tint_rgb,
@@ -465,8 +466,8 @@ def _resolve_caption(
         return None
     colors = None
     uniform: Optional[Tuple[int, int, int]] = None
-    if caption.color == "image":
-        strip = caption_image_strip(image, caption.position)
+    if caption.color in _CAPTION_IMAGE_COLORS:
+        strip = caption_ref_image(image, caption)
         strip = strip.resize((width, len(lines))).convert("RGB")
         spx = strip.load()
         colors = [[spx[x, y] for x in range(width)] for y in range(len(lines))]

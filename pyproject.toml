@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "Pillow>=10",
     "numpy>=2",
+    "pyfiglet>=1.0.4",
 ]
 authors = [
     { name = "Ian Robinson", email = "irobinson010@gmail.com" },

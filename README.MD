@@ -102,10 +102,10 @@ ascii-magic image cat.png --caption "Whiskers" --caption-style box --caption-pos
 
 **Options (prefix `--caption-`):**
 - `pos` : `bottom` (default) or `top`
-- `style` : `block` (default), `small`, `shadow`, `box`, `banner`
+- `style` : `block` (default), `small`, `shadow`, `box`, `banner`, `figlet` (classic terminal-banner lettering)
 - `scale F` : caption width as a fraction of the art width for rendered styles (default 0.6) — the sizing knob
 - `gap N` : blank lines between caption and art (default 1)
-- `color COLOR` : caption color — theme name, `#RRGGBB`, or `image` to colorize the caption from the picture itself (it samples the strip of the image nearest the caption); default: terminal foreground
+- `color COLOR` : caption color — theme name, `#RRGGBB`, `image` (colors from the strip of the picture nearest the caption), or `image-full` (the whole picture stretched over the text); default: terminal foreground
 - `align` : `center` (default), `left`, `right`
 
 The web GUI has a matching **Caption** panel (text, position, style, size slider, alignment, color).
@@ -214,7 +214,7 @@ ascii-magic text "Hello, world" --style block --width 80 --font-size 24
 Options:
 - `--stdin` : Read text from standard input (useful for piping)
 - `-o, --output` : Write ASCII output to a file (default: stdout)
-- `-s, --style` : Style to use (`block`, `small`, `shadow`, `box`, `banner`) — `block` is the default
+- `-s, --style` : Style to use (`block`, `small`, `shadow`, `box`, `banner`, `figlet`) — `block` is the default
 - `-w, --width` : Output width in characters (default: 80)
 - `--font-size` : Font size used when rendering text (default: 24)
 - `--font` : Path to a .ttf font file to use for rendering

@@ -48,6 +48,9 @@ def text_to_ascii(
     elif style == "banner":
         ascii_out = text_mod.text_to_banner(text, char=banner_char)
         ctx.rendered_text_image = None
+    elif style == "figlet":
+        ascii_out = text_mod.text_to_figlet(text, width=width)
+        ctx.rendered_text_image = None
     else:
         ascii_out = text_mod.text_to_ascii_art(
             text=text,
