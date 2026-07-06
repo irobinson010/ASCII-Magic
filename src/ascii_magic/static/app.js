@@ -39,6 +39,7 @@ function collectOptions() {
     // image source
     mode: $("mode").value,
     cols: num("cols"),
+    rotate: num("rotate"),
     quality: $("quality").value,
     ascii_preset: $("ascii_preset").value,
     unicode_mode: $("unicode_mode").value,
@@ -188,7 +189,9 @@ function autoSize() {
   const pad = 40;              // preview body padding + scrollbar allowance
   const maxCols = Math.floor((pane.width - pad) / charW);
   const maxRows = Math.floor((pane.height - pad) / fontPx);
-  const aspect = state.imgH / state.imgW;
+  const rot = num("rotate") || 0;
+  const [w, h] = rot % 180 ? [state.imgH, state.imgW] : [state.imgW, state.imgH];
+  const aspect = h / w;
   const rowFactor = 0.5;       // both glyph (8x16) and braille (2x4) cells are 1:2
 
   let cols = maxCols;
@@ -286,6 +289,10 @@ $("autosize").addEventListener("click", (e) => {
   e.preventDefault();
   autoSize();
   render();
+});
+
+$("rotate").addEventListener("change", () => {
+  autoSize(); // 90/270 swap the aspect ratio, so re-fit
 });
 
 $("reroll").addEventListener("click", (e) => {

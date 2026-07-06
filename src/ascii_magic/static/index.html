@@ -49,12 +49,23 @@
             <option value="braille">Braille dots (best for photos; try Invert)</option>
           </select>
         </div>
-        <div class="field">
-          <label for="cols">Width (chars)</label>
-          <span class="seed-row">
-            <input type="number" id="cols" value="100" min="10" max="500">
-            <button id="autosize" title="Fit the preview pane (auto-set on upload)">Fit</button>
-          </span>
+        <div class="field-row">
+          <div class="field">
+            <label for="cols">Width (chars)</label>
+            <span class="seed-row">
+              <input type="number" id="cols" value="100" min="10" max="500">
+              <button id="autosize" title="Fit the preview pane (auto-set on upload)">Fit</button>
+            </span>
+          </div>
+          <div class="field">
+            <label for="rotate">Rotate</label>
+            <select id="rotate">
+              <option value="0">0°</option>
+              <option value="90">90°</option>
+              <option value="180">180°</option>
+              <option value="270">270°</option>
+            </select>
+          </div>
         </div>
 
         <div id="braille-knobs">

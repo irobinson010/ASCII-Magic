@@ -116,6 +116,8 @@ class Options:
     keep_top: int = 0
     color_top: bool = False
 
+    rotate: int = 0  # CLI-only: clockwise rotation of the reference image
+
     debug: bool = False
     log_path: Optional[str] = None
 
@@ -249,6 +251,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "the picture (default: terminal fg)")
     g.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
 
+    ap.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
+                    help="Rotate the reference image clockwise (EXIF orientation "
+                    "is applied automatically)")
+
     g = ap.add_argument_group("animation")
     g.add_argument("--animate", action="store_true",
                    help="Matrix rain animation (implies --matrix)")
@@ -283,6 +289,7 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
         color_top=ns.color_top,
         debug=ns.debug,
         log_path=ns.log_path,
+        rotate=ns.rotate,
         animate=ns.animate,
         anim_frames=ns.frames,
         anim_fps=ns.fps,
@@ -925,7 +932,9 @@ def main():
 
     header, art_lines = split_header(lines, opt.keep_top)
     LOG.debug("Header lines: %d | Art lines: %d", len(header), len(art_lines))
-    base_img = Image.open(img_path).convert("RGB")
+    from .image_to_ascii import open_oriented, rotate_cw
+
+    base_img = rotate_cw(open_oriented(img_path, "RGB"), opt.rotate)
 
     target_art_h = compute_target_art_height(opt.size.max_rows, len(header), len(art_lines))
     LOG.debug("Target art height (after header): %d", target_art_h)

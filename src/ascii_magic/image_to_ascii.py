@@ -58,6 +58,29 @@ def make_charset(unicode_mode: str, ascii_preset: str):
     raise ValueError(f"Unknown unicode mode: {unicode_mode}")
 
 
+def open_oriented(path_or_file, mode: str = "RGB") -> Image.Image:
+    """Open an image honoring its EXIF orientation tag.
+
+    Phones store the raw sensor pixels plus a rotate-me flag; browsers apply
+    it, PIL does not — without this, portrait photos render sideways.
+    """
+    img = ImageOps.exif_transpose(Image.open(path_or_file))
+    return img.convert(mode)
+
+
+_CW_TRANSPOSE = {
+    90: Image.Transpose.ROTATE_270,   # PIL's constants are counter-clockwise
+    180: Image.Transpose.ROTATE_180,
+    270: Image.Transpose.ROTATE_90,
+}
+
+
+def rotate_cw(img: Image.Image, degrees: int) -> Image.Image:
+    """Rotate clockwise in 90-degree steps (0/90/180/270)."""
+    degrees = (int(degrees) // 90 * 90) % 360
+    return img.transpose(_CW_TRANSPOSE[degrees]) if degrees else img
+
+
 def find_default_mono_font():
     system = platform.system().lower()
 
@@ -262,7 +285,7 @@ def image_to_text_glyph_mode(
     invert: bool,
     topk: int,
 ):
-    img = Image.open(image_path).convert("L")
+    img = open_oriented(image_path, "L")
     return image_to_text_glyph_from_image(
         img=img,
         cols=cols,
@@ -409,7 +432,7 @@ def image_to_braille(
     threshold: float,
     dither: bool = False,
 ):
-    img = Image.open(image_path).convert("L")
+    img = open_oriented(image_path, "L")
     return image_to_braille_from_image(
         img=img,
         cols=cols,
@@ -580,6 +603,10 @@ def main():
                     help="Caption color with --color: theme name or #RRGGBB")
     ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
 
+    ap.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
+                    help="Rotate clockwise before conversion (EXIF orientation is "
+                    "applied automatically)")
+
     args = ap.parse_args()
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
@@ -596,9 +623,13 @@ def main():
     else:
         charset = make_charset(unicode_mode=args.unicode, ascii_preset=args.ascii)
 
+    # Open once: EXIF orientation applied, optional manual rotation, and the
+    # same pixels feed both the conversion and the --color pass.
+    src_img = rotate_cw(open_oriented(args.input, "RGB"), args.rotate)
+
     if args.mode == "braille":
-        art = image_to_braille(
-            image_path=args.input,
+        art = image_to_braille_from_image(
+            img=src_img,
             cols=args.cols,
             autocontrast=args.autocontrast,
             gamma=args.gamma,
@@ -607,8 +638,8 @@ def main():
             dither=args.dither,
         )
     else:
-        art = image_to_text_glyph_mode(
-            image_path=args.input,
+        art = image_to_text_glyph_from_image(
+            img=src_img,
             cols=args.cols,
             cell_w=args.cell_w,
             cell_h=args.cell_h,
@@ -627,7 +658,7 @@ def main():
         from .pipeline import AsciiPipelineContext, colorize
 
         ctx = AsciiPipelineContext(
-            source_image=Image.open(args.input).convert("RGB"),
+            source_image=src_img,
             ascii_text=art,
         )
         fmt = "html" if (args.output or "").lower().endswith(".html") else "ansi"

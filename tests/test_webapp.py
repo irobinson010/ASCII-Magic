@@ -189,6 +189,52 @@ def test_render_bad_image_400():
     assert r.status_code == 400
 
 
+def _art_dims(body):
+    lines = body["ascii"].splitlines()
+    return max(len(ln) for ln in lines), len(lines)
+
+
+def test_exif_orientation_honored():
+    # 60x20 landscape tagged "rotate 90 CW to display" -> renders as 20x60 portrait
+    buf = io.BytesIO()
+    img = Image.new("RGB", (60, 20), (200, 80, 40))
+    exif = Image.Exif()
+    exif[274] = 6  # Orientation tag
+    img.save(buf, format="JPEG", exif=exif.tobytes())
+
+    r = client.post(
+        "/api/render",
+        files={"image": ("t.jpg", buf.getvalue(), "image/jpeg")},
+        data={"options": json.dumps({"source": "image", "mode": "braille", "cols": 10,
+                                     "colorize": False})},
+    )
+    assert r.status_code == 200
+    w, h = _art_dims(r.json())
+    assert h > w  # portrait after orientation is applied
+
+
+def test_manual_rotate_option():
+    opts = {"source": "image", "mode": "braille", "cols": 10, "colorize": False}
+    flat = _render({**opts})  # 32x32 source is square; use a wide image instead
+    buf = io.BytesIO()
+    Image.new("RGB", (60, 20), (10, 200, 40)).save(buf, format="PNG")
+
+    def dims(rotate):
+        r = client.post(
+            "/api/render",
+            files={"image": ("t.png", buf.getvalue(), "image/png")},
+            data={"options": json.dumps({**opts, "rotate": rotate})},
+        )
+        assert r.status_code == 200
+        return _art_dims(r.json())
+
+    w0, h0 = dims(0)
+    w90, h90 = dims(90)
+    assert w0 > h0      # landscape
+    assert h90 > w90    # rotated to portrait
+    assert flat.status_code == 200
+
+
 def test_upload_size_cap_413(monkeypatch):
     from ascii_magic import webapp
 
