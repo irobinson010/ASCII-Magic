@@ -240,15 +240,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--caption", default=None, metavar="TEXT",
                    help="Render TEXT as ASCII and stitch it onto the art")
     g.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
-    g.add_argument("--caption-style", choices=["block", "small", "shadow", "box", "banner"],
+    g.add_argument("--caption-style", choices=["block", "small", "shadow", "box", "banner", "figlet"],
                    default="block")
     g.add_argument("--caption-scale", type=float, default=0.6, metavar="F",
                    help="Caption width as a fraction of art width (rendered styles)")
     g.add_argument("--caption-gap", type=int, default=1, metavar="N",
                    help="Blank lines between caption and art")
     g.add_argument("--caption-color", default=None, metavar="COLOR",
-                   help="Caption color: theme name, #RRGGBB, or 'image' to sample "
-                        "the picture (default: terminal fg)")
+                   help="Caption color: theme name, #RRGGBB, 'image' (nearby strip), or "
+                        "'image-full' (whole picture stretched over the text)")
     g.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
 
     ap.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
@@ -788,6 +788,17 @@ def caption_image_strip(img: Image.Image, position: str) -> Image.Image:
     return img.crop((0, h - strip_h, w, h))
 
 
+_CAPTION_IMAGE_COLORS = ("image", "image-full")
+
+
+def caption_ref_image(img: Image.Image, cap: "CaptionOptions") -> Image.Image:
+    """The image used to colorize an image-colored caption: the whole picture
+    stretched over the text (image-full) or the strip nearest the caption."""
+    if cap.color == "image-full":
+        return img
+    return caption_image_strip(img, cap.position)
+
+
 def render_ansi(
         header: Sequence[str],
         art: Sequence[str],
@@ -812,9 +823,9 @@ def render_ansi(
             out_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
 
     if cap and cap_lines:
-        if cap.color == "image":
+        if cap.color in _CAPTION_IMAGE_COLORS:
             rendered = colorize_lines_ansi(
-                cap_lines, caption_image_strip(img, cap.position), color_spaces=False
+                cap_lines, caption_ref_image(img, cap), color_spaces=False
             )
         else:
             rendered = _caption_lines_ansi(cap_lines, cap)
@@ -848,9 +859,9 @@ def render_html(
             pre_lines.extend(colorize_lines_html(art, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
 
     if cap and cap_lines:
-        if cap.color == "image":
+        if cap.color in _CAPTION_IMAGE_COLORS:
             rendered = colorize_lines_html(
-                cap_lines, caption_image_strip(img, cap.position),
+                cap_lines, caption_ref_image(img, cap),
                 color_spaces=False, fill_spaces=False,
             )
         else:

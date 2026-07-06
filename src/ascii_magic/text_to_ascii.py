@@ -232,6 +232,13 @@ def text_to_banner(text: str, char: str = "#") -> str:
     return f"{border}\n{char} {text} {char}\n{border}"
 
 
+def text_to_figlet(text: str, width: int = 80, font: str = "standard") -> str:
+    """Classic figlet outline lettering (the traditional terminal-banner look)."""
+    import pyfiglet
+
+    return pyfiglet.figlet_format(text, font=font, width=max(20, int(width)))
+
+
 def caption_lines(
     text: str,
     width: int,
@@ -251,6 +258,8 @@ def caption_lines(
         block = text_to_box(text, width=width)
     elif style == "banner":
         block = text_to_banner(text)
+    elif style == "figlet":
+        block = text_to_figlet(text, width=width)
     else:
         scale = min(1.0, max(0.05, float(scale)))
         target = max(1, int(width * scale))
@@ -328,7 +337,7 @@ def main():
     parser.add_argument(
         "-s",
         "--style",
-        choices=["block", "small", "shadow", "box", "banner"],
+        choices=["block", "small", "shadow", "box", "banner", "figlet"],
         default="block",
         help="ASCII art style",
     )
@@ -394,6 +403,8 @@ def main():
         output = text_to_box(text, width=args.width)
     elif args.style == "banner":
         output = text_to_banner(text, char=args.char)
+    elif args.style == "figlet":
+        output = text_to_figlet(text, width=args.width)
     else:
         # Generate ascii-art styles using the renderer
         output = text_to_ascii_art(

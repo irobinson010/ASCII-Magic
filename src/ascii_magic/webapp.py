@@ -148,8 +148,8 @@ def render(
         raise HTTPException(status_code=400, detail=f"Bad options JSON: {e}")
 
     for key in ("matrix_color", "caption_color"):
-        # "image" is a caption-only sentinel meaning: sample the picture.
-        if o.get(key) and not (key == "caption_color" and o[key] == "image"):
+        # "image"/"image-full" are caption-only sentinels: sample the picture.
+        if o.get(key) and not (key == "caption_color" and o[key] in ("image", "image-full")):
             try:
                 colorize_mod.parse_matrix_color(o[key])
             except ValueError as e:

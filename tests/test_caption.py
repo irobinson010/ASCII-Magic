@@ -99,6 +99,31 @@ def test_caption_color_image_samples_adjacent_strip():
     assert all(int(r) > int(b) for r, _g, b in codes2)  # top caption = red strip
 
 
+def test_caption_figlet_style():
+    lines = caption_lines("Hi", width=80, style="figlet")
+    assert lines
+    assert all(len(ln) == 80 for ln in lines)
+    joined = "\n".join(lines)
+    assert "|" in joined and "_" in joined  # figlet letterforms, not density blobs
+
+
+def test_caption_color_image_full_spans_whole_picture():
+    img = Image.new("RGB", (40, 40))
+    px = img.load()
+    for y in range(40):
+        for x in range(40):
+            px[x, y] = (255, 0, 0) if y < 20 else (0, 0, 255)  # red top, blue bottom
+
+    opt = Options(out_format="ansi")
+    opt.caption = CaptionOptions(text="Hello", style="figlet", color="image-full", position="top")
+    out = colorize_ascii_text(img, ART, opt=opt)
+    cap_part = out.split("#" * 5)[0]  # everything before the art
+    codes = [tuple(map(int, c.split("m")[0].split(";")[:3]))
+             for c in re.findall(r"\x1b\[38;2;([0-9;]+)m", cap_part)]
+    assert any(r > b for r, _g, b in codes)  # top rows sample the red half
+    assert any(b > r for r, _g, b in codes)  # lower rows sample the blue half
+
+
 def test_caption_color_image_html():
     opt = Options(out_format="html")
     opt.caption = CaptionOptions(text="Cat", style="box", color="image")
