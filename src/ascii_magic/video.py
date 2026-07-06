@@ -97,10 +97,12 @@ class AsciiVideo:
         frames: List[Tuple[List[str], Image.Image]],
         fps: float,
         matrix: Optional[MatrixOptions] = None,
+        caption=None,  # animate.CaptionRender
     ):
         self.frames = frames  # per frame: (ascii lines, source frame image)
         self.fps = fps
         self.matrix = matrix if (matrix and matrix.enabled) else None
+        self.caption = caption
 
     def _frame_matrix(self, index: int) -> MatrixOptions:
         # Advance the seed per frame: deterministic overall, flickering glyphs.
@@ -109,16 +111,24 @@ class AsciiVideo:
         return dataclasses.replace(m, seed=seed)
 
     def frames_ansi(self) -> List[str]:
+        cap_rows = None
+        if self.caption:
+            from .animate import caption_rows_ansi, with_caption_rows
+
+            cap_rows = caption_rows_ansi(self.caption)
         out = []
         for i, (lines, img) in enumerate(self.frames):
             if self.matrix:
                 rows = matrix_lines_ansi(lines, img, self._frame_matrix(i))
             else:
                 rows = colorize_lines_ansi(lines, img, color_spaces=False)
+            if cap_rows is not None:
+                rows = with_caption_rows(list(rows), self.caption, cap_rows)
             out.append("\n".join(rows) + "\x1b[0m")
         return out
 
-    def to_gif_bytes(self, font_path: Optional[str] = None, font_size: int = 14) -> bytes:
+    def _frame_arrays(self, font_path: Optional[str] = None, font_size: int = 14) -> List[np.ndarray]:
+        """Every frame drawn to an RGB array (including the caption strip)."""
         font_path = font_path or find_default_mono_font()
         if font_path:
             font = ImageFont.truetype(font_path, font_size)
@@ -140,7 +150,14 @@ class AsciiVideo:
                 cache[ch] = a
             return a
 
-        images = []
+        cap_strip: Optional[np.ndarray] = None
+        if self.caption:
+            from .animate import caption_strip_array
+
+            w0 = max(len(ln) for ln in self.frames[0][0])
+            cap_strip = caption_strip_array(self.caption, font, cell_w, cell_h, w0 * cell_w)
+
+        arrays = []
         for i, (lines, frame_img) in enumerate(self.frames):
             h = len(lines)
             w = max(len(ln) for ln in lines)
@@ -171,8 +188,17 @@ class AsciiVideo:
                     block[:, :, 0] = (a * r).astype(np.uint8)
                     block[:, :, 1] = (a * g).astype(np.uint8)
                     block[:, :, 2] = (a * b).astype(np.uint8)
-            images.append(Image.fromarray(canvas))
 
+            if cap_strip is not None:
+                if self.caption.position == "top":
+                    canvas = np.vstack([cap_strip, canvas])
+                else:
+                    canvas = np.vstack([canvas, cap_strip])
+            arrays.append(canvas)
+        return arrays
+
+    def to_gif_bytes(self, font_path: Optional[str] = None, font_size: int = 14) -> bytes:
+        images = [Image.fromarray(a) for a in self._frame_arrays(font_path, font_size)]
         buf = io.BytesIO()
         images[0].save(
             buf,
@@ -183,6 +209,51 @@ class AsciiVideo:
             loop=0,
         )
         return buf.getvalue()
+
+    def write_mp4(
+        self,
+        out_path: str,
+        audio_source: Optional[str] = None,
+        font_path: Optional[str] = None,
+        font_size: int = 14,
+    ) -> bool:
+        """Encode the frames as an mp4, muxing audio from audio_source (usually
+        the original clip). Returns True if audio made it in, False if the
+        source had no usable audio and the file was written silent."""
+        import imageio_ffmpeg
+
+        arrays = self._frame_arrays(font_path, font_size)
+        h, w = arrays[0].shape[:2]
+        # h264 requires even dimensions
+        pad_h, pad_w = h % 2, w % 2
+        if pad_h or pad_w:
+            arrays = [np.pad(a, ((0, pad_h), (0, pad_w), (0, 0))) for a in arrays]
+            h, w = arrays[0].shape[:2]
+
+        def _write(audio: Optional[str]) -> None:
+            gen = imageio_ffmpeg.write_frames(
+                out_path,
+                (w, h),
+                fps=max(1.0, self.fps),
+                macro_block_size=1,
+                audio_path=audio,
+                audio_codec="aac" if audio else None,
+                # A truncated sample (--max-frames) is shorter than the audio.
+                output_params=["-shortest"] if audio else None,
+            )
+            gen.send(None)
+            for a in arrays:
+                gen.send(np.ascontiguousarray(a))
+            gen.close()
+
+        try:
+            _write(audio_source)
+            return audio_source is not None
+        except Exception:
+            if audio_source is None:
+                raise
+            _write(None)  # source without an audio stream: write silent
+            return False
 
     def play(self, loops: int = 1) -> None:
         from .greet import play_frames
@@ -203,6 +274,7 @@ def video_to_ascii(
     mode: str = "braille",
     quality: str = "balanced",
     matrix: Optional[MatrixOptions] = None,
+    caption=None,  # colorize_ascii.CaptionOptions
 ) -> AsciiVideo:
     frames, out_fps = read_video_frames(path, sample_fps=sample_fps, max_frames=max_frames)
     charset = make_charset(unicode_mode="off", ascii_preset="dense") if mode == "glyph" else None
@@ -234,7 +306,19 @@ def video_to_ascii(
                 dither=dither,
             )
         converted.append((art.splitlines(), img))
-    return AsciiVideo(converted, out_fps, matrix=matrix)
+
+    cap_render = None
+    if caption is not None and caption.text and converted:
+        from .animate import _resolve_caption
+
+        first_lines, first_img = converted[0]
+        width = max(len(ln) for ln in first_lines)
+        # Image-colored captions resolve against the first frame; otherwise a
+        # neutral light default (or the matrix tint when matrix is on).
+        tint = matrix.tint if (matrix and matrix.enabled) else (224, 224, 224)
+        cap_render = _resolve_caption(caption, first_img, width, tint)
+
+    return AsciiVideo(converted, out_fps, matrix=matrix, caption=cap_render)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -245,7 +329,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     ap.add_argument("input", help="Video file")
     ap.add_argument("out", nargs="?", default=None,
-                    help="Output: .gif or .frames (omit to play in the terminal)")
+                    help="Output: .gif, .mp4 (keeps the source audio), or .frames "
+                    "(omit to play in the terminal)")
     ap.add_argument("-c", "--cols", type=int, default=100, help="Width in characters")
     ap.add_argument("--fps", type=float, default=10.0,
                     help="Target sample/playback fps (default: 10)")
@@ -264,6 +349,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--matrix-gamma", type=float, default=2.0, metavar="F")
     ap.add_argument("--matrix-mask", action="store_true",
                     help="Bias matrix glyphs toward inked ASCII cells")
+    ap.add_argument("--no-audio", action="store_true",
+                    help=".mp4 output: skip muxing the source audio")
+    ap.add_argument("--caption", default=None, metavar="TEXT",
+                    help="Render TEXT as ASCII and stitch it onto every frame")
+    ap.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
+    ap.add_argument("--caption-style",
+                    choices=["block", "small", "shadow", "box", "banner", "figlet"],
+                    default="figlet")
+    ap.add_argument("--caption-scale", type=float, default=0.6, metavar="F")
+    ap.add_argument("--caption-gap", type=int, default=1, metavar="N")
+    ap.add_argument("--caption-color", default=None, metavar="COLOR",
+                    help="theme, #RRGGBB, image, or image-full (first frame)")
+    ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
     ap.add_argument("--no-dither", action="store_true",
                     help="Disable Floyd-Steinberg dithering")
     ap.add_argument("--threshold", type=float, default=0.5)
@@ -275,8 +373,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--font-size", type=int, default=14, help="GIF glyph size")
     args = ap.parse_args(argv)
 
-    if args.out and not args.out.lower().endswith((".gif", ".frames")):
-        raise SystemExit("Output must be .gif or .frames (or omitted for terminal playback)")
+    if args.out and not args.out.lower().endswith((".gif", ".frames", ".mp4")):
+        raise SystemExit("Output must be .gif, .mp4, or .frames (or omitted for terminal playback)")
 
     matrix = None
     if args.matrix:
@@ -286,6 +384,20 @@ def main(argv: Optional[List[str]] = None) -> int:
             gamma=args.matrix_gamma,
             tint=parse_matrix_color(args.matrix_color),
             use_mask=args.matrix_mask,
+        )
+
+    caption = None
+    if args.caption:
+        from .colorize_ascii import CaptionOptions
+
+        caption = CaptionOptions(
+            text=args.caption,
+            position=args.caption_pos,
+            style=args.caption_style,
+            scale=args.caption_scale,
+            gap=args.caption_gap,
+            color=args.caption_color,
+            align=args.caption_align,
         )
 
     try:
@@ -302,6 +414,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             mode=args.mode,
             quality=args.quality,
             matrix=matrix,
+            caption=caption,
         )
     except RuntimeError as e:
         raise SystemExit(str(e))
@@ -312,6 +425,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         with open(args.out, "wb") as f:
             f.write(video.to_gif_bytes(font_size=args.font_size))
         print(f"Wrote {args.out} ({len(video.frames)} frames @ {video.fps:.1f} fps)")
+    elif args.out.lower().endswith(".mp4"):
+        with_audio = video.write_mp4(
+            args.out,
+            audio_source=None if args.no_audio else args.input,
+            font_size=args.font_size,
+        )
+        note = "with source audio" if with_audio else "silent (no usable audio in source)"
+        print(f"Wrote {args.out} ({len(video.frames)} frames @ {video.fps:.1f} fps, {note})")
     else:
         from pathlib import Path
 

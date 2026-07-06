@@ -170,7 +170,9 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
         try:
             from .video import video_to_ascii
 
-            matrix = _build_options(o, "ansi").matrix if o.get("matrix") else None
+            built = _build_options(o, "ansi")
+            matrix = built.matrix if o.get("matrix") else None
+            caption = built.caption if o.get("caption_text") else None
             mode = o.get("video_mode") if o.get("video_mode") in ("braille", "glyph") else "braille"
             v = video_to_ascii(
                 tmp.name,
@@ -185,6 +187,7 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
                 mode=mode,
                 quality=o.get("quality") if o.get("quality") in ("fast", "balanced", "best") else "balanced",
                 matrix=matrix,
+                caption=caption,
             )
         except (RuntimeError, ValueError, OSError) as e:
             raise HTTPException(status_code=400, detail=f"Could not read the video: {e}")

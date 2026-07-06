@@ -269,11 +269,14 @@ Convert a video into a colorized ASCII animation — every format ffmpeg reads (
 pip install -e ".[video]"        # or: uv sync --extra video
 
 ascii-magic video clip.mp4 out.gif -c 100 --fps 10   # animated GIF of ASCII frames
+ascii-magic video clip.mp4 out.mp4                   # real video WITH the original audio
 ascii-magic video clip.mp4 out.frames                # playable via greet/play
 ascii-magic video clip.mp4 --loops 0                 # play live in the terminal
 ```
 
 Frames are sampled at the target `--fps`, converted through the braille pipeline (dithered by default; `--no-dither` to disable), and colorized from each frame. `--max-frames` caps long clips (default 300). A `.frames` output can be installed as an animated login greeting with `ascii-magic greet install`.
+
+`.mp4` output re-encodes the ASCII frames as h264 and muxes the source's audio track back in (`--no-audio` to skip; silent sources fall back gracefully). `--caption*` stamps text onto every frame — `--caption-color image` samples the first frame.
 
 Per-frame rendering is configurable: `--mode glyph` uses character matching instead of braille, and `--matrix` (with `--matrix-color`, `--matrix-seed`, `--matrix-gamma`, `--matrix-mask`) renders each frame as matrix glyphs driven by that frame — the subject moves through the rain. Seeds advance per frame, so seeded runs are reproducible.
 

@@ -105,6 +105,37 @@ def test_video_matrix_render_deterministic_and_tinted(clip):
     assert gif[:4] == b"GIF8"
 
 
+def test_video_caption_in_sinks(clip):
+    from ascii_magic.colorize_ascii import CaptionOptions
+
+    cap = CaptionOptions(text="Cat", style="box", position="bottom")
+    v = video_mod.video_to_ascii(str(clip), cols=24, max_frames=3, caption=cap)
+    bare = video_mod.video_to_ascii(str(clip), cols=24, max_frames=3)
+
+    import re
+
+    frames = v.frames_ansi()
+    assert all("Cat" in re.sub(r"\x1b\[[0-9;]*m", "", f) for f in frames)
+
+    import io as _io
+
+    g_cap = Image.open(_io.BytesIO(v.to_gif_bytes()))
+    g_bare = Image.open(_io.BytesIO(bare.to_gif_bytes()))
+    assert g_cap.size[1] > g_bare.size[1]  # caption strip adds height
+    assert g_cap.size[0] == g_bare.size[0]
+
+
+def test_video_mp4_output(clip, tmp_path):
+    pytest.importorskip("imageio_ffmpeg")
+    out = tmp_path / "out.mp4"
+    rc = video_mod.main([str(clip), str(out), "-c", "20", "--max-frames", "3",
+                         "--caption", "Hi", "--caption-style", "box"])
+    assert rc == 0
+    data = out.read_bytes()
+    assert len(data) > 500
+    assert b"ftyp" in data[:64]  # mp4 container signature
+
+
 def test_video_matrix_cli_flags(clip, tmp_path):
     out = tmp_path / "m.frames"
     rc = video_mod.main([

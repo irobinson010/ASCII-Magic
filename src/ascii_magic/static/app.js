@@ -298,11 +298,11 @@ function syncVisibility() {
   $("custom-color-field").hidden = $("matrix_theme").value !== "custom";
   $("caption-color-field").hidden = $("caption_color_mode").value !== "custom";
 
-  // Colorize/caption don't apply to video renders (yet); matrix DOES —
-  // its knobs drive the per-frame matrix render — but rain animation
-  // doesn't (video is already animated).
+  // Colorize doesn't apply to video renders (frames colorize themselves);
+  // matrix and captions DO — but rain animation doesn't (video is already
+  // animated).
   const isVideo = state.tab === "video";
-  for (const id of ["sec-caption", "sec-colorize", "sec-html"]) {
+  for (const id of ["sec-colorize", "sec-html"]) {
     $(id).hidden = isVideo;
   }
   $("animate-row").hidden = isVideo;
