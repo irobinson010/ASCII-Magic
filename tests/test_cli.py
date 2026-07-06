@@ -60,6 +60,20 @@ def test_image_color_one_step_html(tmp_path):
     assert "<!doctype html>" in out.read_text().lower()
 
 
+def test_image_rotate_flag(tmp_path):
+    p = tmp_path / "wide.png"
+    Image.new("RGB", (60, 20), (10, 200, 40)).save(p)
+    out = tmp_path / "art.txt"
+
+    cli_main(["image", str(p), "--mode", "braille", "-c", "10", "-o", str(out)])
+    plain = out.read_text().splitlines()
+    assert max(len(ln) for ln in plain) > len(plain)  # landscape
+
+    cli_main(["image", str(p), "--mode", "braille", "-c", "10", "--rotate", "90", "-o", str(out)])
+    rotated = out.read_text().splitlines()
+    assert len(rotated) > max(len(ln) for ln in rotated)  # portrait
+
+
 def test_image_without_color_stays_plain(tmp_path):
     out = tmp_path / "art.txt"
     rc = cli_main(

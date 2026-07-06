@@ -21,7 +21,9 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
+
+from .image_to_ascii import rotate_cw
 
 from . import colorize_ascii as colorize_mod
 from .pipeline import AsciiPipelineContext, animate as pipeline_animate, colorize, image_to_ascii, text_to_ascii
@@ -179,6 +181,10 @@ def render(
                     status_code=400,
                     detail=f"Image exceeds {MAX_IMAGE_PIXELS:,} pixels.",
                 )
+            # Honor EXIF orientation (browsers show the thumbnail rotated;
+            # without this the render comes out sideways) + manual rotation.
+            img = ImageOps.exif_transpose(img)
+            img = rotate_cw(img, _ival(o, "rotate", 0, 0, 270))
             ctx.source_image = img.convert("RGB")  # full decode happens here
         except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
             raise HTTPException(status_code=400, detail="Could not decode the uploaded image.")

@@ -26,7 +26,7 @@ class AsciiPipelineContext:
 
 def load_image(ctx: AsciiPipelineContext, image_path: str) -> AsciiPipelineContext:
     ctx.source_image_path = image_path
-    ctx.source_image = Image.open(image_path).convert("RGB")
+    ctx.source_image = image_mod.open_oriented(image_path, "RGB")
     return ctx
 
 
@@ -87,7 +87,7 @@ def image_to_ascii(
 ) -> str:
     img = ctx.source_image
     if img is None and ctx.source_image_path:
-        img = Image.open(ctx.source_image_path).convert("RGB")
+        img = image_mod.open_oriented(ctx.source_image_path, "RGB")
         ctx.source_image = img
     if img is None:
         raise ValueError("No source image in context. Call load_image(...) first.")
@@ -140,7 +140,7 @@ def _require_reference_image(ctx: AsciiPipelineContext) -> Image.Image:
         if ctx.rendered_text_image is not None:
             ctx.source_image = ctx.rendered_text_image.convert("RGB")
         elif ctx.source_image_path:
-            ctx.source_image = Image.open(ctx.source_image_path).convert("RGB")
+            ctx.source_image = image_mod.open_oriented(ctx.source_image_path, "RGB")
         else:
             raise ValueError("No source image in context. Call load_image(...) first.")
     return ctx.source_image
