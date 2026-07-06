@@ -5,14 +5,16 @@ const $ = (id) => document.getElementById(id);
 const state = {
   file: null,        // uploaded File
   fileStem: "ascii-art",
+  imgW: 0,           // natural dimensions of the uploaded image
+  imgH: 0,
   result: null,      // last /api/render response
   rendering: false,
   queued: false,
 };
 
 const PROFILES = {
-  terminal: { cols: 100, html_font_size: 12, html_fill_spaces: false },
-  web: { cols: 160, html_font_size: 10, html_fill_spaces: true },
+  terminal: { fallback_cols: 100, html_font_size: 12, html_fill_spaces: false },
+  web: { fallback_cols: 160, html_font_size: 10, html_fill_spaces: true },
 };
 
 // ---------- option collection ----------
@@ -174,6 +176,28 @@ $("dl-gif").addEventListener("click", () => {
   download(`${state.fileStem}.gif`, bytes, "image/gif");
 });
 
+// ---------- sizing ----------
+
+function autoSize() {
+  // Fit the art to the preview pane at the current font size, preserving the
+  // image's aspect ratio. Sets the Width knob; the user tunes from there.
+  if (!state.imgW || !state.imgH) return;
+  const pane = $("preview").getBoundingClientRect();
+  const fontPx = num("html_font_size") || 12;
+  const charW = fontPx * 0.62; // monospace advance ~= 0.62em
+  const pad = 40;              // preview body padding + scrollbar allowance
+  const maxCols = Math.floor((pane.width - pad) / charW);
+  const maxRows = Math.floor((pane.height - pad) / fontPx);
+  const aspect = state.imgH / state.imgW;
+  const rowFactor = 0.5;       // both glyph (8x16) and braille (2x4) cells are 1:2
+
+  let cols = maxCols;
+  if (Math.ceil(cols * aspect * rowFactor) > maxRows) {
+    cols = Math.floor(maxRows / (aspect * rowFactor));
+  }
+  $("cols").value = Math.max(20, Math.min(cols, 400));
+}
+
 // ---------- file handling ----------
 
 function loadFile(file) {
@@ -187,7 +211,16 @@ function loadFile(file) {
   thumb.src = URL.createObjectURL(file);
   thumb.hidden = false;
   $("drop-hint").innerHTML = `${file.name}<br>(click to change)`;
-  render();
+
+  const probe = new Image();
+  probe.onload = () => {
+    state.imgW = probe.naturalWidth;
+    state.imgH = probe.naturalHeight;
+    autoSize();
+    render();
+  };
+  probe.onerror = () => render();
+  probe.src = thumb.src;
 }
 
 const dz = $("dropzone");
@@ -235,15 +268,25 @@ function syncVisibility() {
 
 $("profile").addEventListener("change", () => {
   const p = PROFILES[$("profile").value];
-  $("cols").value = p.cols;
   $("html_font_size").value = p.html_font_size;
   $("html_fill_spaces").checked = p.html_fill_spaces;
+  if (state.imgW) {
+    autoSize(); // font size changed, so the fit changes too
+  } else {
+    $("cols").value = p.fallback_cols;
+  }
   autoRender();
 });
 
 // ---------- misc wiring ----------
 
 $("render").addEventListener("click", render);
+
+$("autosize").addEventListener("click", (e) => {
+  e.preventDefault();
+  autoSize();
+  render();
+});
 
 $("reroll").addEventListener("click", (e) => {
   e.preventDefault();

@@ -45,13 +45,16 @@
         <div class="field">
           <label for="mode">Mode</label>
           <select id="mode">
-            <option value="braille">Braille (high detail)</option>
-            <option value="glyph">Glyph matching</option>
+            <option value="glyph">Glyph matching (best for cartoons/line art)</option>
+            <option value="braille">Braille dots (best for photos; try Invert)</option>
           </select>
         </div>
         <div class="field">
           <label for="cols">Width (chars)</label>
-          <input type="number" id="cols" value="100" min="10" max="500">
+          <span class="seed-row">
+            <input type="number" id="cols" value="100" min="10" max="500">
+            <button id="autosize" title="Fit the preview pane (auto-set on upload)">Fit</button>
+          </span>
         </div>
 
         <div id="braille-knobs">
@@ -59,7 +62,7 @@
             <label for="threshold">Dot threshold <output id="threshold-out">0.5</output></label>
             <input type="range" id="threshold" min="0" max="1" step="0.05" value="0.5">
           </div>
-          <label class="check"><input type="checkbox" id="dither" checked> Dither (smoother gradients)</label>
+          <label class="check"><input type="checkbox" id="dither"> Dither (smoother gradients on photos)</label>
         </div>
 
         <div id="glyph-knobs" hidden>
@@ -94,7 +97,7 @@
         </div>
 
         <details>
-          <summary>Image adjustments</summary>
+          <summary>Image adjustments — gamma · contrast · invert</summary>
           <div class="field">
             <label for="gamma">Gamma <output id="gamma-out">1.0</output></label>
             <input type="range" id="gamma" min="0.2" max="3" step="0.1" value="1">
