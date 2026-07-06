@@ -51,6 +51,22 @@ def _require_imageio():
     return iio
 
 
+def _has_audio_stream(path: str) -> bool:
+    import subprocess
+
+    import imageio_ffmpeg
+
+    proc = subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-i", path],
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    # ffmpeg exits nonzero without an output file; the stream listing on
+    # stderr is still complete.
+    return "Audio:" in proc.stderr
+
+
 def read_video_frames(
     path: str,
     sample_fps: float = 10.0,
@@ -71,18 +87,20 @@ def read_video_frames(
     out_fps = src_fps / step
 
     frames: List[Image.Image] = []
-    for i, arr in enumerate(reader):
-        if i % step:
-            continue
-        if len(frames) >= max_frames:
-            break
-        arr = np.asarray(arr)
-        if arr.ndim == 2:
-            img = Image.fromarray(arr, mode="L").convert("RGB")
-        else:
-            img = Image.fromarray(arr[:, :, :3], mode="RGB")
-        frames.append(img)
-    reader.close()
+    try:
+        for i, arr in enumerate(reader):
+            if i % step:
+                continue
+            if len(frames) >= max_frames:
+                break
+            arr = np.asarray(arr)
+            if arr.ndim == 2:
+                img = Image.fromarray(arr, mode="L").convert("RGB")
+            else:
+                img = Image.fromarray(arr[:, :, :3], mode="RGB")
+            frames.append(img)
+    finally:
+        reader.close()
 
     if not frames:
         raise RuntimeError(f"No frames could be read from {path}")
@@ -219,7 +237,7 @@ class AsciiVideo:
     ) -> bool:
         """Encode the frames as an mp4, muxing audio from audio_source (usually
         the original clip). Returns True if audio made it in, False if the
-        source had no usable audio and the file was written silent."""
+        source has no audio stream and the file was written silent."""
         import imageio_ffmpeg
 
         arrays = self._frame_arrays(font_path, font_size)
@@ -241,19 +259,17 @@ class AsciiVideo:
                 # A truncated sample (--max-frames) is shorter than the audio.
                 output_params=["-shortest"] if audio else None,
             )
-            gen.send(None)
-            for a in arrays:
-                gen.send(np.ascontiguousarray(a))
-            gen.close()
+            try:
+                gen.send(None)
+                for a in arrays:
+                    gen.send(np.ascontiguousarray(a))
+            finally:
+                gen.close()
 
-        try:
-            _write(audio_source)
-            return audio_source is not None
-        except Exception:
-            if audio_source is None:
-                raise
-            _write(None)  # source without an audio stream: write silent
-            return False
+        if audio_source is not None and not _has_audio_stream(audio_source):
+            audio_source = None  # write silent; encode errors below propagate
+        _write(audio_source)
+        return audio_source is not None
 
     def play(self, loops: int = 1) -> None:
         from .greet import play_frames
