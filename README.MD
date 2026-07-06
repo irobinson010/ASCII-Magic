@@ -11,8 +11,11 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 
 ## Installation
 
+Requires Python 3.10+.
+
 ```bash
-pip install -e .
+pip install -e .          # CLI tools only
+pip install -e ".[web]"   # CLI tools + web GUI
 ```
 
 ## Quick Start (Unified CLI)
@@ -29,11 +32,35 @@ ascii-magic text "Hello, world" -s block -w 80
 # Colorize ASCII art with an image
 ascii-magic colorize image.png ascii.txt output.ans
 
+# Install art as a login greeting / start the web GUI
+ascii-magic greet install output.ans
+ascii-magic web
+
 # Show version
 ascii-magic --version
 ```
 
 The individual commands (`image-to-ascii`, `colorize-ascii`, `text-to-ascii`) continue to work as before.
+
+## Development setup
+
+The repo pins its Python version in `.python-version` and locks exact dependency versions in `uv.lock`, so a fresh clone builds the same environment on any OS. With [uv](https://docs.astral.sh/uv/) installed (a single binary — it downloads the right Python by itself):
+
+```bash
+uv sync --extra web    # creates .venv/ with pinned Python, deps, and test tools
+uv run pytest          # run the test suite
+uv run ascii-magic-web # start the web GUI
+```
+
+Without uv, stock tooling works too (pip 25.1+ for `--group`):
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[web]" --group dev
+.venv/bin/pytest
+```
+
+Always create the virtualenv as `.venv/` inside the repo — never at the repo root — so editors and tools auto-detect it and git ignores it.
 
 ## Usage
 
@@ -59,6 +86,7 @@ python -m ascii_magic.image_to_ascii input.png -o output.txt
 - `--gamma` - Apply gamma correction
 - `--invert` - Invert image colors
 - `--threshold` - Braille mode dot threshold (0-1)
+- `--dither` - Braille mode: Floyd-Steinberg dithering (keeps smooth gradients a hard threshold flattens)
 
 ### ASCII Colorization (`colorize_ascii.py`)
 
@@ -124,6 +152,24 @@ colorize-ascii photo.png art.txt output.html --format html --html-font-size 16 -
 Matrix subject mask (uses your ASCII art as a subject hint)
 
 If your ASCII text already captures the subject well (non-space characters), enabling `--matrix-mask` will bias Matrix glyph placement so the subject "pops" more than the background. Use `--matrix-mask-boost` and `--matrix-mask-density-floor` to tune how strongly inked characters influence glyph density and intensity.
+
+### Animated matrix mode
+
+Add `--animate` for looping matrix rain driven by the image's subject — bright heads, fading tails, glyphs that flicker, and columns timed so the loop is seamless:
+
+```bash
+colorize-ascii photo.png art.txt rain.gif --animate --matrix-seed 42   # animated GIF
+colorize-ascii photo.png art.txt rain.html --animate                   # self-playing web page
+colorize-ascii photo.png art.txt --animate --loops 3                   # play in the terminal
+```
+
+**Options:**
+- `--frames N` : Frames per loop (default: 60)
+- `--fps F` : Playback speed (default: 12)
+- `--tail F` : Fade length in rows behind each drop head (default: 6)
+- `--loops N` : Terminal playback repeats; `0` plays until Ctrl-C (default: 3)
+
+All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing) apply to the rain too. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `ascii_magic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
 
 ### Text to ASCII (`text_to_ascii.py`)
 
@@ -191,11 +237,57 @@ There are also lower-level in-memory helpers if you do not want the context obje
 - `ascii_magic.image_to_ascii.image_to_braille_from_image(...)`
 - `ascii_magic.colorize_ascii.colorize_ascii_text(...)`
 
+## Login greeting (`ascii-magic-greet`)
+
+Install any output as a shell login greeting — the art (or matrix rain) appears whenever you open a terminal or SSH in:
+
+```bash
+# Static greeting
+colorize-ascii cat.png art.txt cat.ans
+ascii-magic-greet install cat.ans
+
+# Animated greeting (matrix rain, plays once per login)
+colorize-ascii cat.png art.txt cat.frames --animate --loops 1
+ascii-magic-greet install cat.frames
+```
+
+The install copies the file to `~/.config/ascii-magic/` and appends a marker-guarded block to your `~/.bashrc` (or `~/.zshrc`) that only fires in interactive terminals. Reinstalling replaces the previous greeting; `ascii-magic-greet remove` cleans everything up.
+
+**Subcommands:** `install FILE`, `remove`, `show`/`preview`, `status`, `play FILE [--fps F] [--loops N]`. Use `--rc PATH` to target a different rc file, and set `ASCII_MAGIC_NO_GREETING=1` to suppress the greeting temporarily.
+
+## Web GUI
+
+A browser interface over the same pipeline: upload an image (or type text), turn every knob the CLIs expose, preview live, and download `.ans`, `.html`, or `.txt` results. Nothing is stored server-side.
+
+```bash
+pip install -e ".[web]"
+ascii-magic-web            # http://127.0.0.1:8000
+```
+
+The **Profile** switch in the header applies sensible defaults per target: *Terminal* (SSH greetings, `.ans` output) or *Web page* (larger canvas, filled spaces, `.html` output).
+
+## Docker
+
+One image covers both the web GUI and one-shot CLI runs (it bundles DejaVu Sans Mono, so glyph matching works out of the box):
+
+```bash
+docker build -t ascii-magic .
+
+# Web GUI (default command) — open http://localhost:8000
+docker run --rm -p 8000:8000 ascii-magic
+
+# One-shot CLI: mount your working directory at /data and pass any subcommand
+docker run --rm -v "$(pwd):/data" ascii-magic image photo.png -o art.txt
+docker run --rm -v "$(pwd):/data" ascii-magic colorize photo.png art.txt output.ans
+docker run --rm -v "$(pwd):/data" ascii-magic text "Hello" -s block
+```
+
 ## Tips
 
 - Cartoon or anime-styled images work best for ASCII conversion
 - For colorization, use `--keep-top N` to preserve text headers
-- Use `--mode braille` for high-detail output with Unicode braille characters
+- Use `--mode braille` for high-detail output with Unicode braille characters; add `--dither` for photos and smooth gradients
+- Glyph matching is fully vectorized — `--quality best` is fast enough to use freely
 - HTML output is great for web display and preservation
 
 ## License
@@ -204,11 +296,22 @@ Apache License 2.0
 
 ## Console script entry points
 
-This project installs a unified CLI and three individual console scripts (see `pyproject.toml`):
+The unified `ascii-magic` command (recommended) wraps everything as subcommands:
 
-- `ascii-magic` (recommended) -> `ascii_magic.unified_cli:main` — dispatches to all subcommands
+```bash
+ascii-magic image photo.png --mode braille --dither -o art.txt
+ascii-magic colorize photo.png art.txt out.gif --animate
+ascii-magic greet install out.frames
+ascii-magic web
+```
+
+The standalone scripts remain and behave identically:
+
+- `ascii-magic` -> `ascii_magic.unified_cli:main` (subcommands: image, text, colorize, greet, web)
 - `image-to-ascii` -> `ascii_magic.image_to_ascii:main`
 - `colorize-ascii` -> `ascii_magic.colorize_ascii:main`
 - `text-to-ascii` -> `ascii_magic.text_to_ascii:main`
+- `ascii-magic-greet` -> `ascii_magic.greet:main`
+- `ascii-magic-web` -> `ascii_magic.webapp:main` (requires the `[web]` extra)
 
 Prefer calling `ascii-magic` or the individual console scripts after `pip install -e .`. You can also invoke modules directly with `python -m ascii_magic.<module>` when developing.

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import sys
 import os
 import html
@@ -66,6 +67,14 @@ class Options:
     debug: bool = False
     log_path: Optional[str] = None
 
+    # Animation (implies matrix mode). Serialized here rather than as an
+    # AnimationOptions to avoid a circular import with animate.py.
+    animate: bool = False
+    anim_frames: int = 60
+    anim_fps: float = 12.0
+    anim_tail: float = 6.0
+    anim_loops: int = 3
+
     size: SizeOptions = field(default_factory=SizeOptions)
     html: HtmlOptions = field(default_factory=HtmlOptions)
     matrix: MatrixOptions = field(default_factory=MatrixOptions)
@@ -73,27 +82,6 @@ class Options:
 # -----------------------------
 # Utilities / core logic
 # -----------------------------
-
-def print_usage(file=sys.stderr):
-    print(
-        "usage: colorize_ascii.py <image> <ascii.txt> <out.ans|out.html> "
-        "[--format ansi|html] "
-        "[--max-rows N] [--max-cols N] "
-        "[--rows N] [--cols N] "
-        "[--keep-top N] [--color-top] "
-        "[--debug] [--log FILE] "
-        "[--html-font-size PX] [--html-line-height PX] [--html-fill-spaces] "
-        "[--matrix] [--matrix-top] [--matrix-seed N] [--matrix-gamma F] "
-        "[--matrix-fg-min N] [--matrix-fg-max N] [--matrix-bg-min N] [--matrix-bg-max N] "
-        "[--matrix-chars STR] [--matrix-fill-spaces] "
-        "[--matrix-mask] [--matrix-mask-boost F] [--matrix-mask-density-floor F] "
-        "[--matrix-bg-dim F] [--matrix-bg-density F] "
-        "\n"
-        "If out.* is omitted: defaults to ANSI and prints to stdout.\n"
-        "To print HTML to stdout, pass --format html.\n",
-        file=file,
-    )
-
 
 LOG = logging.getLogger("colorize_ascii")
 def setup_logging(debug: bool, log_path: str | None = None) -> None:
@@ -118,15 +106,6 @@ def setup_logging(debug: bool, log_path: str | None = None) -> None:
     LOG.handlers[:] = handlers
     LOG.propagate = False       # prevent double logging via root logger
 
-def require_value(argv, i, flag):
-    if i + 1 >= len(argv):
-        raise SystemExit(f"{flag} requires a value")
-    v = argv[i + 1]
-    if v.startswith("--"):
-        raise SystemExit(f"{flag} requires a value")
-    return v
-
-
 def scale_grid(lines, target_h, target_w):
     """Nearest-neighbor scale of a rectangular character grid."""
     src_h = len(lines)
@@ -144,93 +123,122 @@ def scale_grid(lines, target_h, target_w):
     return out
 
 
+_OUT_EXTS = (".ans", ".html", ".gif", ".frames")
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="colorize-ascii",
+        description="Colorize ASCII art from an image, as ANSI, HTML, or animated matrix rain.",
+        epilog=(
+            "If OUT is omitted: defaults to ANSI on stdout (pass --format html for HTML). "
+            "--animate plays matrix rain in the terminal, or writes OUT.gif / OUT.html / OUT.frames."
+        ),
+    )
+    ap.add_argument("image", help="Reference image (colors are sampled from it)")
+    ap.add_argument("ascii", help="ASCII text file to colorize")
+    ap.add_argument("out", nargs="?", default=None,
+                    help="Output file: .ans, .html, .gif, .frames, or '-' (default: stdout)")
+
+    ap.add_argument("--format", dest="out_format", choices=["ansi", "html"], default=None,
+                    help="Output format (default: inferred from OUT extension)")
+
+    g = ap.add_argument_group("sizing")
+    g.add_argument("--max-rows", type=int, default=None, help="Fit art within N rows (after header)")
+    g.add_argument("--max-cols", type=int, default=None, help="Fit art within N columns")
+    g.add_argument("--rows", type=int, default=None, help="Exact art height")
+    g.add_argument("--cols", type=int, default=None, help="Exact art width")
+
+    g = ap.add_argument_group("header")
+    g.add_argument("--keep-top", type=int, default=0, metavar="N",
+                   help="Preserve top N lines uncolorized")
+    g.add_argument("--color-top", action="store_true", help="Colorize the kept top lines")
+
+    g = ap.add_argument_group("html output")
+    g.add_argument("--html-font-size", type=int, default=12, metavar="PX")
+    g.add_argument("--html-line-height", type=int, default=None, metavar="PX")
+    g.add_argument("--html-fill-spaces", action="store_true",
+                   help="Give spaces a background color in HTML output")
+
+    g = ap.add_argument_group("matrix mode")
+    g.add_argument("--matrix", action="store_true", help="Green glyphs driven by luminance/edges")
+    g.add_argument("--matrix-top", action="store_true", help="Apply matrix mode to kept top lines")
+    g.add_argument("--matrix-seed", type=int, default=None, metavar="N")
+    g.add_argument("--matrix-gamma", type=float, default=2.0, metavar="F")
+    g.add_argument("--matrix-fg-min", type=int, default=20, metavar="N")
+    g.add_argument("--matrix-fg-max", type=int, default=255, metavar="N")
+    g.add_argument("--matrix-bg-min", type=int, default=0, metavar="N")
+    g.add_argument("--matrix-bg-max", type=int, default=60, metavar="N")
+    g.add_argument("--matrix-chars", default=MatrixOptions.chars, metavar="STR")
+    g.add_argument("--matrix-fill-spaces", action="store_true")
+    g.add_argument("--matrix-mask", action="store_true",
+                   help="Bias glyph placement toward inked ASCII characters")
+    g.add_argument("--matrix-mask-boost", type=float, default=0.30, metavar="F")
+    g.add_argument("--matrix-mask-density-floor", type=float, default=0.35, metavar="F")
+    g.add_argument("--matrix-bg-dim", type=float, default=0.80, metavar="F")
+    g.add_argument("--matrix-bg-density", type=float, default=0.75, metavar="F")
+
+    g = ap.add_argument_group("animation")
+    g.add_argument("--animate", action="store_true",
+                   help="Matrix rain animation (implies --matrix)")
+    g.add_argument("--frames", type=int, default=60, metavar="N", help="Frames per loop")
+    g.add_argument("--fps", type=float, default=12.0, metavar="F")
+    g.add_argument("--tail", type=float, default=6.0, metavar="F", help="Drop tail fade length")
+    g.add_argument("--loops", type=int, default=3, metavar="N",
+                   help="Terminal playback repeats (0 = until Ctrl-C)")
+
+    ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--log", dest="log_path", default=None, metavar="FILE")
+    return ap
+
+
 def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
-    if "-h" in argv or "--help" in argv:
-        print_usage(file=sys.stdout)
-        sys.exit(0)
+    ns = build_arg_parser().parse_args(argv[1:])
 
-    if len(argv) < 3:
-        print_usage(file=sys.stderr)
-        sys.exit(2)
+    out_path = ns.out
+    if out_path is not None and out_path != "-":
+        ext = os.path.splitext(out_path)[1].lower()
+        if ext not in _OUT_EXTS:
+            raise SystemExit(
+                f"Unexpected output file: {out_path}\n"
+                f"Expected one of {', '.join(_OUT_EXTS)} or '-' for stdout."
+            )
 
-    img_path = argv[1]
-    ascii_path = argv[2]
-    out_path: Optional[str] = None
-    i = 3
-    if i < len(argv) and not argv[i].startswith("-"):
-        cand = argv[i]
-        ext = os.path.splitext(cand)[1].lower()
-        if cand == "-" or ext in (".ans", ".html"):
-            out_path = argv[i]
-            i += 1
-
-    opt = Options()
-
-    while i < len(argv):
-        a = argv[i]
-        if a == "--max-rows":
-            opt.size.max_rows = int(require_value(argv, i, a)); i += 2
-        elif a == "--max-cols":
-            opt.size.max_cols = int(require_value(argv, i, a)); i += 2
-        elif a == "--rows":
-            opt.size.rows = int(require_value(argv, i, a)); i += 2
-        elif a == "--cols":
-            opt.size.cols = int(require_value(argv, i, a)); i += 2
-        elif a == "--keep-top":
-            opt.keep_top = int(require_value(argv, i, a)); i += 2
-        elif a == "--color-top":
-            opt.color_top = True; i += 1
-        elif a == "--format":
-            opt.out_format = require_value(argv, i, a).lower(); i += 2
-        elif a == "--html-font-size":
-            opt.html.font_size_px = int(require_value(argv, i, a)); i += 2
-        elif a == "--html-line-height":
-            opt.html.line_height_px = int(require_value(argv, i, a)); i += 2
-        elif a == "--html-fill-spaces":
-            opt.html.fill_spaces = True; i += 1
-        elif a == "--debug":
-            opt.debug = True
-            i += 1
-        elif a == "--log":
-            opt.log_path = require_value(argv, i, a)
-            i += 2
-        elif a == "--matrix":
-            opt.matrix.enabled = True; i += 1
-        elif a == "--matrix-top":
-            opt.matrix.top = True; i += 1
-        elif a == "--matrix-seed":
-            opt.matrix.seed = int(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-gamma":
-            opt.matrix.gamma = float(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-fg-min":
-            opt.matrix.fg_min = int(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-fg-max":
-            opt.matrix.fg_max = int(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-bg-min":
-            opt.matrix.bg_min = int(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-bg-max":
-            opt.matrix.bg_max = int(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-chars":
-            opt.matrix.chars = require_value(argv, i, a); i += 2
-        elif a == "--matrix-fill-spaces":
-            opt.matrix.fill_spaces = True; i += 1
-        elif a == "--matrix-mask":
-            opt.matrix.use_mask = True; i += 1
-        elif a == "--matrix-mask-boost":
-            opt.matrix.mask_boost = float(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-mask-density-floor":
-            opt.matrix.mask_density_floor = float(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-bg-dim":
-            opt.matrix.bg_dim = float(require_value(argv, i, a)); i += 2
-        elif a == "--matrix-bg-density":
-            opt.matrix.bg_density = float(require_value(argv, i, a)); i += 2
-        else:
-            if not a.startswith("-"):
-                raise SystemExit(
-                        f"Unexpected bare value: {a}\n"
-                        f"Did you forget a flag (e.g. --keep-top {a}) or mean output file (e.g out.ans)?"
-                    )
-            raise SystemExit(f"Unknown arg: {a}")
+    opt = Options(
+        out_format=ns.out_format,
+        keep_top=ns.keep_top,
+        color_top=ns.color_top,
+        debug=ns.debug,
+        log_path=ns.log_path,
+        animate=ns.animate,
+        anim_frames=ns.frames,
+        anim_fps=ns.fps,
+        anim_tail=ns.tail,
+        anim_loops=ns.loops,
+        size=SizeOptions(rows=ns.rows, cols=ns.cols, max_rows=ns.max_rows, max_cols=ns.max_cols),
+        html=HtmlOptions(
+            font_size_px=ns.html_font_size,
+            line_height_px=ns.html_line_height,
+            fill_spaces=ns.html_fill_spaces,
+        ),
+        matrix=MatrixOptions(
+            enabled=ns.matrix,
+            top=ns.matrix_top,
+            seed=ns.matrix_seed,
+            gamma=ns.matrix_gamma,
+            fg_min=ns.matrix_fg_min,
+            fg_max=ns.matrix_fg_max,
+            bg_min=ns.matrix_bg_min,
+            bg_max=ns.matrix_bg_max,
+            chars=ns.matrix_chars,
+            fill_spaces=ns.matrix_fill_spaces,
+            use_mask=ns.matrix_mask,
+            mask_boost=ns.matrix_mask_boost,
+            mask_density_floor=ns.matrix_mask_density_floor,
+            bg_dim=ns.matrix_bg_dim,
+            bg_density=ns.matrix_bg_density,
+        ),
+    )
 
     # Infer output format if not explicitly set
     if opt.out_format is None:
@@ -240,10 +248,7 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
             ext = os.path.splitext(out_path)[1].lower()
             opt.out_format = "html" if ext == ".html" else "ansi"
 
-    if opt.out_format not in ("ansi", "html"):
-        raise SystemExit("--format must be 'ansi' or 'html'")
-
-    return img_path, ascii_path, out_path, opt
+    return ns.image, ns.ascii, out_path, opt
 
 
 def read_ascii_file(path: str) -> List[str]:
@@ -301,6 +306,13 @@ def scale_art_block(art_lines: Sequence[str], target_art_h: int, opt: SizeOption
 
     return art_rect
 
+def _flat_pixels(img: Image.Image) -> list:
+    """Flat pixel list; Pillow before 11.3 has no get_flattened_data."""
+    if hasattr(img, "get_flattened_data"):
+        return list(img.get_flattened_data())
+    return list(img.getdata())
+
+
 def _percentile_stretch(vals, lo=0.02, hi=0.98):
     # vals: list of 0..255 ints
     if not vals:
@@ -350,11 +362,13 @@ def ink_strength(ch: str) -> float:
         return 0.0
     return 0.35
 
-def matrix_lines_ansi(lines, img, m: MatrixOptions):
-    """ANSI Matrix mode: green glyphs with subject emphasis (edges + stretched luminance)."""
-    if not lines:
-        return []
+def matrix_field(lines, img, m: MatrixOptions):
+    """Per-cell matrix scoring shared by the static renderers and animation.
 
+    Returns (grid, field) where grid is the space-padded character grid and
+    field[y][x] = (fg_g, bg_g, p, subject): glyph green, background green,
+    glyph probability, and the raw subject score (0..~1).
+    """
     h = len(lines)
     w = max(len(ln) for ln in lines)
     grid = [ln.ljust(w) for ln in lines]
@@ -370,7 +384,7 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
     epx = edges.load()
 
     # Percentile stretch luminance (2%..98%)
-    lum_vals = list(gray.get_flattened_data())  # 0..255
+    lum_vals = _flat_pixels(gray)  # 0..255
     lo_v, hi_v = _percentile_stretch(lum_vals, lo=0.02, hi=0.98)
     denom = (hi_v - lo_v) if hi_v > lo_v else 1
 
@@ -379,13 +393,9 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
     edge_gamma = 0.7     # emphasize edges a bit
     base_density = 0.12  # minimum glyph probability
 
-    rng = random.Random(m.seed)
-
-    out_lines = []
+    field = []
     for y in range(h):
-        prev_style = None  # (fg_g, bg_g) or None
-        row = []
-
+        frow = []
         for x in range(w):
             lum_byte = gpx[x, y]  # 0..255
             # stretched luminance 0..1
@@ -401,7 +411,7 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
 
             # Background stays driven mainly by luminance (prevents noisy backgrounds)
             bg_score = (lum ** max(0.1, (m.gamma * 0.9)))
-            
+
             ink = ink_strength(grid[y][x]) if m.use_mask else 0.0
 
             if m.use_mask:
@@ -409,8 +419,11 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
                 subject_fg = min(1.0, subject + m.mask_boost)
 
                 subject = subject_bg * (1.0 - ink) + subject_fg * ink
-                bg_score = bg_score * (1.0 - 0.25 * ink) + min(1.0, bg_score + 0.15 * ink)
-                
+                # Blend toward a boosted background on inked cells; clamp so
+                # bg_g never exceeds the configured bg range.
+                bg_boosted = min(1.0, bg_score + 0.15)
+                bg_score = min(1.0, bg_score * (1.0 - 0.25 * ink) + bg_boosted * ink)
+
             fg_g = int(m.fg_min + subject * (m.fg_max - m.fg_min))
             bg_g = int(m.bg_min + bg_score * (m.bg_max - m.bg_min))
 
@@ -422,6 +435,26 @@ def matrix_lines_ansi(lines, img, m: MatrixOptions):
 
                 p = p_bg * (1.0 - ink) + p_fg * ink
 
+            frow.append((fg_g, bg_g, p, subject))
+        field.append(frow)
+
+    return grid, field
+
+
+def matrix_lines_ansi(lines, img, m: MatrixOptions):
+    """ANSI Matrix mode: green glyphs with subject emphasis (edges + stretched luminance)."""
+    if not lines:
+        return []
+
+    grid, field = matrix_field(lines, img, m)
+    rng = random.Random(m.seed)
+
+    out_lines = []
+    for y, frow in enumerate(field):
+        prev_style = None  # (fg_g, bg_g) or None
+        row = []
+
+        for x, (fg_g, bg_g, p, _subject) in enumerate(frow):
             ch = rng.choice(m.chars) if (rng.random() < p) else " "
 
             if ch == " " and not m.fill_spaces:
@@ -448,30 +481,11 @@ def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
     if not lines:
         return []
 
-    h = len(lines)
-    w = max(len(ln) for ln in lines)
-    grid = [ln.ljust(w) for ln in lines]  # shape only
-
-    img = img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
-
-    gray = img.convert("L")
-    edges = gray.filter(ImageFilter.FIND_EDGES)
-
-    gpx = gray.load()
-    epx = edges.load()
-
-    lum_vals = list(gray.get_flattened_data())
-    lo_v, hi_v = _percentile_stretch(lum_vals, lo=0.02, hi=0.98)
-    denom = (hi_v - lo_v) if hi_v > lo_v else 1
-
-    edge_weight = 0.35
-    edge_gamma = 0.7
-    base_density = 0.12
-
+    grid, field = matrix_field(lines, img, m)
     rng = random.Random(m.seed)
 
     out_lines = []
-    for y in range(h):
+    for y, frow in enumerate(field):
         prev_style = None
         span_open = False
         row = []
@@ -482,38 +496,7 @@ def matrix_lines_html(lines, img, m: MatrixOptions, fill_spaces=False):
                 row.append("</span>")
                 span_open = False
 
-        for x in range(w):
-            lum_byte = gpx[x, y]
-            lum = (lum_byte - lo_v) / denom
-            lum = 0.0 if lum < 0.0 else (1.0 if lum > 1.0 else lum)
-
-            edge = epx[x, y] / 255.0
-            edge = edge ** edge_gamma
-
-            subject = (1.0 - edge_weight) * lum + edge_weight * max(lum, edge)
-            subject = subject ** m.gamma
-
-            bg_score = (lum ** max(0.1, (m.gamma * 0.9)))
-
-            ink = ink_strength(grid[y][x]) if m.use_mask else 0.0
-
-            if m.use_mask:
-                subject_bg = subject * m.bg_dim
-                subject_fg = min(1.0, subject + m.mask_boost)
-
-                subject = subject_bg * (1.0 - ink) + subject_fg * ink
-                bg_score = bg_score * (1.0 - 0.25 * ink) + min(1.0, bg_score + 0.15 * ink)
-                    
-            fg_g = int(m.fg_min + subject * (m.fg_max - m.fg_min))
-            bg_g = int(m.bg_min + bg_score * (m.bg_max - m.bg_min))
-
-            p = base_density + (1.0 - base_density) * subject
-            if m.use_mask:
-                p_bg = p * m.bg_density
-                p_fg = max(p, m.mask_density_floor)
-
-                p = p_bg * (1.0 - ink) + p_fg * ink
-
+        for x, (fg_g, bg_g, p, _subject) in enumerate(frow):
             ch = rng.choice(m.chars) if (rng.random() < p) else " "
 
             effective_fill = fill_spaces or m.fill_spaces
@@ -779,7 +762,42 @@ def main():
     LOG.debug("Scaling art...")
     scaled_art = scale_art_block(art_lines, target_art_h, opt.size)
     LOG.debug("Scaled art: %d lines", len(scaled_art))
-    
+
+    ext = os.path.splitext(out_path)[1].lower() if out_path else None
+    if ext in (".gif", ".frames") and not opt.animate:
+        raise SystemExit(f"{ext} output requires --animate")
+
+    if opt.animate:
+        from .animate import AnimationOptions, generate
+
+        opt.matrix.enabled = True
+        anim_opt = AnimationOptions(
+            frames=opt.anim_frames,
+            fps=opt.anim_fps,
+            tail=opt.anim_tail,
+            loops=opt.anim_loops,
+        )
+        animation = generate("\n".join(header + scaled_art), base_img, m=opt.matrix, a=anim_opt)
+        if out_path is None:
+            animation.play(loops=opt.anim_loops)
+        elif ext == ".gif":
+            with open(out_path, "wb") as out:
+                out.write(animation.to_gif_bytes())
+        elif ext == ".html":
+            with open(out_path, "w", encoding="utf-8") as out:
+                out.write(animation.to_html(title=os.path.basename(out_path)))
+        elif ext == ".frames":
+            from .greet import write_frames_file
+            from pathlib import Path
+
+            write_frames_file(
+                Path(out_path), animation.frames_ansi(), fps=opt.anim_fps, loops=opt.anim_loops
+            )
+        else:
+            raise SystemExit("--animate output must be .gif, .html, .frames, or omitted for terminal playback")
+        LOG.debug("Done in %.3fs", time.perf_counter() - t0)
+        return
+
     LOG.debug("Writing %s output to %s", opt.out_format, out_path)
     if opt.out_format == "ansi":
         out_lines = render_ansi(header, scaled_art, base_img, opt.color_top, opt.matrix)

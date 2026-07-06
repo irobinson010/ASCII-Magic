@@ -8,6 +8,8 @@ COMMANDS = {
     "colorize": "ascii_magic.colorize_ascii",
     "image": "ascii_magic.image_to_ascii",
     "text": "ascii_magic.text_to_ascii",
+    "greet": "ascii_magic.greet",
+    "web": "ascii_magic.webapp",
 }
 
 
@@ -22,14 +24,17 @@ def _call_entry(entry, argv: List[str], module_prog: Optional[str] = None) -> in
     try:
         sig = inspect.signature(entry)
         # If the callable accepts at least one parameter, pass the argv list.
+        # Mains that return no exit code count as success.
         if len(sig.parameters) >= 1:
-            return entry(argv)
+            ret = entry(argv)
+            return ret if isinstance(ret, int) else 0
 
         # Otherwise, the module expects to parse from sys.argv; temporarily set it.
         old_argv = list(sys.argv)
         try:
             sys.argv = [module_prog or old_argv[0]] + list(argv)
-            return entry()
+            ret = entry()
+            return ret if isinstance(ret, int) else 0
         finally:
             sys.argv = old_argv
     except SystemExit as se:
