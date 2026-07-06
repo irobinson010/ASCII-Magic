@@ -726,6 +726,7 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
         "      margin: 0;\n"
         "      white-space: pre;\n"
         "      overflow: auto;\n"
+        "      color: #e0e0e0;\n"  # default text must contrast the black page
         '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", "Fira Code", Consolas, monospace;\n'
         "      font-variant-ligatures: none;\n"
         f"      font-size: {font_size_px}px;\n"
