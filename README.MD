@@ -85,6 +85,7 @@ python -m ascii_magic.image_to_ascii input.png -o output.txt
 - `--autocontrast` - Auto-adjust image contrast
 - `--gamma` - Apply gamma correction
 - `--invert` - Invert image colors
+- `--rotate` - Rotate clockwise (90/180/270) before conversion; EXIF orientation from phone photos is applied automatically
 - `--threshold` - Braille mode dot threshold (0-1)
 - `--dither` - Braille mode: Floyd-Steinberg dithering (keeps smooth gradients a hard threshold flattens)
 - `--color` - Convert and colorize in one step (ANSI, or HTML when the output ends in `.html`) — no separate `colorize` invocation needed
