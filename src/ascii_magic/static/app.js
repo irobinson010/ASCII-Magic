@@ -3,10 +3,12 @@
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  file: null,        // uploaded File
+  file: null,        // uploaded image File
+  videoFile: null,   // uploaded video File
   fileStem: "ascii-art",
   imgW: 0,           // natural dimensions of the uploaded image
   imgH: 0,
+  tab: "image",      // image | text | video
   result: null,      // last /api/render response
   rendering: false,
   queued: false,
@@ -27,18 +29,21 @@ function num(id) {
 }
 
 function collectOptions() {
-  const source = $("panel-text").hidden ? "image" : "text";
+  const source = state.tab;
   return {
     source,
+    // video source
+    video_fps: num("video_fps"),
+    video_max_frames: num("video_max_frames"),
     // text source
     text: $("text").value,
     text_style: $("text_style").value,
     text_width: num("text_width"),
     text_font_size: num("text_font_size"),
     banner_char: $("banner_char").value || "#",
-    // image source
+    // image source (width shared with video via its own input)
     mode: $("mode").value,
-    cols: num("cols"),
+    cols: source === "video" ? num("video_cols") : num("cols"),
     rotate: num("rotate"),
     quality: $("quality").value,
     ascii_preset: $("ascii_preset").value,
@@ -108,18 +113,23 @@ function setStatus(msg, cls) {
 }
 
 function canRender() {
-  const textMode = !$("panel-text").hidden;
-  return textMode ? $("text").value.trim() !== "" : state.file !== null;
+  if (state.tab === "text") return $("text").value.trim() !== "";
+  if (state.tab === "video") return state.videoFile !== null;
+  return state.file !== null;
 }
 
 async function render() {
   if (!canRender()) return;
   if (state.rendering) { state.queued = true; return; }
   state.rendering = true;
-  setStatus("Rendering…", "busy");
+  setStatus(state.tab === "video" ? "Rendering video… this takes a few seconds" : "Rendering…", "busy");
 
   const form = new FormData();
-  if (state.file) form.append("image", state.file);
+  if (state.tab === "video") {
+    form.append("image", state.videoFile);
+  } else if (state.file) {
+    form.append("image", state.file);
+  }
   form.append("options", JSON.stringify(collectOptions()));
 
   try {
@@ -134,9 +144,14 @@ async function render() {
     }
     for (const b of ["dl-ans", "dl-html", "dl-txt"]) $(b).disabled = false;
     $("dl-gif").disabled = !body.gif_b64;
+    $("dl-frames").disabled = !body.frames_text;
 
-    const lines = body.ascii.split("\n").length;
-    let msg = `Rendered ${lines} lines in ${body.elapsed_ms} ms`;
+    let msg;
+    if (body.video) {
+      msg = `Rendered ${body.video.frames} video frames @ ${body.video.fps} fps in ${body.elapsed_ms} ms`;
+    } else {
+      msg = `Rendered ${body.ascii.split("\n").length} lines in ${body.elapsed_ms} ms`;
+    }
     if (body.warning) msg += ` — ${body.warning}`;
     setStatus(msg, body.warning ? "error" : "");
   } catch (err) {
@@ -150,6 +165,7 @@ async function render() {
 let debounceTimer = null;
 function autoRender() {
   if (!$("auto").checked) return;
+  if (state.tab === "video") return; // video renders are seconds, not ms — explicit only
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(render, 350);
 }
@@ -176,6 +192,8 @@ $("dl-gif").addEventListener("click", () => {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   download(`${state.fileStem}.gif`, bytes, "image/gif");
 });
+$("dl-frames").addEventListener("click", () =>
+  download(`${state.fileStem}.frames`, state.result.frames_text, "text/plain"));
 
 // ---------- sizing ----------
 
@@ -240,15 +258,28 @@ dz.addEventListener("drop", (e) => {
 
 // ---------- tabs & visibility ----------
 
-function setTab(image) {
-  $("panel-image").hidden = !image;
-  $("panel-text").hidden = image;
-  $("tab-image").classList.toggle("active", image);
-  $("tab-text").classList.toggle("active", !image);
-  autoRender();
+const TABS = ["image", "text", "video"];
+
+function setTab(name) {
+  state.tab = name;
+  for (const t of TABS) {
+    $(`panel-${t}`).hidden = t !== name;
+    $(`tab-${t}`).classList.toggle("active", t === name);
+  }
+  syncVisibility();
+  if (name !== "video") autoRender();
 }
-$("tab-image").addEventListener("click", () => setTab(true));
-$("tab-text").addEventListener("click", () => setTab(false));
+for (const t of TABS) {
+  $(`tab-${t}`).addEventListener("click", () => setTab(t));
+}
+
+$("video_file").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  state.videoFile = f;
+  state.fileStem = f.name.replace(/\.[^.]+$/, "") || "ascii-video";
+  render(); // one render on selection; knob changes need the Render button
+});
 
 function syncVisibility() {
   const braille = $("mode").value === "braille";
@@ -265,6 +296,12 @@ function syncVisibility() {
   $("anim-knobs").hidden = !$("animate").checked;
   $("custom-color-field").hidden = $("matrix_theme").value !== "custom";
   $("caption-color-field").hidden = $("caption_color_mode").value !== "custom";
+
+  // Colorize/matrix/caption don't apply to video renders (yet)
+  const isVideo = state.tab === "video";
+  for (const id of ["sec-caption", "sec-colorize", "sec-matrix", "sec-html"]) {
+    $(id).hidden = isVideo;
+  }
 }
 
 // ---------- profiles ----------

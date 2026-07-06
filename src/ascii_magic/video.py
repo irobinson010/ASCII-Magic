@@ -30,7 +30,8 @@ def _require_imageio():
     try:
         import imageio.v2 as iio
     except ImportError:
-        raise SystemExit(
+        # RuntimeError (not SystemExit) so the web server can map it to a 400.
+        raise RuntimeError(
             "Video support needs the [video] extra:\n"
             '    pip install "ascii-magic-tools[video]"   (or: uv sync --extra video)'
         )
@@ -71,7 +72,7 @@ def read_video_frames(
     reader.close()
 
     if not frames:
-        raise SystemExit(f"No frames could be read from {path}")
+        raise RuntimeError(f"No frames could be read from {path}")
     return frames, out_fps
 
 
@@ -204,17 +205,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.out and not args.out.lower().endswith((".gif", ".frames")):
         raise SystemExit("Output must be .gif or .frames (or omitted for terminal playback)")
 
-    video = video_to_ascii(
-        args.input,
-        cols=args.cols,
-        sample_fps=args.fps,
-        max_frames=args.max_frames,
-        dither=not args.no_dither,
-        threshold=args.threshold,
-        gamma=args.gamma,
-        autocontrast=args.autocontrast,
-        invert=args.invert,
-    )
+    try:
+        video = video_to_ascii(
+            args.input,
+            cols=args.cols,
+            sample_fps=args.fps,
+            max_frames=args.max_frames,
+            dither=not args.no_dither,
+            threshold=args.threshold,
+            gamma=args.gamma,
+            autocontrast=args.autocontrast,
+            invert=args.invert,
+        )
+    except RuntimeError as e:
+        raise SystemExit(str(e))
 
     if args.out is None:
         video.play(loops=args.loops)

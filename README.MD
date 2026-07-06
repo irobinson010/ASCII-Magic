@@ -275,6 +275,8 @@ ascii-magic video clip.mp4 --loops 0                 # play live in the terminal
 
 Frames are sampled at the target `--fps`, converted through the braille pipeline (dithered by default; `--no-dither` to disable), and colorized from each frame. `--max-frames` caps long clips (default 300). A `.frames` output can be installed as an animated login greeting with `ascii-magic greet install`.
 
+The web GUI has a matching **Video** tab: pick a file, set width/fps/frame cap, press Render (video renders take a few seconds — no live auto-render), preview the animated result, and download `.gif` or `.frames`.
+
 ## Login greeting (`ascii-magic-greet`)
 
 Install any output as a shell login greeting — the art (or matrix rain) appears whenever you open a terminal or SSH in:

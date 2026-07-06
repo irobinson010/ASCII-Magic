@@ -24,6 +24,7 @@
         <button id="dl-html" disabled>.html</button>
         <button id="dl-txt" disabled>.txt</button>
         <button id="dl-gif" disabled>.gif</button>
+        <button id="dl-frames" disabled>.frames</button>
       </span>
     </div>
   </header>
@@ -33,6 +34,7 @@
       <nav class="tabs">
         <button id="tab-image" class="tab active">Image</button>
         <button id="tab-text" class="tab">Text</button>
+        <button id="tab-video" class="tab">Video</button>
       </nav>
 
       <section id="panel-image">
@@ -142,7 +144,20 @@
         <p class="hint">Box and banner styles are plain text — upload an image on the Image tab if you want them colorized.</p>
       </section>
 
-      <section>
+      <section id="panel-video" hidden>
+        <div class="field">
+          <label for="video_file">Video file (mp4, webm, mov, mkv, avi, gif)</label>
+          <input type="file" id="video_file" accept="video/*,.gif,.mkv">
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="video_cols">Width</label><input type="number" id="video_cols" value="100" min="10" max="240"></div>
+          <div class="field"><label for="video_fps">FPS</label><input type="number" id="video_fps" value="8" min="1" max="30"></div>
+          <div class="field"><label for="video_max_frames">Max frames</label><input type="number" id="video_max_frames" value="60" min="1" max="120"></div>
+        </div>
+        <p class="hint">Videos render server-side and take a few seconds — press <strong>Render</strong> after changing knobs (no live auto-render). Uses Dither/Invert/Gamma from the Image tab adjustments. Download as .gif, or .frames for an animated login greeting.</p>
+      </section>
+
+      <section id="sec-caption">
         <details id="caption-section">
           <summary><strong>Caption</strong> — text above/below the art</summary>
           <div class="field">
@@ -201,7 +216,7 @@
         </details>
       </section>
 
-      <section>
+      <section id="sec-colorize">
         <label class="check section-toggle"><input type="checkbox" id="colorize" checked> <strong>Colorize</strong></label>
         <div id="color-knobs">
           <div class="field-row">
@@ -222,7 +237,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="sec-matrix">
         <label class="check section-toggle"><input type="checkbox" id="matrix"> <strong>Matrix mode</strong></label>
         <div id="matrix-knobs" hidden>
           <div class="field-row">
@@ -294,7 +309,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="sec-html">
         <details>
           <summary>HTML output</summary>
           <div class="field-row">
