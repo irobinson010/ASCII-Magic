@@ -22,4 +22,6 @@ jobs:
       - name: Sync environment (locked deps)
         run: uv sync --all-extras --python ${{ matrix.python }}
       - name: Run tests
-        run: uv run pytest -q
+        # --no-sync: a bare `uv run` re-syncs with default options, silently
+        # pruning the extras (and the --python override) installed above.
+        run: uv run --no-sync pytest -q
