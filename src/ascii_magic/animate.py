@@ -64,6 +64,8 @@ class AnimationOptions:
     loops: int = 3           # terminal playback repeats (0 = until Ctrl-C)
     font_size: int = 14      # GIF sink glyph size
     mutate_every: int = 4    # frames between glyph re-rolls
+    reveal: bool = False     # rain uncovers the colorized art, which persists
+    reveal_fade: int = 6     # frames for a revealed cell to reach full brightness
 
 
 class MatrixAnimation:
@@ -76,12 +78,18 @@ class MatrixAnimation:
         fps: float,
         tint: Tuple[int, int, int] = (0, 255, 0),
         caption: Optional[CaptionRender] = None,
+        reveal_alpha: Optional[List[np.ndarray]] = None,  # per-frame (H,W) uint8
+        art_chars: Optional[List[str]] = None,            # padded source art grid
+        art_rgb: Optional[np.ndarray] = None,             # (H,W,3) uint8 image colors
     ):
         self.frames = frames  # per frame: (glyph idx int16, intensity uint8, head bool)
         self.chars = chars
         self.fps = fps
         self.tint = tint
         self.caption = caption
+        self.reveal_alpha = reveal_alpha
+        self.art_chars = art_chars
+        self.art_rgb = art_rgb
 
     def _cell_rgb(self, intensity: int, is_head: bool) -> Tuple[int, int, int]:
         base = tint_rgb(intensity, self.tint)
@@ -134,10 +142,22 @@ class MatrixAnimation:
 
     # ---- ANSI ----
 
+    def _revealed_cell(self, t_alpha: np.ndarray, y: int, x: int):
+        """(char, rgb) for a revealed art cell, or None if still dark."""
+        av = int(t_alpha[y, x])
+        if av <= 8:
+            return None
+        ch = self.art_chars[y][x]
+        if ch == " ":
+            return None
+        ar, ag, ab = (int(v) * av // 255 for v in self.art_rgb[y, x])
+        return ch, (ar, ag, ab)
+
     def frames_ansi(self) -> List[str]:
         cap_rows = self._caption_rows_ansi() if self.caption else None
         out = []
-        for idx, green, head in self.frames:
+        for t, (idx, green, head) in enumerate(self.frames):
+            alpha = self.reveal_alpha[t] if self.reveal_alpha is not None else None
             h, w = idx.shape
             lines = []
             for y in range(h):
@@ -146,16 +166,21 @@ class MatrixAnimation:
                 for x in range(w):
                     i = idx[y, x]
                     if i < 0:
-                        if prev is not None:
-                            row.append(f"{ESC}[0m")
-                            prev = None
-                        row.append(" ")
-                        continue
-                    r, g, b = self._cell_rgb(int(green[y, x]), bool(head[y, x]))
-                    if (r, g, b) != prev:
-                        row.append(f"{ESC}[38;2;{r};{g};{b}m")
-                        prev = (r, g, b)
-                    row.append(self.chars[i])
+                        cell = self._revealed_cell(alpha, y, x) if alpha is not None else None
+                        if cell is None:
+                            if prev is not None:
+                                row.append(f"{ESC}[0m")
+                                prev = None
+                            row.append(" ")
+                            continue
+                        ch, rgb = cell
+                    else:
+                        ch = self.chars[i]
+                        rgb = self._cell_rgb(int(green[y, x]), bool(head[y, x]))
+                    if rgb != prev:
+                        row.append(f"{ESC}[38;2;{rgb[0]};{rgb[1]};{rgb[2]}m")
+                        prev = rgb
+                    row.append(ch)
                 if prev is not None:
                     row.append(f"{ESC}[0m")
                 lines.append("".join(row))
@@ -203,15 +228,15 @@ class MatrixAnimation:
             font = ImageFont.load_default()
             cell_w, cell_h = 7, 13
 
-        cache: dict[int, np.ndarray] = {}
+        cache: dict[str, np.ndarray] = {}
 
-        def glyph_alpha(i: int) -> np.ndarray:
-            a = cache.get(i)
+        def glyph_alpha(ch: str) -> np.ndarray:
+            a = cache.get(ch)
             if a is None:
                 img = Image.new("L", (cell_w, cell_h), 0)
-                ImageDraw.Draw(img).text((0, 0), self.chars[i], fill=255, font=font)
+                ImageDraw.Draw(img).text((0, 0), ch, fill=255, font=font)
                 a = np.asarray(img, dtype=np.float32) / 255.0
-                cache[i] = a
+                cache[ch] = a
             return a
 
         cap_strip: Optional[np.ndarray] = None
@@ -231,12 +256,27 @@ class MatrixAnimation:
             cap_strip = np.asarray(strip, dtype=np.uint8)
 
         images = []
-        for idx, green, head in self.frames:
+        for t, (idx, green, head) in enumerate(self.frames):
             h, w = idx.shape
             canvas = np.zeros((h * cell_h, w * cell_w, 3), dtype=np.uint8)
+
+            if self.reveal_alpha is not None:
+                alpha = self.reveal_alpha[t]
+                ys, xs = np.nonzero((alpha > 8) & (idx < 0))
+                for y, x in zip(ys, xs):
+                    cell = self._revealed_cell(alpha, y, x)
+                    if cell is None:
+                        continue
+                    ch, (r, g, b) = cell
+                    a = glyph_alpha(ch)
+                    block = canvas[y * cell_h:(y + 1) * cell_h, x * cell_w:(x + 1) * cell_w]
+                    block[:, :, 0] = (a * r).astype(np.uint8)
+                    block[:, :, 1] = (a * g).astype(np.uint8)
+                    block[:, :, 2] = (a * b).astype(np.uint8)
+
             ys, xs = np.nonzero(idx >= 0)
             for y, x in zip(ys, xs):
-                a = glyph_alpha(int(idx[y, x]))
+                a = glyph_alpha(self.chars[int(idx[y, x])])
                 r, g, b = self._cell_rgb(int(green[y, x]), bool(head[y, x]))
                 block = canvas[y * cell_h:(y + 1) * cell_h, x * cell_w:(x + 1) * cell_w]
                 block[:, :, 0] = (a * r).astype(np.uint8)
@@ -249,13 +289,19 @@ class MatrixAnimation:
                     canvas = np.vstack([canvas, cap_strip])
             images.append(Image.fromarray(canvas))
 
+        dur = max(20, round(1000 / self.fps))
+        durations: object = dur
+        if self.reveal_alpha is not None and len(images) > 1:
+            # Hold the fully-revealed final frame before the loop restarts.
+            durations = [dur] * (len(images) - 1) + [dur * 6]
+
         buf = io.BytesIO()
         images[0].save(
             buf,
             format="GIF",
             save_all=True,
             append_images=images[1:],
-            duration=max(20, round(1000 / self.fps)),
+            duration=durations,
             loop=0,
         )
         return buf.getvalue()
@@ -302,9 +348,11 @@ class MatrixAnimation:
         return gap + body if cap.position == "bottom" else body + gap
 
     def to_html(self, title: str = "Matrix", font_size_px: int = 12) -> str:
-        # Quantize green to 16 levels so span runs stay long and the file small.
+        # Quantize colors so span runs stay long and the file small: rain green
+        # becomes 16 class levels; revealed art colors round to 32-step inline styles.
         frame_strings = []
-        for idx, green, head in self.frames:
+        for t, (idx, green, head) in enumerate(self.frames):
+            alpha = self.reveal_alpha[t] if self.reveal_alpha is not None else None
             h, w = idx.shape
             lines = []
             for y in range(h):
@@ -315,23 +363,35 @@ class MatrixAnimation:
                 def flush():
                     nonlocal run
                     if run:
+                        text = "".join(run)
                         if prev is None:
-                            parts.append("".join(run))
+                            parts.append(text)
+                        elif isinstance(prev, tuple):
+                            r_, g_, b_ = prev
+                            parts.append(
+                                f'<span style="color: rgb({r_},{g_},{b_})">{text}</span>'
+                            )
                         else:
-                            parts.append(f'<span class="{prev}">' + "".join(run) + "</span>")
+                            parts.append(f'<span class="{prev}">{text}</span>')
                         run = []
 
                 for x in range(w):
                     i = idx[y, x]
                     if i < 0:
-                        cls = None
-                        ch = " "
+                        cell = self._revealed_cell(alpha, y, x) if alpha is not None else None
+                        if cell is None:
+                            key = None
+                            ch = " "
+                        else:
+                            ach, (r_, g_, b_) = cell
+                            key = ((r_ >> 5) << 5, (g_ >> 5) << 5, (b_ >> 5) << 5)
+                            ch = html_mod.escape(ach)
                     else:
-                        cls = "h" if head[y, x] else f"c{green[y, x] >> 4}"
+                        key = "h" if head[y, x] else f"c{green[y, x] >> 4}"
                         ch = html_mod.escape(self.chars[i])
-                    if cls != prev:
+                    if key != prev:
                         flush()
-                        prev = cls
+                        prev = key
                     run.append(ch)
                 flush()
                 lines.append("".join(parts))
@@ -465,6 +525,16 @@ def generate(
     vis_p = np.clip(_VIS_BASE + (1.0 - _VIS_BASE) * prob, 0.0, 1.0)
     rows = np.arange(H, dtype=np.float32)[:, None]
 
+    reveal_frames: Optional[List[np.ndarray]] = None
+    art_rgb: Optional[np.ndarray] = None
+    if a.reveal:
+        art_rgb = np.asarray(
+            image.resize((W, H), Image.Resampling.LANCZOS).convert("RGB"), dtype=np.uint8
+        )
+        reveal_frames = []
+        revealed = np.zeros((H, W), dtype=bool)
+        alpha_acc = np.zeros((H, W), dtype=np.float32)
+
     frames = []
     for t in range(a.frames):
         heads = (h0 + speed * t) % cycle          # (W,)
@@ -483,5 +553,15 @@ def generate(
         idx = np.where(visible, idx_table[slot], np.int16(-1))
         frames.append((idx, np.where(visible, green, 0).astype(np.uint8), head_mask & visible))
 
+        if a.reveal:
+            revealed |= intensity > _MIN_INTENSITY
+            alpha_acc = np.minimum(
+                1.0, alpha_acc + revealed.astype(np.float32) / max(1, a.reveal_fade)
+            )
+            reveal_frames.append((alpha_acc * 255).astype(np.uint8))
+
     cap_render = _resolve_caption(caption, image, W, m.tint)
-    return MatrixAnimation(frames, m.chars, a.fps, tint=m.tint, caption=cap_render)
+    return MatrixAnimation(
+        frames, m.chars, a.fps, tint=m.tint, caption=cap_render,
+        reveal_alpha=reveal_frames, art_chars=grid if a.reveal else None, art_rgb=art_rgb,
+    )

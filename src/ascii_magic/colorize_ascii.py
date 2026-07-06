@@ -126,6 +126,7 @@ class Options:
     anim_fps: float = 12.0
     anim_tail: float = 6.0
     anim_loops: int = 3
+    anim_reveal: bool = False
 
     size: SizeOptions = field(default_factory=SizeOptions)
     html: HtmlOptions = field(default_factory=HtmlOptions)
@@ -256,6 +257,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--tail", type=float, default=6.0, metavar="F", help="Drop tail fade length")
     g.add_argument("--loops", type=int, default=3, metavar="N",
                    help="Terminal playback repeats (0 = until Ctrl-C)")
+    g.add_argument("--reveal", action="store_true",
+                   help="Rain uncovers the colorized art, which persists beneath it")
 
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--log", dest="log_path", default=None, metavar="FILE")
@@ -285,6 +288,7 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
         anim_fps=ns.fps,
         anim_tail=ns.tail,
         anim_loops=ns.loops,
+        anim_reveal=ns.reveal,
         size=SizeOptions(rows=ns.rows, cols=ns.cols, max_rows=ns.max_rows, max_cols=ns.max_cols),
         html=HtmlOptions(
             font_size_px=ns.html_font_size,
@@ -943,6 +947,7 @@ def main():
             fps=opt.anim_fps,
             tail=opt.anim_tail,
             loops=opt.anim_loops,
+            reveal=opt.anim_reveal,
         )
         animation = generate(
             "\n".join(header + scaled_art), base_img, m=opt.matrix, a=anim_opt,

@@ -143,6 +143,38 @@ def test_caption_image_colors_in_animation():
     assert "\x1b[38;2;" in anim._caption_rows_ansi()[0]
 
 
+def test_reveal_alpha_accumulates_to_full():
+    anim = _gen(frames=40, reveal=True)
+    assert anim.reveal_alpha is not None and len(anim.reveal_alpha) == 40
+    assert anim.reveal_alpha[0].mean() < anim.reveal_alpha[-1].mean()
+    # a full column cycle passes every cell: final frame is (nearly) fully lit
+    assert anim.reveal_alpha[-1].mean() > 200
+
+
+def test_reveal_final_frame_shows_art_chars():
+    import re
+
+    anim = _gen(frames=40, reveal=True)
+    last = re.sub(r"\x1b\[[0-9;]*m", "", anim.frames_ansi()[-1])
+    # source art is '#', which is not in the default rain charset
+    assert "#" in last
+    first = re.sub(r"\x1b\[[0-9;]*m", "", anim.frames_ansi()[0])
+    assert first.count("#") < last.count("#")
+
+
+def test_reveal_sinks_build():
+    anim = _gen(frames=6, reveal=True)
+    gif = anim.to_gif_bytes()
+    assert gif[:4] == b"GIF8"
+    html = anim.to_html()
+    assert "rgb(" in html  # inline revealed-art spans
+    assert "setInterval" in html
+
+
+def test_no_reveal_has_no_alpha():
+    assert _gen(frames=3).reveal_alpha is None
+
+
 def test_pipeline_animate_requires_ascii():
     ctx = AsciiPipelineContext(source_image=_image())
     with pytest.raises(ValueError, match="No ASCII text"):

@@ -232,6 +232,7 @@ async def render(
             frames=max(1, min(int(o.get("anim_frames") or 60), 240)),
             fps=max(1.0, min(float(o.get("anim_fps") or 12), 30.0)),
             tail=max(0.5, min(float(o.get("anim_tail") or 6), 40.0)),
+            reveal=bool(o.get("anim_reveal")),
         )
         built = _build_options(o, "ansi")
         animation = pipeline_animate(ctx, matrix=built.matrix, anim=anim_opt, caption=built.caption)

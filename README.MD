@@ -190,6 +190,7 @@ colorize-ascii photo.png art.txt --animate --loops 3                   # play in
 - `--fps F` : Playback speed (default: 12)
 - `--tail F` : Fade length in rows behind each drop head (default: 6)
 - `--loops N` : Terminal playback repeats; `0` plays until Ctrl-C (default: 3)
+- `--reveal` : The rain uncovers the colorized image, which persists beneath it — the loop ends (and holds) on the fully revealed picture
 
 All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing, `--matrix-color` themes) apply to the rain too, and `--caption*` works in every animation sink — the caption stays static (matching the rain tint by default, or any `--caption-color` including `image`) while the rain falls. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `ascii_magic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
 

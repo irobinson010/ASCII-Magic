@@ -83,6 +83,7 @@ function collectOptions() {
     anim_frames: num("anim_frames"),
     anim_fps: num("anim_fps"),
     anim_tail: num("anim_tail"),
+    anim_reveal: $("anim_reveal").checked,
     // caption
     caption_text: $("caption_text").value.trim() || null,
     caption_pos: $("caption_pos").value,
