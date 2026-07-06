@@ -260,6 +260,20 @@ There are also lower-level in-memory helpers if you do not want the context obje
 - `ascii_magic.image_to_ascii.image_to_braille_from_image(...)`
 - `ascii_magic.colorize_ascii.colorize_ascii_text(...)`
 
+## Video to ASCII (`ascii-magic video`)
+
+Convert a video into a colorized ASCII animation — every format ffmpeg reads (mp4, webm, mov, mkv, avi, gif, ...). Requires the `[video]` extra:
+
+```bash
+pip install -e ".[video]"        # or: uv sync --extra video
+
+ascii-magic video clip.mp4 out.gif -c 100 --fps 10   # animated GIF of ASCII frames
+ascii-magic video clip.mp4 out.frames                # playable via greet/play
+ascii-magic video clip.mp4 --loops 0                 # play live in the terminal
+```
+
+Frames are sampled at the target `--fps`, converted through the braille pipeline (dithered by default; `--no-dither` to disable), and colorized from each frame. `--max-frames` caps long clips (default 300). A `.frames` output can be installed as an animated login greeting with `ascii-magic greet install`.
+
 ## Login greeting (`ascii-magic-greet`)
 
 Install any output as a shell login greeting — the art (or matrix rain) appears whenever you open a terminal or SSH in:

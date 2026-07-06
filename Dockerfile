@@ -9,7 +9,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.MD LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir ".[web]"
+RUN pip install --no-cache-dir ".[web,video]"
 
 # Volume-mount target for one-shot CLI runs:
 #   docker run --rm -v "$(pwd):/data" ascii-magic image photo.png -o art.txt

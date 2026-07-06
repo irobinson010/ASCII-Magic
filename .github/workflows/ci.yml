@@ -18,6 +18,6 @@ jobs:
         with:
           enable-cache: true
       - name: Sync environment (pinned Python + locked deps)
-        run: uv sync --extra web
+        run: uv sync --all-extras
       - name: Run tests
         run: uv run pytest -q

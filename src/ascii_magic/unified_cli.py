@@ -10,6 +10,7 @@ COMMANDS = {
     "text": "ascii_magic.text_to_ascii",
     "greet": "ascii_magic.greet",
     "web": "ascii_magic.webapp",
+    "video": "ascii_magic.video",
 }
 
 
