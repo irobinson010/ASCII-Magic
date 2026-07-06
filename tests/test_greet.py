@@ -31,7 +31,7 @@ def test_install_copies_file_and_hooks_rc(home, tmp_path, capsys):
     target = home / ".config" / "ascii-magic" / "greeting.ans"
     assert target.exists()
 
-    rc = (home / ".bashrc").read_text()
+    rc = (home / ".bashrc").read_text(encoding="utf-8")
     assert greet.MARK_BEGIN in rc
     assert greet.MARK_END in rc
     assert f"cat {shlex.quote(str(target))}" in rc
@@ -45,14 +45,14 @@ def test_reinstall_replaces_block_not_duplicates(home, tmp_path):
     art = _art(tmp_path)
     greet.main(["install", str(art)])
     greet.main(["install", str(art)])
-    rc = (home / ".bashrc").read_text()
+    rc = (home / ".bashrc").read_text(encoding="utf-8")
     assert rc.count(greet.MARK_BEGIN) == 1
 
 
 def test_install_preserves_existing_rc_content(home, tmp_path):
     (home / ".bashrc").write_text("export FOO=bar\n")
     greet.main(["install", str(_art(tmp_path))])
-    rc = (home / ".bashrc").read_text()
+    rc = (home / ".bashrc").read_text(encoding="utf-8")
     assert rc.startswith("export FOO=bar\n")
     assert greet.MARK_BEGIN in rc
 
@@ -61,7 +61,7 @@ def test_remove_cleans_rc_and_files(home, tmp_path):
     (home / ".bashrc").write_text("export FOO=bar\n")
     greet.main(["install", str(_art(tmp_path))])
     assert greet.main(["remove"]) == 0
-    rc = (home / ".bashrc").read_text()
+    rc = (home / ".bashrc").read_text(encoding="utf-8")
     assert greet.MARK_BEGIN not in rc
     assert "export FOO=bar" in rc
     assert not (home / ".config" / "ascii-magic" / "greeting.ans").exists()
@@ -114,7 +114,7 @@ def test_install_frames_uses_show_hook(home, tmp_path):
     p = tmp_path / "rain.frames"
     greet.write_frames_file(p, ["X"], fps=10, loops=1)
     greet.main(["install", str(p)])
-    rc = (home / ".bashrc").read_text()
+    rc = (home / ".bashrc").read_text(encoding="utf-8")
     assert "ascii-magic-greet show" in rc
     assert (home / ".config" / "ascii-magic" / "greeting.frames").exists()
 
@@ -132,15 +132,15 @@ def test_damaged_markers_refuse_to_rewrite(home, tmp_path, capsys):
     art = _art(tmp_path)
     greet.main(["install", str(art)])
     rc_path = home / ".bashrc"
-    damaged = rc_path.read_text().replace(greet.MARK_END, "# gone")
+    damaged = rc_path.read_text(encoding="utf-8").replace(greet.MARK_END, "# gone")
     rc_path.write_text(damaged)
 
     assert greet.main(["install", str(art)]) == 1
     assert "damaged" in capsys.readouterr().err
-    assert rc_path.read_text() == damaged  # untouched
+    assert rc_path.read_text(encoding="utf-8") == damaged  # untouched
 
     assert greet.main(["remove"]) == 1
-    assert rc_path.read_text() == damaged
+    assert rc_path.read_text(encoding="utf-8") == damaged
 
 
 def test_install_refuses_fish_rc(home, tmp_path, capsys):
