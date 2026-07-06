@@ -46,7 +46,7 @@ def test_image_color_one_step_ansi(tmp_path):
          "-c", "10", "--color", "-o", str(out)]
     )
     assert rc == 0
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "\x1b[38;2;" in content
 
 
@@ -57,7 +57,7 @@ def test_image_color_one_step_html(tmp_path):
          "-c", "10", "--color", "-o", str(out)]
     )
     assert rc == 0
-    assert "<!doctype html>" in out.read_text().lower()
+    assert "<!doctype html>" in out.read_text(encoding="utf-8").lower()
 
 
 def test_image_rotate_flag(tmp_path):
@@ -66,11 +66,11 @@ def test_image_rotate_flag(tmp_path):
     out = tmp_path / "art.txt"
 
     cli_main(["image", str(p), "--mode", "braille", "-c", "10", "-o", str(out)])
-    plain = out.read_text().splitlines()
+    plain = out.read_text(encoding="utf-8").splitlines()
     assert max(len(ln) for ln in plain) > len(plain)  # landscape
 
     cli_main(["image", str(p), "--mode", "braille", "-c", "10", "--rotate", "90", "-o", str(out)])
-    rotated = out.read_text().splitlines()
+    rotated = out.read_text(encoding="utf-8").splitlines()
     assert len(rotated) > max(len(ln) for ln in rotated)  # portrait
 
 
@@ -80,7 +80,7 @@ def test_image_without_color_stays_plain(tmp_path):
         ["image", str(_png(tmp_path)), "--mode", "braille", "-c", "10", "-o", str(out)]
     )
     assert rc == 0
-    assert "\x1b[" not in out.read_text()
+    assert "\x1b[" not in out.read_text(encoding="utf-8")
 
 
 # ---- colorize argparse ----
