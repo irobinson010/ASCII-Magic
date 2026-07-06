@@ -165,6 +165,7 @@ def animate(
     ctx: AsciiPipelineContext,
     matrix: Optional[colorize_mod.MatrixOptions] = None,
     anim=None,
+    caption: Optional[colorize_mod.CaptionOptions] = None,
 ):
     """Generate a MatrixAnimation from the context's ASCII text and image."""
     from .animate import generate
@@ -174,6 +175,6 @@ def animate(
     if not ctx.ascii_text:
         raise ValueError("No ASCII text in context. Run text_to_ascii(...) or image_to_ascii(...) first.")
 
-    result = generate(ctx.ascii_text, img, m=matrix, a=anim)
+    result = generate(ctx.ascii_text, img, m=matrix, a=anim, caption=caption)
     ctx.metadata["animated"] = True
     return result

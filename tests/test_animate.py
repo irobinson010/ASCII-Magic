@@ -98,6 +98,51 @@ def test_pipeline_animate():
     assert ctx.metadata["animated"] is True
 
 
+def test_caption_in_all_animation_sinks():
+    from ascii_magic.colorize_ascii import CaptionOptions
+
+    cap = CaptionOptions(text="Cat", style="box", position="bottom")
+    anim = generate(
+        ASCII, _image(), m=MatrixOptions(enabled=True, seed=7),
+        a=AnimationOptions(frames=3), caption=cap,
+    )
+
+    frames = anim.frames_ansi()
+    import re
+
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", frames[0])
+    assert "Cat" in plain
+    # caption rows appear in every frame, after the art + gap
+    assert all("Cat" in re.sub(r"\x1b\[[0-9;]*m", "", f) for f in frames)
+
+    html = anim.to_html()
+    assert '<pre id="cap">' in html
+    assert "Cat" in html
+
+    # GIF grows taller by the caption strip
+    bare = generate(
+        ASCII, _image(), m=MatrixOptions(enabled=True, seed=7), a=AnimationOptions(frames=3)
+    )
+    import io as _io
+
+    g_cap = Image.open(_io.BytesIO(anim.to_gif_bytes()))
+    g_bare = Image.open(_io.BytesIO(bare.to_gif_bytes()))
+    assert g_cap.size[1] > g_bare.size[1]
+    assert g_cap.size[0] == g_bare.size[0]
+
+
+def test_caption_image_colors_in_animation():
+    from ascii_magic.colorize_ascii import CaptionOptions
+
+    cap = CaptionOptions(text="Cat", style="box", color="image")
+    anim = generate(
+        ASCII, _image(), m=MatrixOptions(enabled=True, seed=7),
+        a=AnimationOptions(frames=2), caption=cap,
+    )
+    assert anim.caption.colors is not None
+    assert "\x1b[38;2;" in anim._caption_rows_ansi()[0]
+
+
 def test_pipeline_animate_requires_ascii():
     ctx = AsciiPipelineContext(source_image=_image())
     with pytest.raises(ValueError, match="No ASCII text"):

@@ -944,7 +944,10 @@ def main():
             tail=opt.anim_tail,
             loops=opt.anim_loops,
         )
-        animation = generate("\n".join(header + scaled_art), base_img, m=opt.matrix, a=anim_opt)
+        animation = generate(
+            "\n".join(header + scaled_art), base_img, m=opt.matrix, a=anim_opt,
+            caption=opt.caption,
+        )
         if out_path is None:
             animation.play(loops=opt.anim_loops)
         elif ext == ".gif":

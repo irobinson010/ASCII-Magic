@@ -27,7 +27,15 @@ from typing import List, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .colorize_ascii import ESC, MatrixOptions, matrix_field, tint_rgb
+from .colorize_ascii import (
+    CaptionOptions,
+    ESC,
+    MatrixOptions,
+    caption_image_strip,
+    matrix_field,
+    parse_matrix_color,
+    tint_rgb,
+)
 from .image_to_ascii import find_default_mono_font
 
 # Rain look tunables
@@ -35,6 +43,17 @@ _BRIGHT_FLOOR = 0.15     # background cells still get this share of rain brightn
 _HEAD_MIN = 0.85         # heads are at least this bright
 _VIS_BASE = 0.45         # base share of glyph probability applied to rain visibility
 _MIN_INTENSITY = 0.02    # below this the cell is blank
+
+
+@dataclass
+class CaptionRender:
+    """A caption resolved to concrete lines and colors, static across frames."""
+
+    lines: List[str]
+    position: str                                   # "top" | "bottom"
+    gap: int
+    uniform: Optional[Tuple[int, int, int]] = None  # single color...
+    colors: Optional[list] = None                   # ...or per-char [y][x] RGB
 
 
 @dataclass
@@ -56,11 +75,13 @@ class MatrixAnimation:
         chars: str,
         fps: float,
         tint: Tuple[int, int, int] = (0, 255, 0),
+        caption: Optional[CaptionRender] = None,
     ):
         self.frames = frames  # per frame: (glyph idx int16, intensity uint8, head bool)
         self.chars = chars
         self.fps = fps
         self.tint = tint
+        self.caption = caption
 
     def _cell_rgb(self, intensity: int, is_head: bool) -> Tuple[int, int, int]:
         base = tint_rgb(intensity, self.tint)
@@ -74,9 +95,47 @@ class MatrixAnimation:
         h, w = self.frames[0][0].shape
         return w, h
 
+    # ---- caption helpers ----
+
+    def _caption_rows_ansi(self) -> List[str]:
+        cap = self.caption
+        rows = []
+        for y, line in enumerate(cap.lines):
+            if cap.colors is not None:
+                prev = None
+                row = []
+                for x, ch in enumerate(line):
+                    if ch == " ":
+                        if prev is not None:
+                            row.append(f"{ESC}[0m")
+                            prev = None
+                        row.append(" ")
+                        continue
+                    c = tuple(cap.colors[y][x])
+                    if c != prev:
+                        row.append(f"{ESC}[38;2;{c[0]};{c[1]};{c[2]}m")
+                        prev = c
+                    row.append(ch)
+                if prev is not None:
+                    row.append(f"{ESC}[0m")
+                rows.append("".join(row))
+            else:
+                r, g, b = cap.uniform
+                rows.append(
+                    f"{ESC}[38;2;{r};{g};{b}m{line}{ESC}[0m" if line.strip() else line
+                )
+        return rows
+
+    def _with_caption_rows(self, body: List[str], cap_rows: List[str]) -> List[str]:
+        spacer = [""] * self.caption.gap
+        if self.caption.position == "top":
+            return cap_rows + spacer + body
+        return body + spacer + cap_rows
+
     # ---- ANSI ----
 
     def frames_ansi(self) -> List[str]:
+        cap_rows = self._caption_rows_ansi() if self.caption else None
         out = []
         for idx, green, head in self.frames:
             h, w = idx.shape
@@ -100,6 +159,8 @@ class MatrixAnimation:
                 if prev is not None:
                     row.append(f"{ESC}[0m")
                 lines.append("".join(row))
+            if cap_rows is not None:
+                lines = self._with_caption_rows(lines, cap_rows)
             out.append("\n".join(lines))
         return out
 
@@ -153,6 +214,22 @@ class MatrixAnimation:
                 cache[i] = a
             return a
 
+        cap_strip: Optional[np.ndarray] = None
+        if self.caption:
+            cap = self.caption
+            w_px = self.size[0] * cell_w
+            gap_px = cap.gap * cell_h
+            strip = Image.new("RGB", (w_px, len(cap.lines) * cell_h + gap_px), (0, 0, 0))
+            draw = ImageDraw.Draw(strip)
+            y_off = gap_px if cap.position == "bottom" else 0
+            for y, line in enumerate(cap.lines):
+                for x, ch in enumerate(line):
+                    if ch == " ":
+                        continue
+                    color = tuple(cap.colors[y][x]) if cap.colors else cap.uniform
+                    draw.text((x * cell_w, y_off + y * cell_h), ch, fill=color, font=font)
+            cap_strip = np.asarray(strip, dtype=np.uint8)
+
         images = []
         for idx, green, head in self.frames:
             h, w = idx.shape
@@ -165,6 +242,11 @@ class MatrixAnimation:
                 block[:, :, 0] = (a * r).astype(np.uint8)
                 block[:, :, 1] = (a * g).astype(np.uint8)
                 block[:, :, 2] = (a * b).astype(np.uint8)
+            if cap_strip is not None:
+                if self.caption.position == "top":
+                    canvas = np.vstack([cap_strip, canvas])
+                else:
+                    canvas = np.vstack([canvas, cap_strip])
             images.append(Image.fromarray(canvas))
 
         buf = io.BytesIO()
@@ -179,6 +261,45 @@ class MatrixAnimation:
         return buf.getvalue()
 
     # ---- HTML player ----
+
+    def _caption_html_block(self) -> str:
+        cap = self.caption
+        parts = []
+        for y, line in enumerate(cap.lines):
+            if cap.colors is not None:
+                prev = None
+                segs: List[str] = []
+                run: List[str] = []
+
+                def flush():
+                    nonlocal run
+                    if not run:
+                        return
+                    text = "".join(run)
+                    if prev is None:
+                        segs.append(text)
+                    else:
+                        r, g, b = prev
+                        segs.append(f'<span style="color: rgb({r},{g},{b})">{text}</span>')
+                    run = []
+
+                for x, ch in enumerate(line):
+                    key = None if ch == " " else tuple(cap.colors[y][x])
+                    if key != prev:
+                        flush()
+                        prev = key
+                    run.append(html_mod.escape(ch))
+                flush()
+                parts.append("".join(segs))
+            else:
+                r, g, b = cap.uniform
+                esc = html_mod.escape(line)
+                parts.append(
+                    f'<span style="color: rgb({r},{g},{b})">{esc}</span>' if line.strip() else esc
+                )
+        gap = "\n" * cap.gap
+        body = "\n".join(parts)
+        return gap + body if cap.position == "bottom" else body + gap
 
     def to_html(self, title: str = "Matrix", font_size_px: int = 12) -> str:
         # Quantize green to 16 levels so span runs stay long and the file small.
@@ -224,21 +345,33 @@ class MatrixAnimation:
             for (r, g, b) in [tint_rgb(min(255, i * 17), self.tint)]
         )
         hr, hg, hb = (c + (255 - c) * 216 // 255 for c in self.tint)
+
+        cap_top = cap_bottom = ""
+        if self.caption:
+            block = f'  <pre id="cap">{self._caption_html_block()}</pre>\n'
+            if self.caption.position == "top":
+                cap_top = block
+            else:
+                cap_bottom = block
+
         return (
             "<!doctype html>\n<html>\n<head>\n"
             '  <meta charset="utf-8">\n'
             f"  <title>{html_mod.escape(title)}</title>\n"
             "  <style>\n"
-            "    html, body { margin: 0; background: #000; }\n"
+            "    html { margin: 0; }\n"
+            "    body { margin: 0; padding: 16px; background: #000; }\n"
             "    pre {\n"
-            "      margin: 16px;\n      white-space: pre;\n      overflow: auto;\n"
+            "      margin: 0;\n      white-space: pre;\n      overflow: auto;\n"
             '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;\n'
             f"      font-size: {font_size_px}px;\n      line-height: {font_size_px}px;\n"
             "    }\n"
             f"{css_levels}\n"
             f"    .h {{ color: rgb({hr},{hg},{hb}); }}\n"
             "  </style>\n</head>\n<body>\n"
+            f"{cap_top}"
             '  <pre id="m"></pre>\n'
+            f"{cap_bottom}"
             "  <script>\n"
             f"    const FRAMES = {json.dumps(frame_strings)};\n"
             f"    const FPS = {self.fps};\n"
@@ -251,11 +384,47 @@ class MatrixAnimation:
         )
 
 
+def _resolve_caption(
+    caption: Optional[CaptionOptions],
+    image: Image.Image,
+    width: int,
+    tint: Tuple[int, int, int],
+) -> Optional[CaptionRender]:
+    if not caption or not caption.text:
+        return None
+    from .text_to_ascii import caption_lines
+
+    lines = caption_lines(
+        caption.text, width, style=caption.style, scale=caption.scale, align=caption.align
+    )
+    if not lines:
+        return None
+    colors = None
+    uniform: Optional[Tuple[int, int, int]] = None
+    if caption.color == "image":
+        strip = caption_image_strip(image, caption.position)
+        strip = strip.resize((width, len(lines))).convert("RGB")
+        spx = strip.load()
+        colors = [[spx[x, y] for x in range(width)] for y in range(len(lines))]
+    elif caption.color:
+        uniform = parse_matrix_color(caption.color)
+    else:
+        uniform = tint  # match the rain by default
+    return CaptionRender(
+        lines=lines,
+        position=caption.position,
+        gap=max(0, int(caption.gap)),
+        uniform=uniform,
+        colors=colors,
+    )
+
+
 def generate(
     ascii_text: str,
     image: Image.Image,
     m: Optional[MatrixOptions] = None,
     a: Optional[AnimationOptions] = None,
+    caption: Optional[CaptionOptions] = None,
 ) -> MatrixAnimation:
     """Simulate matrix rain over the subject field. Deterministic for a given seed."""
     m = m or MatrixOptions(enabled=True)
@@ -314,4 +483,5 @@ def generate(
         idx = np.where(visible, idx_table[slot], np.int16(-1))
         frames.append((idx, np.where(visible, green, 0).astype(np.uint8), head_mask & visible))
 
-    return MatrixAnimation(frames, m.chars, a.fps, tint=m.tint)
+    cap_render = _resolve_caption(caption, image, W, m.tint)
+    return MatrixAnimation(frames, m.chars, a.fps, tint=m.tint, caption=cap_render)

@@ -200,8 +200,6 @@ async def render(
             gap=int(o.get("caption_gap") if o.get("caption_gap") is not None else 1),
             align=o.get("caption_align", "center"),
         )
-        if do_animate:
-            warning = "Captions are not yet applied to animations."
 
     # Colorizing/animating needs a reference image; box/banner text styles
     # do not render one, so fall back to plain output instead of erroring.
@@ -235,7 +233,8 @@ async def render(
             fps=max(1.0, min(float(o.get("anim_fps") or 12), 30.0)),
             tail=max(0.5, min(float(o.get("anim_tail") or 6), 40.0)),
         )
-        animation = pipeline_animate(ctx, matrix=_build_options(o, "ansi").matrix, anim=anim_opt)
+        built = _build_options(o, "ansi")
+        animation = pipeline_animate(ctx, matrix=built.matrix, anim=anim_opt, caption=built.caption)
         html_doc = animation.to_html(font_size_px=int(o.get("html_font_size") or 12))
         gif_b64 = base64.b64encode(animation.to_gif_bytes()).decode("ascii")
 
