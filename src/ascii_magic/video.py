@@ -321,7 +321,7 @@ def video_to_ascii(
     return AsciiVideo(converted, out_fps, matrix=matrix, caption=cap_render)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="ascii-magic video",
         description="Convert a video into a colorized ASCII animation "
@@ -371,7 +371,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--loops", type=int, default=1,
                     help="Terminal playback repeats (0 = until Ctrl-C)")
     ap.add_argument("--font-size", type=int, default=14, help="GIF glyph size")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = build_arg_parser().parse_args(argv)
 
     if args.out and not args.out.lower().endswith((".gif", ".frames", ".mp4")):
         raise SystemExit("Output must be .gif, .mp4, or .frames (or omitted for terminal playback)")

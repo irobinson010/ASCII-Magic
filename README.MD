@@ -42,6 +42,19 @@ ascii-magic --version
 
 The individual commands (`image-to-ascii`, `colorize-ascii`, `text-to-ascii`) continue to work as before.
 
+## Shell tab completion
+
+Generate a static completion script for bash or zsh — subcommands, flags, and enum values all complete, with filename fallback:
+
+```bash
+eval "$(ascii-magic completion bash)"     # in ~/.bashrc
+eval "$(ascii-magic completion zsh)"      # in ~/.zshrc
+# or install persistently:
+ascii-magic completion bash > ~/.local/share/bash-completion/completions/ascii-magic
+```
+
+The standalone commands (`image-to-ascii`, `colorize-ascii`, `text-to-ascii`, `ascii-magic-greet`, `ascii-magic-video`, `ascii-magic-web`) are covered by the same script.
+
 ## Development setup
 
 The repo pins its Python version in `.python-version` and locks exact dependency versions in `uv.lock`, so a fresh clone builds the same environment on any OS. With [uv](https://docs.astral.sh/uv/) installed (a single binary — it downloads the right Python by itself):

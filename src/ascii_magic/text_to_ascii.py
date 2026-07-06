@@ -351,9 +351,8 @@ def compose_caption(
 # =============================
 
 
-def main():
-    """Main entry point for text-to-ASCII CLI."""
-    parser = argparse.ArgumentParser(description="Convert text to ASCII art")
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="text-to-ascii", description="Convert text to ASCII art")
 
     parser.add_argument(
         "text",
@@ -410,6 +409,12 @@ def main():
         help="Set the logging level (default: WARNING)",
     )
 
+    return parser
+
+
+def main():
+    """Main entry point for text-to-ASCII CLI."""
+    parser = build_arg_parser()
     args = parser.parse_args()
 
     # Configure logging early so other functions can emit messages

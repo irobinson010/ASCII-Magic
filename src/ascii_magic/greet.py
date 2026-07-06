@@ -278,7 +278,7 @@ def cmd_play(args) -> int:
     return 0
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="ascii-magic-greet",
         description="Install ASCII art as a shell login greeting.",
@@ -310,7 +310,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--loops", type=int, default=None)
     p.set_defaults(func=cmd_play)
 
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = build_arg_parser().parse_args(argv)
     return args.func(args)
 
 
