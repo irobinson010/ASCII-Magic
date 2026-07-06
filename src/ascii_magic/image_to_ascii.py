@@ -566,6 +566,18 @@ def main():
         "(ANSI, or HTML when the output file ends in .html)",
     )
 
+    ap.add_argument("--caption", default=None, metavar="TEXT",
+                    help="Render TEXT as ASCII and stitch it onto the art")
+    ap.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
+    ap.add_argument("--caption-style",
+                    choices=["block", "small", "shadow", "box", "banner"], default="block")
+    ap.add_argument("--caption-scale", type=float, default=0.6, metavar="F",
+                    help="Caption width as a fraction of art width")
+    ap.add_argument("--caption-gap", type=int, default=1, metavar="N")
+    ap.add_argument("--caption-color", default=None, metavar="COLOR",
+                    help="Caption color with --color: theme name or #RRGGBB")
+    ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
+
     args = ap.parse_args()
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
@@ -609,7 +621,7 @@ def main():
         )
 
     if args.color:
-        from .colorize_ascii import Options
+        from .colorize_ascii import CaptionOptions, Options
         from .pipeline import AsciiPipelineContext, colorize
 
         ctx = AsciiPipelineContext(
@@ -617,7 +629,30 @@ def main():
             ascii_text=art,
         )
         fmt = "html" if (args.output or "").lower().endswith(".html") else "ansi"
-        art = colorize(ctx, opt=Options(out_format=fmt)).rstrip("\n")
+        opt = Options(out_format=fmt)
+        if args.caption:
+            opt.caption = CaptionOptions(
+                text=args.caption,
+                position=args.caption_pos,
+                style=args.caption_style,
+                scale=args.caption_scale,
+                gap=args.caption_gap,
+                color=args.caption_color,
+                align=args.caption_align,
+            )
+        art = colorize(ctx, opt=opt).rstrip("\n")
+    elif args.caption:
+        from .text_to_ascii import compose_caption
+
+        art = compose_caption(
+            art,
+            args.caption,
+            position=args.caption_pos,
+            style=args.caption_style,
+            scale=args.caption_scale,
+            gap=args.caption_gap,
+            align=args.caption_align,
+        )
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

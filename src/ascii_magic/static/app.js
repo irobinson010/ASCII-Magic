@@ -83,6 +83,15 @@ function collectOptions() {
     anim_frames: num("anim_frames"),
     anim_fps: num("anim_fps"),
     anim_tail: num("anim_tail"),
+    // caption
+    caption_text: $("caption_text").value.trim() || null,
+    caption_pos: $("caption_pos").value,
+    caption_style: $("caption_style").value,
+    caption_scale: num("caption_scale"),
+    caption_align: $("caption_align").value,
+    caption_color: $("caption_color_mode").value === "custom"
+      ? $("caption_custom_color").value
+      : null,
   };
 }
 
@@ -218,6 +227,7 @@ function syncVisibility() {
   $("mask-knobs").hidden = !$("matrix_mask").checked;
   $("anim-knobs").hidden = !$("animate").checked;
   $("custom-color-field").hidden = $("matrix_theme").value !== "custom";
+  $("caption-color-field").hidden = $("caption_color_mode").value !== "custom";
 }
 
 // ---------- profiles ----------
@@ -240,7 +250,7 @@ $("reroll").addEventListener("click", (e) => {
   render();
 });
 
-for (const id of ["threshold", "gamma", "matrix_gamma"]) {
+for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale"]) {
   $(id).addEventListener("input", () => { $(`${id}-out`).value = $(id).value; });
 }
 

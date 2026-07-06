@@ -232,6 +232,73 @@ def text_to_banner(text: str, char: str = "#") -> str:
     return f"{border}\n{char} {text} {char}\n{border}"
 
 
+def caption_lines(
+    text: str,
+    width: int,
+    style: str = "block",
+    scale: float = 0.6,
+    align: str = "center",
+    font_path: str | None = None,
+) -> list[str]:
+    """Render text as ASCII caption lines padded to exactly `width` columns.
+
+    For the rendered styles (block/small/shadow) the caption occupies
+    `scale` x width columns; box/banner styles use their natural size,
+    clipped to width. Meant for stitching above/below a block of art.
+    """
+    width = max(1, int(width))
+    if style == "box":
+        block = text_to_box(text, width=width)
+    elif style == "banner":
+        block = text_to_banner(text)
+    else:
+        scale = min(1.0, max(0.05, float(scale)))
+        target = max(1, int(width * scale))
+        block = text_to_ascii_art(text, style=style, width=target, font_path=font_path)
+
+    lines = [ln.rstrip() for ln in block.splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    out = []
+    for ln in lines:
+        ln = ln[:width]
+        pad = width - len(ln)
+        if align == "left":
+            ln = ln + " " * pad
+        elif align == "right":
+            ln = " " * pad + ln
+        else:
+            left = pad // 2
+            ln = " " * left + ln + " " * (pad - left)
+        out.append(ln)
+    return out
+
+
+def compose_caption(
+    art: str,
+    text: str,
+    position: str = "bottom",
+    style: str = "block",
+    scale: float = 0.6,
+    gap: int = 1,
+    align: str = "center",
+    font_path: str | None = None,
+) -> str:
+    """Stitch a rendered text caption above or below a block of ASCII art."""
+    art_lines = art.splitlines()
+    width = max((len(ln) for ln in art_lines), default=1)
+    cap = caption_lines(text, width, style=style, scale=scale, align=align, font_path=font_path)
+    spacer = [""] * max(0, int(gap))
+    if position == "top":
+        combined = cap + spacer + art_lines
+    else:
+        combined = art_lines + spacer + cap
+    return "\n".join(combined)
+
+
 # =============================
 # CLI
 # =============================

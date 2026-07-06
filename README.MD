@@ -88,6 +88,26 @@ python -m ascii_magic.image_to_ascii input.png -o output.txt
 - `--threshold` - Braille mode dot threshold (0-1)
 - `--dither` - Braille mode: Floyd-Steinberg dithering (keeps smooth gradients a hard threshold flattens)
 - `--color` - Convert and colorize in one step (ANSI, or HTML when the output ends in `.html`) — no separate `colorize` invocation needed
+- `--caption TEXT` - Render TEXT as ASCII and stitch it onto the art (see Captions below)
+
+### Captions
+
+Attach text above or below the art — rendered as ASCII letters sized to the art, or as a simple box/banner. Works on both the `image` and `colorize` commands, and composes with `--color` (the caption keeps its own color instead of being smeared by the image):
+
+```bash
+ascii-magic image cat.png --color --caption "Whiskers 2010-2024" -o cat.ans
+ascii-magic image cat.png --caption "Whiskers" --caption-style box --caption-pos top
+```
+
+**Options (prefix `--caption-`):**
+- `pos` : `bottom` (default) or `top`
+- `style` : `block` (default), `small`, `shadow`, `box`, `banner`
+- `scale F` : caption width as a fraction of the art width for rendered styles (default 0.6) — the sizing knob
+- `gap N` : blank lines between caption and art (default 1)
+- `color COLOR` : uniform caption color — theme name or `#RRGGBB` (default: terminal foreground)
+- `align` : `center` (default), `left`, `right`
+
+The web GUI has a matching **Caption** panel (text, position, style, size slider, alignment, color).
 
 ### ASCII Colorization (`colorize_ascii.py`)
 

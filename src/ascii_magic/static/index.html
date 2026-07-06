@@ -128,6 +128,62 @@
       </section>
 
       <section>
+        <details id="caption-section">
+          <summary><strong>Caption</strong> — text above/below the art</summary>
+          <div class="field">
+            <label for="caption_text">Text</label>
+            <input type="text" id="caption_text" placeholder="e.g. Whiskers 2010–2024">
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="caption_pos">Position</label>
+              <select id="caption_pos">
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="caption_style">Style</label>
+              <select id="caption_style">
+                <option value="block">Block letters</option>
+                <option value="small">Small letters</option>
+                <option value="shadow">Shadow letters</option>
+                <option value="box">Box</option>
+                <option value="banner">Banner</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="caption_scale">Size <output id="caption_scale-out">0.6</output></label>
+              <input type="range" id="caption_scale" min="0.1" max="1" step="0.05" value="0.6">
+            </div>
+            <div class="field">
+              <label for="caption_align">Align</label>
+              <select id="caption_align">
+                <option value="center">Center</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="caption_color_mode">Color</label>
+              <select id="caption_color_mode">
+                <option value="">Default</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </div>
+            <div class="field" id="caption-color-field" hidden>
+              <label for="caption_custom_color">Custom</label>
+              <input type="color" id="caption_custom_color" value="#ffffff">
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section>
         <label class="check section-toggle"><input type="checkbox" id="colorize" checked> <strong>Colorize</strong></label>
         <div id="color-knobs">
           <div class="field-row">

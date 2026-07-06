@@ -123,6 +123,47 @@ def test_render_matrix_color_theme_and_hex():
         assert "\x1b[38;2;" in r.json()["ansi"]
 
 
+def test_render_caption_in_all_outputs():
+    r = _render(
+        {
+            "source": "image",
+            "mode": "braille",
+            "cols": 16,
+            "caption_text": "Whiskers",
+            "caption_style": "box",
+        }
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "Whiskers" in body["ascii"]
+    assert "Whiskers" in body["html"]
+    import re
+
+    assert "Whiskers" in re.sub(r"\x1b\[[0-9;]*m", "", body["ansi"])
+
+
+def test_render_caption_plain_when_colorize_off():
+    r = _render(
+        {
+            "source": "image",
+            "cols": 16,
+            "colorize": False,
+            "caption_text": "Cat",
+            "caption_style": "box",
+        }
+    )
+    body = r.json()
+    assert "Cat" in body["ascii"]
+    assert "Cat" in body["ansi"]
+
+
+def test_render_bad_caption_color_400():
+    r = _render(
+        {"source": "image", "cols": 16, "caption_text": "Cat", "caption_color": "plaid"}
+    )
+    assert r.status_code == 400
+
+
 def test_render_bad_matrix_color_400():
     r = _render({"source": "image", "cols": 12, "matrix": True, "matrix_color": "plaid"})
     assert r.status_code == 400

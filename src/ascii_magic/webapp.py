@@ -54,6 +54,16 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
     h.line_height_px = int(lh) if lh not in (None, "", 0) else None
     h.fill_spaces = bool(o.get("html_fill_spaces"))
 
+    if o.get("caption_text"):
+        c = opt.caption
+        c.text = str(o["caption_text"])
+        c.position = o.get("caption_pos", "bottom")
+        c.style = o.get("caption_style", "block")
+        c.scale = float(o.get("caption_scale") or 0.6)
+        c.gap = int(o.get("caption_gap") if o.get("caption_gap") is not None else 1)
+        c.color = o.get("caption_color") or None
+        c.align = o.get("caption_align", "center")
+
     m = opt.matrix
     m.enabled = bool(o.get("matrix"))
     if m.enabled:
@@ -109,11 +119,12 @@ async def render(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Bad options JSON: {e}")
 
-    if o.get("matrix_color"):
-        try:
-            colorize_mod.parse_matrix_color(o["matrix_color"])
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+    for key in ("matrix_color", "caption_color"):
+        if o.get(key):
+            try:
+                colorize_mod.parse_matrix_color(o[key])
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
     t0 = time.perf_counter()
     ctx = AsciiPipelineContext()
@@ -174,6 +185,23 @@ async def render(
     if do_animate:
         o = {**o, "matrix": True}
 
+    # Raw-text view/download includes the caption (uncolored).
+    ascii_display = ascii_text
+    if o.get("caption_text"):
+        from .text_to_ascii import compose_caption
+
+        ascii_display = compose_caption(
+            ascii_text,
+            str(o["caption_text"]),
+            position=o.get("caption_pos", "bottom"),
+            style=o.get("caption_style", "block"),
+            scale=float(o.get("caption_scale") or 0.6),
+            gap=int(o.get("caption_gap") if o.get("caption_gap") is not None else 1),
+            align=o.get("caption_align", "center"),
+        )
+        if do_animate:
+            warning = "Captions are not yet applied to animations."
+
     # Colorizing/animating needs a reference image; box/banner text styles
     # do not render one, so fall back to plain output instead of erroring.
     can_colorize = ctx.source_image is not None or ctx.rendered_text_image is not None
@@ -194,8 +222,8 @@ async def render(
         ansi = colorize(ctx, opt=_build_options(o, "ansi"))
         html_doc = colorize(ctx, opt=_build_options(o, "html"))
     else:
-        ansi = ascii_text + "\n"
-        html_doc = _plain_html(ascii_text, o)
+        ansi = ascii_display + "\n"
+        html_doc = _plain_html(ascii_display, o)
 
     gif_b64: Optional[str] = None
     if do_animate:
@@ -211,7 +239,7 @@ async def render(
         gif_b64 = base64.b64encode(animation.to_gif_bytes()).decode("ascii")
 
     return {
-        "ascii": ascii_text,
+        "ascii": ascii_display,
         "ansi": ansi,
         "html": html_doc,
         "gif_b64": gif_b64,

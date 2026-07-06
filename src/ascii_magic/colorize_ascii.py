@@ -96,6 +96,20 @@ class MatrixOptions:
     bg_density: float = 0.75          # multiply glyph probability on background pixels
 
 @dataclass
+class CaptionOptions:
+    """Text rendered as ASCII and stitched above/below the art, un-colorized
+    by the image (optionally tinted a uniform color)."""
+
+    text: Optional[str] = None
+    position: str = "bottom"   # "top" | "bottom"
+    style: str = "block"       # block | small | shadow | box | banner
+    scale: float = 0.6         # fraction of art width for rendered styles
+    gap: int = 1               # blank lines between caption and art
+    color: Optional[str] = None  # theme name or #RRGGBB; None = default fg
+    align: str = "center"      # left | center | right
+
+
+@dataclass
 class Options:
     out_format: Optional[str] = None  # "ansi" | "html" (None => infer from output extension)
 
@@ -116,6 +130,7 @@ class Options:
     size: SizeOptions = field(default_factory=SizeOptions)
     html: HtmlOptions = field(default_factory=HtmlOptions)
     matrix: MatrixOptions = field(default_factory=MatrixOptions)
+    caption: CaptionOptions = field(default_factory=CaptionOptions)
 
 # -----------------------------
 # Utilities / core logic
@@ -218,6 +233,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--matrix-bg-dim", type=float, default=0.80, metavar="F")
     g.add_argument("--matrix-bg-density", type=float, default=0.75, metavar="F")
 
+    g = ap.add_argument_group("caption")
+    g.add_argument("--caption", default=None, metavar="TEXT",
+                   help="Render TEXT as ASCII and stitch it onto the art")
+    g.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
+    g.add_argument("--caption-style", choices=["block", "small", "shadow", "box", "banner"],
+                   default="block")
+    g.add_argument("--caption-scale", type=float, default=0.6, metavar="F",
+                   help="Caption width as a fraction of art width (rendered styles)")
+    g.add_argument("--caption-gap", type=int, default=1, metavar="N",
+                   help="Blank lines between caption and art")
+    g.add_argument("--caption-color", default=None, metavar="COLOR",
+                   help="Uniform caption color: theme name or #RRGGBB (default: terminal fg)")
+    g.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
+
     g = ap.add_argument_group("animation")
     g.add_argument("--animate", action="store_true",
                    help="Matrix rain animation (implies --matrix)")
@@ -260,6 +289,15 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
             font_size_px=ns.html_font_size,
             line_height_px=ns.html_line_height,
             fill_spaces=ns.html_fill_spaces,
+        ),
+        caption=CaptionOptions(
+            text=ns.caption,
+            position=ns.caption_pos,
+            style=ns.caption_style,
+            scale=ns.caption_scale,
+            gap=ns.caption_gap,
+            color=ns.caption_color,
+            align=ns.caption_align,
         ),
         matrix=MatrixOptions(
             enabled=ns.matrix,
@@ -691,12 +729,51 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
     )
 
 
+def _build_caption_lines(cap: CaptionOptions, width: int) -> List[str]:
+    from . import text_to_ascii as text_mod
+
+    if not cap.text:
+        return []
+    return text_mod.caption_lines(
+        cap.text, width, style=cap.style, scale=cap.scale, align=cap.align
+    )
+
+
+def _caption_lines_ansi(lines: Sequence[str], cap: CaptionOptions) -> List[str]:
+    if not cap.color:
+        return list(lines)
+    r, g, b = parse_matrix_color(cap.color)
+    return [f"{ESC}[38;2;{r};{g};{b}m{ln}{ESC}[0m" if ln.strip() else ln for ln in lines]
+
+
+def _caption_lines_html(lines: Sequence[str], cap: CaptionOptions) -> List[str]:
+    escaped = [html.escape(ln) for ln in lines]
+    if not cap.color:
+        return escaped
+    r, g, b = parse_matrix_color(cap.color)
+    return [
+        f'<span style="color: rgb({r},{g},{b})">{ln}</span>' if ln.strip() else ln
+        for ln in escaped
+    ]
+
+
+def _with_caption(body: List[str], cap_lines: List[str], cap: CaptionOptions) -> List[str]:
+    if not cap_lines:
+        return body
+    spacer = [""] * max(0, int(cap.gap))
+    if cap.position == "top":
+        return cap_lines + spacer + body
+    return body + spacer + cap_lines
+
+
 def render_ansi(
         header: Sequence[str],
         art: Sequence[str],
         img: Image.Image,
         color_top: bool,
-        m: MatrixOptions
+        m: MatrixOptions,
+        cap: Optional[CaptionOptions] = None,
+        cap_lines: Optional[List[str]] = None,
 ) -> List[str]:
     out_lines: List[str] = []
     if header:
@@ -711,7 +788,9 @@ def render_ansi(
             out_lines.extend(matrix_lines_ansi(art, img, m))
         else:
             out_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
-    
+
+    if cap and cap_lines:
+        out_lines = _with_caption(out_lines, _caption_lines_ansi(cap_lines, cap), cap)
     return out_lines
 
 def render_html(
@@ -720,7 +799,9 @@ def render_html(
         img: Image.Image,
         color_top: bool,
         html_opt: HtmlOptions,
-        m: MatrixOptions
+        m: MatrixOptions,
+        cap: Optional[CaptionOptions] = None,
+        cap_lines: Optional[List[str]] = None,
 ) -> str:
     pre_lines: List[str] = []
 
@@ -737,6 +818,9 @@ def render_html(
             pre_lines.extend(matrix_lines_html(art, img, m, fill_spaces=html_opt.fill_spaces))
         else:
             pre_lines.extend(colorize_lines_html(art, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
+
+    if cap and cap_lines:
+        pre_lines = _with_caption(pre_lines, _caption_lines_html(cap_lines, cap), cap)
 
     return wrap_html(
         pre_lines,
@@ -768,10 +852,21 @@ def colorize_ascii_text(
     target_art_h = compute_target_art_height(opt.size.max_rows, len(header), len(art_lines))
     scaled_art = scale_art_block(art_lines, target_art_h, opt.size)
 
-    if opt.out_format == "html":
-        return render_html(header, scaled_art, image.convert("RGB"), opt.color_top, opt.html, opt.matrix)
+    cap_lines: List[str] = []
+    if opt.caption.text:
+        width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
+        cap_lines = _build_caption_lines(opt.caption, width)
 
-    out_lines = render_ansi(header, scaled_art, image.convert("RGB"), opt.color_top, opt.matrix)
+    if opt.out_format == "html":
+        return render_html(
+            header, scaled_art, image.convert("RGB"), opt.color_top, opt.html, opt.matrix,
+            cap=opt.caption, cap_lines=cap_lines,
+        )
+
+    out_lines = render_ansi(
+        header, scaled_art, image.convert("RGB"), opt.color_top, opt.matrix,
+        cap=opt.caption, cap_lines=cap_lines,
+    )
     return "\n".join(out_lines) + "\n"
 
 
@@ -848,7 +943,14 @@ def main():
 
     LOG.debug("Writing %s output to %s", opt.out_format, out_path)
     if opt.out_format == "ansi":
-        out_lines = render_ansi(header, scaled_art, base_img, opt.color_top, opt.matrix)
+        cap_lines = []
+        if opt.caption.text:
+            width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
+            cap_lines = _build_caption_lines(opt.caption, width)
+        out_lines = render_ansi(
+            header, scaled_art, base_img, opt.color_top, opt.matrix,
+            cap=opt.caption, cap_lines=cap_lines,
+        )
         text = "\n".join(out_lines) + "\n"
         if out_path:
             with open(out_path, "w", encoding="utf-8") as out:
@@ -856,7 +958,14 @@ def main():
         else:
             sys.stdout.write(text)
     else:
-        doc = render_html(header, scaled_art, base_img, opt.color_top, opt.html, opt.matrix)
+        cap_lines = []
+        if opt.caption.text:
+            width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
+            cap_lines = _build_caption_lines(opt.caption, width)
+        doc = render_html(
+            header, scaled_art, base_img, opt.color_top, opt.html, opt.matrix,
+            cap=opt.caption, cap_lines=cap_lines,
+        )
         title = html.escape(os.path.basename(out_path)) if out_path else "ASCII Art"
         doc = doc.replace("<title>ASCII Art</title>", f"<title>{title}</title>", 1)
 
