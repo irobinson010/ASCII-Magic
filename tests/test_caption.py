@@ -76,6 +76,36 @@ def test_colorized_html_caption_escaped_and_positioned():
     assert "R&amp;D &lt;cat&gt;" in out
 
 
+def test_caption_color_image_samples_adjacent_strip():
+    img = Image.new("RGB", (40, 40))
+    px = img.load()
+    for y in range(40):
+        for x in range(40):
+            px[x, y] = (255, 0, 0) if y < 20 else (0, 0, 255)  # red top, blue bottom
+
+    opt = Options(out_format="ansi")
+    opt.caption = CaptionOptions(text="Cat", style="box", color="image", position="bottom")
+    out = colorize_ascii_text(img, ART, opt=opt)
+    cap_part = "\n".join(out.splitlines()[-3:])
+    codes = re.findall(r"\x1b\[38;2;(\d+);(\d+);(\d+)m", cap_part)
+    assert codes
+    assert all(int(b) > int(r) for r, _g, b in codes)  # bottom caption = blue strip
+
+    opt.caption.position = "top"
+    out2 = colorize_ascii_text(img, ART, opt=opt)
+    cap_part2 = "\n".join(out2.splitlines()[:3])
+    codes2 = re.findall(r"\x1b\[38;2;(\d+);(\d+);(\d+)m", cap_part2)
+    assert codes2
+    assert all(int(r) > int(b) for r, _g, b in codes2)  # top caption = red strip
+
+
+def test_caption_color_image_html():
+    opt = Options(out_format="html")
+    opt.caption = CaptionOptions(text="Cat", style="box", color="image")
+    out = colorize_ascii_text(_img(), ART, opt=opt)
+    assert "Cat" in out
+
+
 def test_caption_width_matches_scaled_art():
     opt = Options(out_format="ansi")
     opt.size.cols = 24  # scale art narrower

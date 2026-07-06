@@ -91,7 +91,7 @@ function collectOptions() {
     caption_align: $("caption_align").value,
     caption_color: $("caption_color_mode").value === "custom"
       ? $("caption_custom_color").value
-      : null,
+      : ($("caption_color_mode").value || null),
   };
 }
 

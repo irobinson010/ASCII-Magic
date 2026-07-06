@@ -104,7 +104,7 @@ ascii-magic image cat.png --caption "Whiskers" --caption-style box --caption-pos
 - `style` : `block` (default), `small`, `shadow`, `box`, `banner`
 - `scale F` : caption width as a fraction of the art width for rendered styles (default 0.6) — the sizing knob
 - `gap N` : blank lines between caption and art (default 1)
-- `color COLOR` : uniform caption color — theme name or `#RRGGBB` (default: terminal foreground)
+- `color COLOR` : caption color — theme name, `#RRGGBB`, or `image` to colorize the caption from the picture itself (it samples the strip of the image nearest the caption); default: terminal foreground
 - `align` : `center` (default), `left`, `right`
 
 The web GUI has a matching **Caption** panel (text, position, style, size slider, alignment, color).

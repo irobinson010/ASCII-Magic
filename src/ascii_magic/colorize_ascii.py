@@ -105,7 +105,7 @@ class CaptionOptions:
     style: str = "block"       # block | small | shadow | box | banner
     scale: float = 0.6         # fraction of art width for rendered styles
     gap: int = 1               # blank lines between caption and art
-    color: Optional[str] = None  # theme name or #RRGGBB; None = default fg
+    color: Optional[str] = None  # theme, #RRGGBB, or "image" (sample the picture); None = default fg
     align: str = "center"      # left | center | right
 
 
@@ -244,7 +244,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--caption-gap", type=int, default=1, metavar="N",
                    help="Blank lines between caption and art")
     g.add_argument("--caption-color", default=None, metavar="COLOR",
-                   help="Uniform caption color: theme name or #RRGGBB (default: terminal fg)")
+                   help="Caption color: theme name, #RRGGBB, or 'image' to sample "
+                        "the picture (default: terminal fg)")
     g.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
 
     g = ap.add_argument_group("animation")
@@ -766,6 +767,16 @@ def _with_caption(body: List[str], cap_lines: List[str], cap: CaptionOptions) ->
     return body + spacer + cap_lines
 
 
+def caption_image_strip(img: Image.Image, position: str) -> Image.Image:
+    """The quarter of the picture adjacent to the caption, so image-colored
+    captions flow from the nearest art rows instead of the whole image."""
+    w, h = img.size
+    strip_h = max(1, h // 4)
+    if position == "top":
+        return img.crop((0, 0, w, strip_h))
+    return img.crop((0, h - strip_h, w, h))
+
+
 def render_ansi(
         header: Sequence[str],
         art: Sequence[str],
@@ -790,7 +801,13 @@ def render_ansi(
             out_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
 
     if cap and cap_lines:
-        out_lines = _with_caption(out_lines, _caption_lines_ansi(cap_lines, cap), cap)
+        if cap.color == "image":
+            rendered = colorize_lines_ansi(
+                cap_lines, caption_image_strip(img, cap.position), color_spaces=False
+            )
+        else:
+            rendered = _caption_lines_ansi(cap_lines, cap)
+        out_lines = _with_caption(out_lines, rendered, cap)
     return out_lines
 
 def render_html(
@@ -820,7 +837,14 @@ def render_html(
             pre_lines.extend(colorize_lines_html(art, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
 
     if cap and cap_lines:
-        pre_lines = _with_caption(pre_lines, _caption_lines_html(cap_lines, cap), cap)
+        if cap.color == "image":
+            rendered = colorize_lines_html(
+                cap_lines, caption_image_strip(img, cap.position),
+                color_spaces=False, fill_spaces=False,
+            )
+        else:
+            rendered = _caption_lines_html(cap_lines, cap)
+        pre_lines = _with_caption(pre_lines, rendered, cap)
 
     return wrap_html(
         pre_lines,
