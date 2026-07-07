@@ -114,6 +114,61 @@ def test_render_animate_same_seed_same_gif():
     assert r1.json()["gif_b64"] == r2.json()["gif_b64"]
 
 
+def test_render_matrix_color_theme_and_hex():
+    for color in ("amber", "#ff00ff"):
+        r = _render(
+            {"source": "image", "cols": 12, "matrix": True, "matrix_seed": 3, "matrix_color": color}
+        )
+        assert r.status_code == 200
+        assert "\x1b[38;2;" in r.json()["ansi"]
+
+
+def test_render_caption_in_all_outputs():
+    r = _render(
+        {
+            "source": "image",
+            "mode": "braille",
+            "cols": 16,
+            "caption_text": "Whiskers",
+            "caption_style": "box",
+        }
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "Whiskers" in body["ascii"]
+    assert "Whiskers" in body["html"]
+    import re
+
+    assert "Whiskers" in re.sub(r"\x1b\[[0-9;]*m", "", body["ansi"])
+
+
+def test_render_caption_plain_when_colorize_off():
+    r = _render(
+        {
+            "source": "image",
+            "cols": 16,
+            "colorize": False,
+            "caption_text": "Cat",
+            "caption_style": "box",
+        }
+    )
+    body = r.json()
+    assert "Cat" in body["ascii"]
+    assert "Cat" in body["ansi"]
+
+
+def test_render_bad_caption_color_400():
+    r = _render(
+        {"source": "image", "cols": 16, "caption_text": "Cat", "caption_color": "plaid"}
+    )
+    assert r.status_code == 400
+
+
+def test_render_bad_matrix_color_400():
+    r = _render({"source": "image", "cols": 12, "matrix": True, "matrix_color": "plaid"})
+    assert r.status_code == 400
+
+
 def test_render_colorize_off_returns_plain():
     r = _render({"source": "image", "mode": "braille", "cols": 16, "colorize": False})
     body = r.json()
@@ -132,6 +187,91 @@ def test_render_bad_image_400():
         data={"options": json.dumps({"source": "image"})},
     )
     assert r.status_code == 400
+
+
+def _art_dims(body):
+    lines = body["ascii"].splitlines()
+    return max(len(ln) for ln in lines), len(lines)
+
+
+def test_exif_orientation_honored():
+    # 60x20 landscape tagged "rotate 90 CW to display" -> renders as 20x60 portrait
+    buf = io.BytesIO()
+    img = Image.new("RGB", (60, 20), (200, 80, 40))
+    exif = Image.Exif()
+    exif[274] = 6  # Orientation tag
+    img.save(buf, format="JPEG", exif=exif.tobytes())
+
+    r = client.post(
+        "/api/render",
+        files={"image": ("t.jpg", buf.getvalue(), "image/jpeg")},
+        data={"options": json.dumps({"source": "image", "mode": "braille", "cols": 10,
+                                     "colorize": False})},
+    )
+    assert r.status_code == 200
+    w, h = _art_dims(r.json())
+    assert h > w  # portrait after orientation is applied
+
+
+def test_manual_rotate_option():
+    opts = {"source": "image", "mode": "braille", "cols": 10, "colorize": False}
+    flat = _render({**opts})  # 32x32 source is square; use a wide image instead
+    buf = io.BytesIO()
+    Image.new("RGB", (60, 20), (10, 200, 40)).save(buf, format="PNG")
+
+    def dims(rotate):
+        r = client.post(
+            "/api/render",
+            files={"image": ("t.png", buf.getvalue(), "image/png")},
+            data={"options": json.dumps({**opts, "rotate": rotate})},
+        )
+        assert r.status_code == 200
+        return _art_dims(r.json())
+
+    w0, h0 = dims(0)
+    w90, h90 = dims(90)
+    assert w0 > h0      # landscape
+    assert h90 > w90    # rotated to portrait
+    assert flat.status_code == 200
+
+
+def test_upload_size_cap_413(monkeypatch):
+    from ascii_magic import webapp
+
+    monkeypatch.setattr(webapp, "MAX_UPLOAD_BYTES", 100)
+    r = _render({"source": "image", "cols": 10})
+    assert r.status_code == 413
+
+
+def test_pixel_cap_400(monkeypatch):
+    from ascii_magic import webapp
+
+    monkeypatch.setattr(webapp, "MAX_IMAGE_PIXELS", 500)  # 32x32 png = 1024 px
+    r = _render({"source": "image", "cols": 10})
+    assert r.status_code == 400
+
+
+def test_huge_knobs_are_clamped_server_side():
+    r = _render({"source": "image", "mode": "braille", "cols": 999999})
+    assert r.status_code == 200
+    width = max(len(ln) for ln in r.json()["ascii"].splitlines())
+    assert width <= 500
+
+
+def test_garbage_numeric_options_do_not_500():
+    r = _render(
+        {
+            "source": "image",
+            "cols": "abc",
+            "gamma": "",
+            "matrix": True,
+            "matrix_fg_min": "nope",
+            "matrix_seed": "1",
+            "html_font_size": [],
+            "keep_top": None,
+        }
+    )
+    assert r.status_code == 200
 
 
 def test_render_bad_options_400():

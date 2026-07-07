@@ -45,13 +45,27 @@
         <div class="field">
           <label for="mode">Mode</label>
           <select id="mode">
-            <option value="braille">Braille (high detail)</option>
-            <option value="glyph">Glyph matching</option>
+            <option value="glyph">Glyph matching (best for cartoons/line art)</option>
+            <option value="braille">Braille dots (best for photos; try Invert)</option>
           </select>
         </div>
-        <div class="field">
-          <label for="cols">Width (chars)</label>
-          <input type="number" id="cols" value="100" min="10" max="500">
+        <div class="field-row">
+          <div class="field">
+            <label for="cols">Width (chars)</label>
+            <span class="seed-row">
+              <input type="number" id="cols" value="100" min="10" max="500">
+              <button id="autosize" title="Fit the preview pane (auto-set on upload)">Fit</button>
+            </span>
+          </div>
+          <div class="field">
+            <label for="rotate">Rotate</label>
+            <select id="rotate">
+              <option value="0">0°</option>
+              <option value="90">90°</option>
+              <option value="180">180°</option>
+              <option value="270">270°</option>
+            </select>
+          </div>
         </div>
 
         <div id="braille-knobs">
@@ -59,7 +73,7 @@
             <label for="threshold">Dot threshold <output id="threshold-out">0.5</output></label>
             <input type="range" id="threshold" min="0" max="1" step="0.05" value="0.5">
           </div>
-          <label class="check"><input type="checkbox" id="dither" checked> Dither (smoother gradients)</label>
+          <label class="check"><input type="checkbox" id="dither"> Dither (smoother gradients on photos)</label>
         </div>
 
         <div id="glyph-knobs" hidden>
@@ -94,7 +108,7 @@
         </div>
 
         <details>
-          <summary>Image adjustments</summary>
+          <summary>Image adjustments — gamma · contrast · invert</summary>
           <div class="field">
             <label for="gamma">Gamma <output id="gamma-out">1.0</output></label>
             <input type="range" id="gamma" min="0.2" max="3" step="0.1" value="1">
@@ -117,6 +131,7 @@
             <option value="shadow">Shadow</option>
             <option value="box">Box</option>
             <option value="banner">Banner</option>
+            <option value="figlet">Figlet</option>
           </select>
         </div>
         <div class="field-row">
@@ -125,6 +140,65 @@
           <div class="field" id="banner-char-field" hidden><label for="banner_char">Char</label><input type="text" id="banner_char" value="#" maxlength="1"></div>
         </div>
         <p class="hint">Box and banner styles are plain text — upload an image on the Image tab if you want them colorized.</p>
+      </section>
+
+      <section>
+        <details id="caption-section">
+          <summary><strong>Caption</strong> — text above/below the art</summary>
+          <div class="field">
+            <label for="caption_text">Text</label>
+            <input type="text" id="caption_text" placeholder="e.g. Whiskers 2010–2024">
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="caption_pos">Position</label>
+              <select id="caption_pos">
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="caption_style">Style</label>
+              <select id="caption_style">
+                <option value="figlet">Figlet (classic banner)</option>
+                <option value="block">Block letters</option>
+                <option value="small">Small letters</option>
+                <option value="shadow">Shadow letters</option>
+                <option value="box">Box</option>
+                <option value="banner">Banner</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="caption_scale">Size <output id="caption_scale-out">0.6</output></label>
+              <input type="range" id="caption_scale" min="0.1" max="1" step="0.05" value="0.6">
+            </div>
+            <div class="field">
+              <label for="caption_align">Align</label>
+              <select id="caption_align">
+                <option value="center">Center</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="caption_color_mode">Color</label>
+              <select id="caption_color_mode">
+                <option value="">Default</option>
+                <option value="image">Match image (nearby)</option>
+                <option value="image-full">Match image (whole)</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </div>
+            <div class="field" id="caption-color-field" hidden>
+              <label for="caption_custom_color">Custom</label>
+              <input type="color" id="caption_custom_color" value="#ffffff">
+            </div>
+          </div>
+        </details>
       </section>
 
       <section>
@@ -165,6 +239,24 @@
             </div>
           </div>
           <div class="field-row">
+            <div class="field">
+              <label for="matrix_theme">Color theme</label>
+              <select id="matrix_theme">
+                <option value="green">Green (classic)</option>
+                <option value="amber">Amber</option>
+                <option value="cyan">Cyan</option>
+                <option value="crimson">Crimson</option>
+                <option value="violet">Violet</option>
+                <option value="white">White</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </div>
+            <div class="field" id="custom-color-field" hidden>
+              <label for="matrix_custom_color">Custom</label>
+              <input type="color" id="matrix_custom_color" value="#00ff00">
+            </div>
+          </div>
+          <div class="field-row">
             <div class="field"><label for="matrix_fg_min">FG min</label><input type="number" id="matrix_fg_min" value="20" min="0" max="255"></div>
             <div class="field"><label for="matrix_fg_max">FG max</label><input type="number" id="matrix_fg_max" value="255" min="0" max="255"></div>
           </div>
@@ -196,7 +288,8 @@
               <div class="field"><label for="anim_fps">FPS</label><input type="number" id="anim_fps" value="12" min="1" max="30"></div>
               <div class="field"><label for="anim_tail">Tail</label><input type="number" id="anim_tail" value="6" min="1" max="40"></div>
             </div>
-            <p class="hint">Animation loops seamlessly. Download as .gif, or .html for a self-playing page.</p>
+            <label class="check"><input type="checkbox" id="anim_reveal"> Reveal image under the rain</label>
+            <p class="hint">Animation loops seamlessly (reveal mode ends on the full image). Download as .gif, or .html for a self-playing page.</p>
           </div>
         </div>
       </section>

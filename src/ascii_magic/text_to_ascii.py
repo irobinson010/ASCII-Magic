@@ -232,6 +232,120 @@ def text_to_banner(text: str, char: str = "#") -> str:
     return f"{border}\n{char} {text} {char}\n{border}"
 
 
+def text_to_figlet(text: str, width: int = 80, font: str = "standard") -> str:
+    """Classic figlet outline lettering (the traditional terminal-banner look)."""
+    import pyfiglet
+
+    return pyfiglet.figlet_format(text, font=font, width=max(20, int(width)))
+
+
+# Real figlet fonts in ascending size — scaling picks a font instead of
+# stretching character cells, so letterforms stay clean at every size.
+_FIGLET_SIZES = ("mini", "small", "standard", "big", "colossal", "doh")
+
+
+def _figlet_sized(text: str, width: int, scale: float) -> str:
+    """Figlet text sized toward scale x width using the font ladder."""
+    import pyfiglet
+
+    target = max(1, int(width * min(1.0, max(0.05, float(scale)))))
+    rendered = []
+    for font in _FIGLET_SIZES:
+        try:
+            block = pyfiglet.figlet_format(text, font=font, width=max(20, int(width)))
+        except Exception:
+            continue
+        w = max((len(ln.rstrip()) for ln in block.splitlines()), default=0)
+        if w:
+            rendered.append((w, block))
+    if not rendered:
+        return text
+    fitting = [r for r in rendered if r[0] <= width]
+    if fitting:
+        return min(fitting, key=lambda r: abs(r[0] - target))[1]
+    return min(rendered, key=lambda r: r[0])[1]  # nothing fits; smallest, then grid-shrink
+
+
+def caption_lines(
+    text: str,
+    width: int,
+    style: str = "block",
+    scale: float = 0.6,
+    align: str = "center",
+    font_path: str | None = None,
+) -> list[str]:
+    """Render text as ASCII caption lines padded to exactly `width` columns.
+
+    For the rendered styles (block/small/shadow) the caption occupies
+    `scale` x width columns; box/banner styles use their natural size,
+    clipped to width. Meant for stitching above/below a block of art.
+    """
+    width = max(1, int(width))
+    if style == "box":
+        block = text_to_box(text, width=width)
+    elif style == "banner":
+        block = text_to_banner(text)
+    elif style == "figlet":
+        block = _figlet_sized(text, width, scale)
+    else:
+        scale = min(1.0, max(0.05, float(scale)))
+        target = max(1, int(width * scale))
+        block = text_to_ascii_art(text, style=style, width=target, font_path=font_path)
+
+    lines = [ln.rstrip() for ln in block.splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    if style == "figlet" and lines:
+        # Emergency shrink only: even the smallest ladder font can overflow
+        # very narrow art. Sizing up is handled by the font ladder itself.
+        nat_w = max(len(ln) for ln in lines)
+        if nat_w > width:
+            from .colorize_ascii import scale_grid
+
+            factor = width / nat_w
+            new_h = max(1, round(len(lines) * factor))
+            lines = [ln.rstrip() for ln in scale_grid([ln.ljust(nat_w) for ln in lines], new_h, width)]
+
+    out = []
+    for ln in lines:
+        ln = ln[:width]
+        pad = width - len(ln)
+        if align == "left":
+            ln = ln + " " * pad
+        elif align == "right":
+            ln = " " * pad + ln
+        else:
+            left = pad // 2
+            ln = " " * left + ln + " " * (pad - left)
+        out.append(ln)
+    return out
+
+
+def compose_caption(
+    art: str,
+    text: str,
+    position: str = "bottom",
+    style: str = "block",
+    scale: float = 0.6,
+    gap: int = 1,
+    align: str = "center",
+    font_path: str | None = None,
+) -> str:
+    """Stitch a rendered text caption above or below a block of ASCII art."""
+    art_lines = art.splitlines()
+    width = max((len(ln) for ln in art_lines), default=1)
+    cap = caption_lines(text, width, style=style, scale=scale, align=align, font_path=font_path)
+    spacer = [""] * max(0, int(gap))
+    if position == "top":
+        combined = cap + spacer + art_lines
+    else:
+        combined = art_lines + spacer + cap
+    return "\n".join(combined)
+
+
 # =============================
 # CLI
 # =============================
@@ -261,7 +375,7 @@ def main():
     parser.add_argument(
         "-s",
         "--style",
-        choices=["block", "small", "shadow", "box", "banner"],
+        choices=["block", "small", "shadow", "box", "banner", "figlet"],
         default="block",
         help="ASCII art style",
     )
@@ -327,6 +441,8 @@ def main():
         output = text_to_box(text, width=args.width)
     elif args.style == "banner":
         output = text_to_banner(text, char=args.char)
+    elif args.style == "figlet":
+        output = text_to_figlet(text, width=args.width)
     else:
         # Generate ascii-art styles using the renderer
         output = text_to_ascii_art(

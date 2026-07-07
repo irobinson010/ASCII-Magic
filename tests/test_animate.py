@@ -86,8 +86,23 @@ def test_play_writes_frames_and_restores_cursor():
 
 
 def test_empty_ascii_rejected():
-    with pytest.raises(ValueError):
-        generate("", _image())
+    for bad in ("", "\n", "\n\n"):
+        with pytest.raises(ValueError, match="Empty ASCII"):
+            generate(bad, _image())
+
+
+def test_empty_matrix_chars_rejected():
+    with pytest.raises(ValueError, match="chars"):
+        generate(ASCII, _image(), m=MatrixOptions(enabled=True, chars=""))
+
+
+def test_default_matrix_chars_single_backslash():
+    assert MatrixOptions().chars.count("\\") == 1
+
+
+def test_ansi_frames_end_with_reset():
+    for f in _gen(frames=3).frames_ansi():
+        assert f.endswith("\x1b[0m")
 
 
 def test_pipeline_animate():
@@ -96,6 +111,83 @@ def test_pipeline_animate():
     anim = animate(ctx, matrix=MatrixOptions(enabled=True, seed=3), anim=AnimationOptions(frames=4))
     assert len(anim.frames) == 4
     assert ctx.metadata["animated"] is True
+
+
+def test_caption_in_all_animation_sinks():
+    from ascii_magic.colorize_ascii import CaptionOptions
+
+    cap = CaptionOptions(text="Cat", style="box", position="bottom")
+    anim = generate(
+        ASCII, _image(), m=MatrixOptions(enabled=True, seed=7),
+        a=AnimationOptions(frames=3), caption=cap,
+    )
+
+    frames = anim.frames_ansi()
+    import re
+
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", frames[0])
+    assert "Cat" in plain
+    # caption rows appear in every frame, after the art + gap
+    assert all("Cat" in re.sub(r"\x1b\[[0-9;]*m", "", f) for f in frames)
+
+    html = anim.to_html()
+    assert '<pre id="cap">' in html
+    assert "Cat" in html
+
+    # GIF grows taller by the caption strip
+    bare = generate(
+        ASCII, _image(), m=MatrixOptions(enabled=True, seed=7), a=AnimationOptions(frames=3)
+    )
+    import io as _io
+
+    g_cap = Image.open(_io.BytesIO(anim.to_gif_bytes()))
+    g_bare = Image.open(_io.BytesIO(bare.to_gif_bytes()))
+    assert g_cap.size[1] > g_bare.size[1]
+    assert g_cap.size[0] == g_bare.size[0]
+
+
+def test_caption_image_colors_in_animation():
+    from ascii_magic.colorize_ascii import CaptionOptions
+
+    cap = CaptionOptions(text="Cat", style="box", color="image")
+    anim = generate(
+        ASCII, _image(), m=MatrixOptions(enabled=True, seed=7),
+        a=AnimationOptions(frames=2), caption=cap,
+    )
+    assert anim.caption.colors is not None
+    assert "\x1b[38;2;" in anim._caption_rows_ansi()[0]
+
+
+def test_reveal_alpha_accumulates_to_full():
+    anim = _gen(frames=40, reveal=True)
+    assert anim.reveal_alpha is not None and len(anim.reveal_alpha) == 40
+    assert anim.reveal_alpha[0].mean() < anim.reveal_alpha[-1].mean()
+    # a full column cycle passes every cell: final frame is (nearly) fully lit
+    assert anim.reveal_alpha[-1].mean() > 200
+
+
+def test_reveal_final_frame_shows_art_chars():
+    import re
+
+    anim = _gen(frames=40, reveal=True)
+    last = re.sub(r"\x1b\[[0-9;]*m", "", anim.frames_ansi()[-1])
+    # source art is '#', which is not in the default rain charset
+    assert "#" in last
+    first = re.sub(r"\x1b\[[0-9;]*m", "", anim.frames_ansi()[0])
+    assert first.count("#") < last.count("#")
+
+
+def test_reveal_sinks_build():
+    anim = _gen(frames=6, reveal=True)
+    gif = anim.to_gif_bytes()
+    assert gif[:4] == b"GIF8"
+    html = anim.to_html()
+    assert "rgb(" in html  # inline revealed-art spans
+    assert "setInterval" in html
+
+
+def test_no_reveal_has_no_alpha():
+    assert _gen(frames=3).reveal_alpha is None
 
 
 def test_pipeline_animate_requires_ascii():

@@ -1,4 +1,5 @@
 # unified_cli.py
+import os
 import sys
 import importlib
 import inspect
@@ -41,7 +42,9 @@ def _call_entry(entry, argv: List[str], module_prog: Optional[str] = None) -> in
         code = se.code
         return code if isinstance(code, int) else 0
     except Exception as e:
-        print(f"Error running command: {e}", file=sys.stderr)
+        if os.environ.get("ASCII_MAGIC_DEBUG"):
+            raise
+        print(f"Error running command: {e} (set ASCII_MAGIC_DEBUG=1 for a traceback)", file=sys.stderr)
         return 1
 
 

@@ -27,7 +27,16 @@ from typing import List, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .colorize_ascii import ESC, MatrixOptions, matrix_field
+from .colorize_ascii import (
+    _CAPTION_IMAGE_COLORS,
+    CaptionOptions,
+    ESC,
+    MatrixOptions,
+    caption_ref_image,
+    matrix_field,
+    parse_matrix_color,
+    tint_rgb,
+)
 from .image_to_ascii import find_default_mono_font
 
 # Rain look tunables
@@ -38,6 +47,17 @@ _MIN_INTENSITY = 0.02    # below this the cell is blank
 
 
 @dataclass
+class CaptionRender:
+    """A caption resolved to concrete lines and colors, static across frames."""
+
+    lines: List[str]
+    position: str                                   # "top" | "bottom"
+    gap: int
+    uniform: Optional[Tuple[int, int, int]] = None  # single color...
+    colors: Optional[list] = None                   # ...or per-char [y][x] RGB
+
+
+@dataclass
 class AnimationOptions:
     frames: int = 60
     fps: float = 12.0
@@ -45,6 +65,8 @@ class AnimationOptions:
     loops: int = 3           # terminal playback repeats (0 = until Ctrl-C)
     font_size: int = 14      # GIF sink glyph size
     mutate_every: int = 4    # frames between glyph re-rolls
+    reveal: bool = False     # rain uncovers the colorized art, which persists
+    reveal_fade: int = 6     # frames for a revealed cell to reach full brightness
 
 
 class MatrixAnimation:
@@ -55,21 +77,88 @@ class MatrixAnimation:
         frames: List[Tuple[np.ndarray, np.ndarray, np.ndarray]],
         chars: str,
         fps: float,
+        tint: Tuple[int, int, int] = (0, 255, 0),
+        caption: Optional[CaptionRender] = None,
+        reveal_alpha: Optional[List[np.ndarray]] = None,  # per-frame (H,W) uint8
+        art_chars: Optional[List[str]] = None,            # padded source art grid
+        art_rgb: Optional[np.ndarray] = None,             # (H,W,3) uint8 image colors
     ):
-        self.frames = frames  # per frame: (glyph idx int16, green uint8, head bool)
+        self.frames = frames  # per frame: (glyph idx int16, intensity uint8, head bool)
         self.chars = chars
         self.fps = fps
+        self.tint = tint
+        self.caption = caption
+        self.reveal_alpha = reveal_alpha
+        self.art_chars = art_chars
+        self.art_rgb = art_rgb
+
+    def _cell_rgb(self, intensity: int, is_head: bool) -> Tuple[int, int, int]:
+        base = tint_rgb(intensity, self.tint)
+        if not is_head:
+            return base
+        # Heads glow toward white, scaled by their intensity.
+        return tuple(c + (intensity - c) * 4 // 5 for c in base)
 
     @property
     def size(self) -> Tuple[int, int]:
         h, w = self.frames[0][0].shape
         return w, h
 
+    # ---- caption helpers ----
+
+    def _caption_rows_ansi(self) -> List[str]:
+        cap = self.caption
+        rows = []
+        for y, line in enumerate(cap.lines):
+            if cap.colors is not None:
+                prev = None
+                row = []
+                for x, ch in enumerate(line):
+                    if ch == " ":
+                        if prev is not None:
+                            row.append(f"{ESC}[0m")
+                            prev = None
+                        row.append(" ")
+                        continue
+                    c = tuple(cap.colors[y][x])
+                    if c != prev:
+                        row.append(f"{ESC}[38;2;{c[0]};{c[1]};{c[2]}m")
+                        prev = c
+                    row.append(ch)
+                if prev is not None:
+                    row.append(f"{ESC}[0m")
+                rows.append("".join(row))
+            else:
+                r, g, b = cap.uniform
+                rows.append(
+                    f"{ESC}[38;2;{r};{g};{b}m{line}{ESC}[0m" if line.strip() else line
+                )
+        return rows
+
+    def _with_caption_rows(self, body: List[str], cap_rows: List[str]) -> List[str]:
+        spacer = [""] * self.caption.gap
+        if self.caption.position == "top":
+            return cap_rows + spacer + body
+        return body + spacer + cap_rows
+
     # ---- ANSI ----
 
+    def _revealed_cell(self, t_alpha: np.ndarray, y: int, x: int):
+        """(char, rgb) for a revealed art cell, or None if still dark."""
+        av = int(t_alpha[y, x])
+        if av <= 8:
+            return None
+        ch = self.art_chars[y][x]
+        if ch == " ":
+            return None
+        ar, ag, ab = (int(v) * av // 255 for v in self.art_rgb[y, x])
+        return ch, (ar, ag, ab)
+
     def frames_ansi(self) -> List[str]:
+        cap_rows = self._caption_rows_ansi() if self.caption else None
         out = []
-        for idx, green, head in self.frames:
+        for t, (idx, green, head) in enumerate(self.frames):
+            alpha = self.reveal_alpha[t] if self.reveal_alpha is not None else None
             h, w = idx.shape
             lines = []
             for y in range(h):
@@ -78,22 +167,29 @@ class MatrixAnimation:
                 for x in range(w):
                     i = idx[y, x]
                     if i < 0:
-                        if prev is not None:
-                            row.append(f"{ESC}[0m")
-                            prev = None
-                        row.append(" ")
-                        continue
-                    g = int(green[y, x])
-                    wb = int(g * 0.8) if head[y, x] else 0  # whiten heads
-                    style = (wb, g)
-                    if style != prev:
-                        row.append(f"{ESC}[38;2;{wb};{g};{wb}m")
-                        prev = style
-                    row.append(self.chars[i])
+                        cell = self._revealed_cell(alpha, y, x) if alpha is not None else None
+                        if cell is None:
+                            if prev is not None:
+                                row.append(f"{ESC}[0m")
+                                prev = None
+                            row.append(" ")
+                            continue
+                        ch, rgb = cell
+                    else:
+                        ch = self.chars[i]
+                        rgb = self._cell_rgb(int(green[y, x]), bool(head[y, x]))
+                    if rgb != prev:
+                        row.append(f"{ESC}[38;2;{rgb[0]};{rgb[1]};{rgb[2]}m")
+                        prev = rgb
+                    row.append(ch)
                 if prev is not None:
                     row.append(f"{ESC}[0m")
                 lines.append("".join(row))
-            out.append("\n".join(lines))
+            if cap_rows is not None:
+                lines = self._with_caption_rows(lines, cap_rows)
+            # Trailing reset so color state never leaks past a frame into
+            # the terminal or downstream .frames consumers.
+            out.append("\n".join(lines) + f"{ESC}[0m")
         return out
 
     def play(self, loops: Optional[int] = None, out=None) -> None:
@@ -120,7 +216,9 @@ class MatrixAnimation:
             except BrokenPipeError:
                 # Stop the interpreter-shutdown flush from complaining too.
                 if out is sys.stdout:
-                    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+                    fd = os.open(os.devnull, os.O_WRONLY)
+                    os.dup2(fd, sys.stdout.fileno())
+                    os.close(fd)
 
     # ---- GIF ----
 
@@ -135,31 +233,72 @@ class MatrixAnimation:
             font = ImageFont.load_default()
             cell_w, cell_h = 7, 13
 
-        cache: dict[int, np.ndarray] = {}
+        cache: dict[str, np.ndarray] = {}
 
-        def glyph_alpha(i: int) -> np.ndarray:
-            a = cache.get(i)
+        def glyph_alpha(ch: str) -> np.ndarray:
+            a = cache.get(ch)
             if a is None:
                 img = Image.new("L", (cell_w, cell_h), 0)
-                ImageDraw.Draw(img).text((0, 0), self.chars[i], fill=255, font=font)
+                ImageDraw.Draw(img).text((0, 0), ch, fill=255, font=font)
                 a = np.asarray(img, dtype=np.float32) / 255.0
-                cache[i] = a
+                cache[ch] = a
             return a
 
+        cap_strip: Optional[np.ndarray] = None
+        if self.caption:
+            cap = self.caption
+            w_px = self.size[0] * cell_w
+            gap_px = cap.gap * cell_h
+            strip = Image.new("RGB", (w_px, len(cap.lines) * cell_h + gap_px), (0, 0, 0))
+            draw = ImageDraw.Draw(strip)
+            y_off = gap_px if cap.position == "bottom" else 0
+            for y, line in enumerate(cap.lines):
+                for x, ch in enumerate(line):
+                    if ch == " ":
+                        continue
+                    color = tuple(cap.colors[y][x]) if cap.colors else cap.uniform
+                    draw.text((x * cell_w, y_off + y * cell_h), ch, fill=color, font=font)
+            cap_strip = np.asarray(strip, dtype=np.uint8)
+
         images = []
-        for idx, green, head in self.frames:
+        for t, (idx, green, head) in enumerate(self.frames):
             h, w = idx.shape
             canvas = np.zeros((h * cell_h, w * cell_w, 3), dtype=np.uint8)
+
+            if self.reveal_alpha is not None:
+                alpha = self.reveal_alpha[t]
+                ys, xs = np.nonzero((alpha > 8) & (idx < 0))
+                for y, x in zip(ys, xs):
+                    cell = self._revealed_cell(alpha, y, x)
+                    if cell is None:
+                        continue
+                    ch, (r, g, b) = cell
+                    a = glyph_alpha(ch)
+                    block = canvas[y * cell_h:(y + 1) * cell_h, x * cell_w:(x + 1) * cell_w]
+                    block[:, :, 0] = (a * r).astype(np.uint8)
+                    block[:, :, 1] = (a * g).astype(np.uint8)
+                    block[:, :, 2] = (a * b).astype(np.uint8)
+
             ys, xs = np.nonzero(idx >= 0)
             for y, x in zip(ys, xs):
-                a = glyph_alpha(int(idx[y, x]))
-                g = int(green[y, x])
-                wb = int(g * 0.8) if head[y, x] else 0
+                a = glyph_alpha(self.chars[int(idx[y, x])])
+                r, g, b = self._cell_rgb(int(green[y, x]), bool(head[y, x]))
                 block = canvas[y * cell_h:(y + 1) * cell_h, x * cell_w:(x + 1) * cell_w]
-                block[:, :, 0] = (a * wb).astype(np.uint8)
+                block[:, :, 0] = (a * r).astype(np.uint8)
                 block[:, :, 1] = (a * g).astype(np.uint8)
-                block[:, :, 2] = (a * wb).astype(np.uint8)
+                block[:, :, 2] = (a * b).astype(np.uint8)
+            if cap_strip is not None:
+                if self.caption.position == "top":
+                    canvas = np.vstack([cap_strip, canvas])
+                else:
+                    canvas = np.vstack([canvas, cap_strip])
             images.append(Image.fromarray(canvas))
+
+        dur = max(20, round(1000 / self.fps))
+        durations: object = dur
+        if self.reveal_alpha is not None and len(images) > 1:
+            # Hold the fully-revealed final frame before the loop restarts.
+            durations = [dur] * (len(images) - 1) + [dur * 6]
 
         buf = io.BytesIO()
         images[0].save(
@@ -167,17 +306,58 @@ class MatrixAnimation:
             format="GIF",
             save_all=True,
             append_images=images[1:],
-            duration=max(20, round(1000 / self.fps)),
+            duration=durations,
             loop=0,
         )
         return buf.getvalue()
 
     # ---- HTML player ----
 
+    def _caption_html_block(self) -> str:
+        cap = self.caption
+        parts = []
+        for y, line in enumerate(cap.lines):
+            if cap.colors is not None:
+                prev = None
+                segs: List[str] = []
+                run: List[str] = []
+
+                def flush():
+                    nonlocal run
+                    if not run:
+                        return
+                    text = "".join(run)
+                    if prev is None:
+                        segs.append(text)
+                    else:
+                        r, g, b = prev
+                        segs.append(f'<span style="color: rgb({r},{g},{b})">{text}</span>')
+                    run = []
+
+                for x, ch in enumerate(line):
+                    key = None if ch == " " else tuple(cap.colors[y][x])
+                    if key != prev:
+                        flush()
+                        prev = key
+                    run.append(html_mod.escape(ch))
+                flush()
+                parts.append("".join(segs))
+            else:
+                r, g, b = cap.uniform
+                esc = html_mod.escape(line)
+                parts.append(
+                    f'<span style="color: rgb({r},{g},{b})">{esc}</span>' if line.strip() else esc
+                )
+        gap = "\n" * cap.gap
+        body = "\n".join(parts)
+        return gap + body if cap.position == "bottom" else body + gap
+
     def to_html(self, title: str = "Matrix", font_size_px: int = 12) -> str:
-        # Quantize green to 16 levels so span runs stay long and the file small.
+        # Quantize colors so span runs stay long and the file small: rain green
+        # becomes 16 class levels; revealed art colors round to 32-step inline styles.
         frame_strings = []
-        for idx, green, head in self.frames:
+        for t, (idx, green, head) in enumerate(self.frames):
+            alpha = self.reveal_alpha[t] if self.reveal_alpha is not None else None
             h, w = idx.shape
             lines = []
             for y in range(h):
@@ -188,46 +368,76 @@ class MatrixAnimation:
                 def flush():
                     nonlocal run
                     if run:
+                        text = "".join(run)
                         if prev is None:
-                            parts.append("".join(run))
+                            parts.append(text)
+                        elif isinstance(prev, tuple):
+                            r_, g_, b_ = prev
+                            parts.append(
+                                f'<span style="color: rgb({r_},{g_},{b_})">{text}</span>'
+                            )
                         else:
-                            parts.append(f'<span class="{prev}">' + "".join(run) + "</span>")
+                            parts.append(f'<span class="{prev}">{text}</span>')
                         run = []
 
                 for x in range(w):
                     i = idx[y, x]
                     if i < 0:
-                        cls = None
-                        ch = " "
+                        cell = self._revealed_cell(alpha, y, x) if alpha is not None else None
+                        if cell is None:
+                            key = None
+                            ch = " "
+                        else:
+                            ach, (r_, g_, b_) = cell
+                            key = ((r_ >> 5) << 5, (g_ >> 5) << 5, (b_ >> 5) << 5)
+                            ch = html_mod.escape(ach)
                     else:
-                        cls = "h" if head[y, x] else f"c{green[y, x] >> 4}"
+                        key = "h" if head[y, x] else f"c{green[y, x] >> 4}"
                         ch = html_mod.escape(self.chars[i])
-                    if cls != prev:
+                    if key != prev:
                         flush()
-                        prev = cls
+                        prev = key
                     run.append(ch)
                 flush()
                 lines.append("".join(parts))
             frame_strings.append("\n".join(lines))
 
         css_levels = "\n".join(
-            f"    .c{i} {{ color: rgb(0,{min(255, i * 17)},0); }}" for i in range(16)
+            "    .c{i} {{ color: rgb({r},{g},{b}); }}".format(
+                i=i, r=r, g=g, b=b
+            )
+            for i in range(16)
+            for (r, g, b) in [tint_rgb(min(255, i * 17), self.tint)]
         )
+        hr, hg, hb = (c + (255 - c) * 216 // 255 for c in self.tint)
+
+        cap_top = cap_bottom = ""
+        if self.caption:
+            block = f'  <pre id="cap">{self._caption_html_block()}</pre>\n'
+            if self.caption.position == "top":
+                cap_top = block
+            else:
+                cap_bottom = block
+
         return (
             "<!doctype html>\n<html>\n<head>\n"
             '  <meta charset="utf-8">\n'
             f"  <title>{html_mod.escape(title)}</title>\n"
             "  <style>\n"
-            "    html, body { margin: 0; background: #000; }\n"
+            "    html { margin: 0; }\n"
+            "    body { margin: 0; padding: 16px; background: #000; }\n"
             "    pre {\n"
-            "      margin: 16px;\n      white-space: pre;\n      overflow: auto;\n"
+            "      margin: 0;\n      white-space: pre;\n      overflow: auto;\n"
+            "      color: #e0e0e0;\n"  # default text must contrast the black page
             '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;\n'
             f"      font-size: {font_size_px}px;\n      line-height: {font_size_px}px;\n"
             "    }\n"
             f"{css_levels}\n"
-            "    .h { color: #d8ffd8; }\n"
+            f"    .h {{ color: rgb({hr},{hg},{hb}); }}\n"
             "  </style>\n</head>\n<body>\n"
+            f"{cap_top}"
             '  <pre id="m"></pre>\n'
+            f"{cap_bottom}"
             "  <script>\n"
             f"    const FRAMES = {json.dumps(frame_strings)};\n"
             f"    const FPS = {self.fps};\n"
@@ -240,21 +450,63 @@ class MatrixAnimation:
         )
 
 
+def _resolve_caption(
+    caption: Optional[CaptionOptions],
+    image: Image.Image,
+    width: int,
+    tint: Tuple[int, int, int],
+) -> Optional[CaptionRender]:
+    if not caption or not caption.text:
+        return None
+    from .text_to_ascii import caption_lines
+
+    lines = caption_lines(
+        caption.text, width, style=caption.style, scale=caption.scale, align=caption.align
+    )
+    if not lines:
+        return None
+    colors = None
+    uniform: Optional[Tuple[int, int, int]] = None
+    if caption.color in _CAPTION_IMAGE_COLORS:
+        strip = caption_ref_image(image, caption)
+        strip = strip.resize((width, len(lines))).convert("RGB")
+        spx = strip.load()
+        colors = [[spx[x, y] for x in range(width)] for y in range(len(lines))]
+    elif caption.color:
+        uniform = parse_matrix_color(caption.color)
+    else:
+        uniform = tint  # match the rain by default
+    return CaptionRender(
+        lines=lines,
+        position=caption.position,
+        gap=max(0, int(caption.gap)),
+        uniform=uniform,
+        colors=colors,
+    )
+
+
 def generate(
     ascii_text: str,
     image: Image.Image,
     m: Optional[MatrixOptions] = None,
     a: Optional[AnimationOptions] = None,
+    caption: Optional[CaptionOptions] = None,
 ) -> MatrixAnimation:
-    """Simulate matrix rain over the subject field. Deterministic for a given seed."""
+    """Simulate matrix rain over the subject field.
+
+    Deterministic for a given ``m.seed``; ``seed=None`` (the default) draws
+    fresh entropy on every call and is intentionally non-reproducible.
+    """
     m = m or MatrixOptions(enabled=True)
     a = a or AnimationOptions()
 
     lines = [ln for ln in ascii_text.splitlines()]
-    if not lines:
+    if not lines or max(len(ln) for ln in lines) == 0:
         raise ValueError("Empty ASCII text; nothing to animate.")
     if a.frames < 1:
         raise ValueError("frames must be >= 1")
+    if not m.chars:
+        raise ValueError("matrix chars must not be empty")
 
     grid, field = matrix_field(lines, image, m)
     H = len(grid)
@@ -285,6 +537,16 @@ def generate(
     vis_p = np.clip(_VIS_BASE + (1.0 - _VIS_BASE) * prob, 0.0, 1.0)
     rows = np.arange(H, dtype=np.float32)[:, None]
 
+    reveal_frames: Optional[List[np.ndarray]] = None
+    art_rgb: Optional[np.ndarray] = None
+    if a.reveal:
+        art_rgb = np.asarray(
+            image.resize((W, H), Image.Resampling.LANCZOS).convert("RGB"), dtype=np.uint8
+        )
+        reveal_frames = []
+        revealed = np.zeros((H, W), dtype=bool)
+        alpha_acc = np.zeros((H, W), dtype=np.float32)
+
     frames = []
     for t in range(a.frames):
         heads = (h0 + speed * t) % cycle          # (W,)
@@ -303,4 +565,15 @@ def generate(
         idx = np.where(visible, idx_table[slot], np.int16(-1))
         frames.append((idx, np.where(visible, green, 0).astype(np.uint8), head_mask & visible))
 
-    return MatrixAnimation(frames, m.chars, a.fps)
+        if a.reveal:
+            revealed |= intensity > _MIN_INTENSITY
+            alpha_acc = np.minimum(
+                1.0, alpha_acc + revealed.astype(np.float32) / max(1, a.reveal_fade)
+            )
+            reveal_frames.append((alpha_acc * 255).astype(np.uint8))
+
+    cap_render = _resolve_caption(caption, image, W, m.tint)
+    return MatrixAnimation(
+        frames, m.chars, a.fps, tint=m.tint, caption=cap_render,
+        reveal_alpha=reveal_frames, art_chars=grid if a.reveal else None, art_rgb=art_rgb,
+    )

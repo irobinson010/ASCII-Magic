@@ -5,14 +5,16 @@ const $ = (id) => document.getElementById(id);
 const state = {
   file: null,        // uploaded File
   fileStem: "ascii-art",
+  imgW: 0,           // natural dimensions of the uploaded image
+  imgH: 0,
   result: null,      // last /api/render response
   rendering: false,
   queued: false,
 };
 
 const PROFILES = {
-  terminal: { cols: 100, html_font_size: 12, html_fill_spaces: false },
-  web: { cols: 160, html_font_size: 10, html_fill_spaces: true },
+  terminal: { fallback_cols: 100, html_font_size: 12, html_fill_spaces: false },
+  web: { fallback_cols: 160, html_font_size: 10, html_fill_spaces: true },
 };
 
 // ---------- option collection ----------
@@ -37,6 +39,7 @@ function collectOptions() {
     // image source
     mode: $("mode").value,
     cols: num("cols"),
+    rotate: num("rotate"),
     quality: $("quality").value,
     ascii_preset: $("ascii_preset").value,
     unicode_mode: $("unicode_mode").value,
@@ -64,6 +67,9 @@ function collectOptions() {
     matrix_top: $("matrix_top").checked,
     matrix_seed: num("matrix_seed"),
     matrix_gamma: num("matrix_gamma"),
+    matrix_color: $("matrix_theme").value === "custom"
+      ? $("matrix_custom_color").value
+      : $("matrix_theme").value,
     matrix_fg_min: num("matrix_fg_min"),
     matrix_fg_max: num("matrix_fg_max"),
     matrix_bg_min: num("matrix_bg_min"),
@@ -80,6 +86,16 @@ function collectOptions() {
     anim_frames: num("anim_frames"),
     anim_fps: num("anim_fps"),
     anim_tail: num("anim_tail"),
+    anim_reveal: $("anim_reveal").checked,
+    // caption
+    caption_text: $("caption_text").value.trim() || null,
+    caption_pos: $("caption_pos").value,
+    caption_style: $("caption_style").value,
+    caption_scale: num("caption_scale"),
+    caption_align: $("caption_align").value,
+    caption_color: $("caption_color_mode").value === "custom"
+      ? $("caption_custom_color").value
+      : ($("caption_color_mode").value || null),
   };
 }
 
@@ -161,6 +177,30 @@ $("dl-gif").addEventListener("click", () => {
   download(`${state.fileStem}.gif`, bytes, "image/gif");
 });
 
+// ---------- sizing ----------
+
+function autoSize() {
+  // Fit the art to the preview pane at the current font size, preserving the
+  // image's aspect ratio. Sets the Width knob; the user tunes from there.
+  if (!state.imgW || !state.imgH) return;
+  const pane = $("preview").getBoundingClientRect();
+  const fontPx = num("html_font_size") || 12;
+  const charW = fontPx * 0.62; // monospace advance ~= 0.62em
+  const pad = 40;              // preview body padding + scrollbar allowance
+  const maxCols = Math.floor((pane.width - pad) / charW);
+  const maxRows = Math.floor((pane.height - pad) / fontPx);
+  const rot = num("rotate") || 0;
+  const [w, h] = rot % 180 ? [state.imgH, state.imgW] : [state.imgW, state.imgH];
+  const aspect = h / w;
+  const rowFactor = 0.5;       // both glyph (8x16) and braille (2x4) cells are 1:2
+
+  let cols = maxCols;
+  if (Math.ceil(cols * aspect * rowFactor) > maxRows) {
+    cols = Math.floor(maxRows / (aspect * rowFactor));
+  }
+  $("cols").value = Math.max(20, Math.min(cols, 400));
+}
+
 // ---------- file handling ----------
 
 function loadFile(file) {
@@ -174,7 +214,16 @@ function loadFile(file) {
   thumb.src = URL.createObjectURL(file);
   thumb.hidden = false;
   $("drop-hint").innerHTML = `${file.name}<br>(click to change)`;
-  render();
+
+  const probe = new Image();
+  probe.onload = () => {
+    state.imgW = probe.naturalWidth;
+    state.imgH = probe.naturalHeight;
+    autoSize();
+    render();
+  };
+  probe.onerror = () => render();
+  probe.src = thumb.src;
 }
 
 const dz = $("dropzone");
@@ -214,15 +263,21 @@ function syncVisibility() {
   $("matrix-knobs").hidden = !$("matrix").checked;
   $("mask-knobs").hidden = !$("matrix_mask").checked;
   $("anim-knobs").hidden = !$("animate").checked;
+  $("custom-color-field").hidden = $("matrix_theme").value !== "custom";
+  $("caption-color-field").hidden = $("caption_color_mode").value !== "custom";
 }
 
 // ---------- profiles ----------
 
 $("profile").addEventListener("change", () => {
   const p = PROFILES[$("profile").value];
-  $("cols").value = p.cols;
   $("html_font_size").value = p.html_font_size;
   $("html_fill_spaces").checked = p.html_fill_spaces;
+  if (state.imgW) {
+    autoSize(); // font size changed, so the fit changes too
+  } else {
+    $("cols").value = p.fallback_cols;
+  }
   autoRender();
 });
 
@@ -230,13 +285,23 @@ $("profile").addEventListener("change", () => {
 
 $("render").addEventListener("click", render);
 
+$("autosize").addEventListener("click", (e) => {
+  e.preventDefault();
+  autoSize();
+  render();
+});
+
+$("rotate").addEventListener("change", () => {
+  autoSize(); // 90/270 swap the aspect ratio, so re-fit
+});
+
 $("reroll").addEventListener("click", (e) => {
   e.preventDefault();
   $("matrix_seed").value = "";
   render();
 });
 
-for (const id of ["threshold", "gamma", "matrix_gamma"]) {
+for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale"]) {
   $(id).addEventListener("input", () => { $(`${id}-out`).value = $(id).value; });
 }
 

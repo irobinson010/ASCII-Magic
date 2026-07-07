@@ -21,7 +21,9 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
+
+from .image_to_ascii import rotate_cw
 
 from . import colorize_ascii as colorize_mod
 from .pipeline import AsciiPipelineContext, animate as pipeline_animate, colorize, image_to_ascii, text_to_ascii
@@ -30,11 +32,39 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="ASCII Magic")
 
+# Hard server-side limits — the GUI enforces friendlier ones client-side,
+# but nothing stops a hand-crafted request, and the Docker CMD binds 0.0.0.0.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_IMAGE_PIXELS = 40_000_000
+
+
+def _ival(o: dict[str, Any], key: str, default, lo: int, hi: int):
+    """Clamped int from untrusted JSON; garbage/empty falls back to default."""
+    v = o.get(key)
+    if v in (None, ""):
+        return default
+    try:
+        n = int(float(v))
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, n))
+
+
+def _fval(o: dict[str, Any], key: str, default, lo: float, hi: float):
+    v = o.get(key)
+    if v in (None, ""):
+        return default
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, n))
+
 
 def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
     opt = colorize_mod.Options()
     opt.out_format = out_format
-    opt.keep_top = int(o.get("keep_top") or 0)
+    opt.keep_top = _ival(o, "keep_top", 0, 0, 5000)
     opt.color_top = bool(o.get("color_top"))
 
     size = opt.size
@@ -44,47 +74,55 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
         ("max_rows", "max_rows"),
         ("max_cols", "max_cols"),
     ):
-        v = o.get(src_key)
-        if v not in (None, "", 0):
-            setattr(size, attr, int(v))
+        v = _ival(o, src_key, None, 1, 2000)
+        if v:
+            setattr(size, attr, v)
 
     h = opt.html
-    h.font_size_px = int(o.get("html_font_size") or 12)
-    lh = o.get("html_line_height")
-    h.line_height_px = int(lh) if lh not in (None, "", 0) else None
+    h.font_size_px = _ival(o, "html_font_size", 12, 4, 64)
+    h.line_height_px = _ival(o, "html_line_height", None, 4, 96)
     h.fill_spaces = bool(o.get("html_fill_spaces"))
+
+    if o.get("caption_text"):
+        c = opt.caption
+        c.text = str(o["caption_text"])[:500]
+        c.position = o.get("caption_pos", "bottom")
+        c.style = o.get("caption_style", "block")
+        c.scale = _fval(o, "caption_scale", 0.6, 0.05, 1.0)
+        c.gap = _ival(o, "caption_gap", 1, 0, 50)
+        c.color = o.get("caption_color") or None
+        c.align = o.get("caption_align", "center")
 
     m = opt.matrix
     m.enabled = bool(o.get("matrix"))
     if m.enabled:
+        if o.get("matrix_color"):
+            m.tint = colorize_mod.parse_matrix_color(o["matrix_color"])
         m.top = bool(o.get("matrix_top"))
-        m.seed = int(o["matrix_seed"]) if o.get("matrix_seed") not in (None, "") else None
-        m.gamma = float(o.get("matrix_gamma") or m.gamma)
-        m.fg_min = int(o.get("matrix_fg_min") if o.get("matrix_fg_min") is not None else m.fg_min)
-        m.fg_max = int(o.get("matrix_fg_max") if o.get("matrix_fg_max") is not None else m.fg_max)
-        m.bg_min = int(o.get("matrix_bg_min") if o.get("matrix_bg_min") is not None else m.bg_min)
-        m.bg_max = int(o.get("matrix_bg_max") if o.get("matrix_bg_max") is not None else m.bg_max)
+        m.seed = _ival(o, "matrix_seed", None, 0, 2**31 - 1)
+        m.gamma = _fval(o, "matrix_gamma", m.gamma, 0.1, 10.0)
+        m.fg_min = _ival(o, "matrix_fg_min", m.fg_min, 0, 255)
+        m.fg_max = _ival(o, "matrix_fg_max", m.fg_max, 0, 255)
+        m.bg_min = _ival(o, "matrix_bg_min", m.bg_min, 0, 255)
+        m.bg_max = _ival(o, "matrix_bg_max", m.bg_max, 0, 255)
         if o.get("matrix_chars"):
-            m.chars = str(o["matrix_chars"])
+            m.chars = str(o["matrix_chars"])[:500]
         m.fill_spaces = bool(o.get("matrix_fill_spaces"))
         m.use_mask = bool(o.get("matrix_mask"))
-        m.mask_boost = float(o.get("matrix_mask_boost") if o.get("matrix_mask_boost") is not None else m.mask_boost)
-        m.mask_density_floor = float(
-            o.get("matrix_mask_density_floor") if o.get("matrix_mask_density_floor") is not None else m.mask_density_floor
-        )
-        m.bg_dim = float(o.get("matrix_bg_dim") if o.get("matrix_bg_dim") is not None else m.bg_dim)
-        m.bg_density = float(o.get("matrix_bg_density") if o.get("matrix_bg_density") is not None else m.bg_density)
+        m.mask_boost = _fval(o, "matrix_mask_boost", m.mask_boost, 0.0, 1.0)
+        m.mask_density_floor = _fval(o, "matrix_mask_density_floor", m.mask_density_floor, 0.0, 1.0)
+        m.bg_dim = _fval(o, "matrix_bg_dim", m.bg_dim, 0.0, 1.0)
+        m.bg_density = _fval(o, "matrix_bg_density", m.bg_density, 0.0, 1.0)
     return opt
 
 
 def _plain_html(ascii_text: str, o: dict[str, Any]) -> str:
     lines = [html_escape(ln) for ln in ascii_text.splitlines()]
-    lh = o.get("html_line_height")
     return colorize_mod.wrap_html(
         lines,
         title="ASCII Art",
-        font_size_px=int(o.get("html_font_size") or 12),
-        line_height_px=int(lh) if lh not in (None, "", 0) else None,
+        font_size_px=_ival(o, "html_font_size", 12, 4, 64),
+        line_height_px=_ival(o, "html_line_height", None, 4, 96),
     )
 
 
@@ -96,7 +134,9 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/render")
-async def render(
+def render(
+    # Plain def: Starlette runs sync handlers in a threadpool, so a slow
+    # NumPy/PIL render doesn't block the event loop for other requests.
     image: Optional[UploadFile] = File(None),
     options: str = Form("{}"),
 ) -> dict[str, Any]:
@@ -107,15 +147,46 @@ async def render(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Bad options JSON: {e}")
 
+    for key in ("matrix_color", "caption_color"):
+        # "image"/"image-full" are caption-only sentinels: sample the picture.
+        if o.get(key) and not (key == "caption_color" and o[key] in ("image", "image-full")):
+            try:
+                colorize_mod.parse_matrix_color(o[key])
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
     t0 = time.perf_counter()
     ctx = AsciiPipelineContext()
     warning: Optional[str] = None
 
     if image is not None:
-        raw = await image.read()
+        chunks = []
+        total = 0
+        while True:
+            chunk = image.file.read(1 << 20)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Image larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+                )
+            chunks.append(chunk)
+        raw = b"".join(chunks)
         try:
-            ctx.source_image = Image.open(io.BytesIO(raw)).convert("RGB")
-        except (UnidentifiedImageError, OSError):
+            img = Image.open(io.BytesIO(raw))
+            if img.width * img.height > MAX_IMAGE_PIXELS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Image exceeds {MAX_IMAGE_PIXELS:,} pixels.",
+                )
+            # Honor EXIF orientation (browsers show the thumbnail rotated;
+            # without this the render comes out sideways) + manual rotation.
+            img = ImageOps.exif_transpose(img)
+            img = rotate_cw(img, _ival(o, "rotate", 0, 0, 270))
+            ctx.source_image = img.convert("RGB")  # full decode happens here
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
             raise HTTPException(status_code=400, detail="Could not decode the uploaded image.")
 
     source = o.get("source", "image")
@@ -126,11 +197,11 @@ async def render(
         try:
             text_to_ascii(
                 ctx,
-                text,
+                text[:2000],
                 style=o.get("text_style", "block"),
-                width=int(o.get("text_width") or 80),
-                font_size=int(o.get("text_font_size") or 24),
-                banner_char=(o.get("banner_char") or "#")[0],
+                width=_ival(o, "text_width", 80, 1, 500),
+                font_size=_ival(o, "text_font_size", 24, 4, 200),
+                banner_char=(str(o.get("banner_char") or "#"))[0],
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -141,17 +212,17 @@ async def render(
             image_to_ascii(
                 ctx,
                 mode=o.get("mode", "braille"),
-                cols=int(o.get("cols") or 120),
-                cell_w=int(o.get("cell_w") or 8),
-                cell_h=int(o.get("cell_h") or 16),
+                cols=_ival(o, "cols", 120, 1, 500),
+                cell_w=_ival(o, "cell_w", 8, 1, 64),
+                cell_h=_ival(o, "cell_h", 16, 1, 128),
                 quality=o.get("quality", "balanced"),
-                topk=int(o.get("topk") or 24),
+                topk=_ival(o, "topk", 24, 1, 500),
                 ascii_preset=o.get("ascii_preset", "dense"),
                 unicode_mode=o.get("unicode_mode", "off"),
                 autocontrast=bool(o.get("autocontrast")),
-                gamma=float(o.get("gamma") or 1.0),
+                gamma=_fval(o, "gamma", 1.0, 0.05, 10.0),
                 invert=bool(o.get("invert")),
-                threshold=float(o.get("threshold") if o.get("threshold") is not None else 0.5),
+                threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
                 dither=bool(o.get("dither")),
             )
         except ValueError as e:
@@ -165,6 +236,21 @@ async def render(
     do_animate = bool(o.get("animate"))
     if do_animate:
         o = {**o, "matrix": True}
+
+    # Raw-text view/download includes the caption (uncolored).
+    ascii_display = ascii_text
+    if o.get("caption_text"):
+        from .text_to_ascii import compose_caption
+
+        ascii_display = compose_caption(
+            ascii_text,
+            str(o["caption_text"])[:500],
+            position=o.get("caption_pos", "bottom"),
+            style=o.get("caption_style", "block"),
+            scale=_fval(o, "caption_scale", 0.6, 0.05, 1.0),
+            gap=_ival(o, "caption_gap", 1, 0, 50),
+            align=o.get("caption_align", "center"),
+        )
 
     # Colorizing/animating needs a reference image; box/banner text styles
     # do not render one, so fall back to plain output instead of erroring.
@@ -186,24 +272,26 @@ async def render(
         ansi = colorize(ctx, opt=_build_options(o, "ansi"))
         html_doc = colorize(ctx, opt=_build_options(o, "html"))
     else:
-        ansi = ascii_text + "\n"
-        html_doc = _plain_html(ascii_text, o)
+        ansi = ascii_display + "\n"
+        html_doc = _plain_html(ascii_display, o)
 
     gif_b64: Optional[str] = None
     if do_animate:
         from .animate import AnimationOptions
 
         anim_opt = AnimationOptions(
-            frames=max(1, min(int(o.get("anim_frames") or 60), 240)),
-            fps=max(1.0, min(float(o.get("anim_fps") or 12), 30.0)),
-            tail=max(0.5, min(float(o.get("anim_tail") or 6), 40.0)),
+            frames=_ival(o, "anim_frames", 60, 1, 240),
+            fps=_fval(o, "anim_fps", 12.0, 1.0, 30.0),
+            tail=_fval(o, "anim_tail", 6.0, 0.5, 40.0),
+            reveal=bool(o.get("anim_reveal")),
         )
-        animation = pipeline_animate(ctx, matrix=_build_options(o, "ansi").matrix, anim=anim_opt)
-        html_doc = animation.to_html(font_size_px=int(o.get("html_font_size") or 12))
+        built = _build_options(o, "ansi")
+        animation = pipeline_animate(ctx, matrix=built.matrix, anim=anim_opt, caption=built.caption)
+        html_doc = animation.to_html(font_size_px=_ival(o, "html_font_size", 12, 4, 64))
         gif_b64 = base64.b64encode(animation.to_gif_bytes()).decode("ascii")
 
     return {
-        "ascii": ascii_text,
+        "ascii": ascii_display,
         "ansi": ansi,
         "html": html_doc,
         "gif_b64": gif_b64,

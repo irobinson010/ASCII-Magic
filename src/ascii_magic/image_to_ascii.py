@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import functools
 import os
 import platform
 import numpy as np
@@ -55,6 +56,29 @@ def make_charset(unicode_mode: str, ascii_preset: str):
     if unicode_mode == "big":
         return charset_unicode_big()
     raise ValueError(f"Unknown unicode mode: {unicode_mode}")
+
+
+def open_oriented(path_or_file, mode: str = "RGB") -> Image.Image:
+    """Open an image honoring its EXIF orientation tag.
+
+    Phones store the raw sensor pixels plus a rotate-me flag; browsers apply
+    it, PIL does not — without this, portrait photos render sideways.
+    """
+    img = ImageOps.exif_transpose(Image.open(path_or_file))
+    return img.convert(mode)
+
+
+_CW_TRANSPOSE = {
+    90: Image.Transpose.ROTATE_270,   # PIL's constants are counter-clockwise
+    180: Image.Transpose.ROTATE_180,
+    270: Image.Transpose.ROTATE_90,
+}
+
+
+def rotate_cw(img: Image.Image, degrees: int) -> Image.Image:
+    """Rotate clockwise in 90-degree steps (0/90/180/270)."""
+    degrees = (int(degrees) // 90 * 90) % 360
+    return img.transpose(_CW_TRANSPOSE[degrees]) if degrees else img
 
 
 def find_default_mono_font():
@@ -143,26 +167,21 @@ def preprocess_image(img: Image.Image, autocontrast: bool, gamma: float, invert:
 # -----------------------------
 # Glyph library (render chars to bitmap cells)
 # -----------------------------
-_GLYPH_CACHE: dict = {}
-
-
 def render_glyphs(
     charset: str, cell_w: int, cell_h: int, font_path: str | None, font_size: int | None
 ):
-    cache_key = (charset, cell_w, cell_h, font_path, font_size)
-    cached = _GLYPH_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-
+    # Resolve defaults before the cache key so equivalent calls share an entry.
     if font_size is None:
-        # heuristic
         font_size = cell_h
-
-    # Try provided font_path first; otherwise fall back to a default mono font if available;
-    # otherwise use PIL's built-in default font.
     if not font_path:
         font_path = find_default_mono_font()
+    return _render_glyphs_cached(charset, cell_w, cell_h, font_path, font_size)
 
+
+@functools.lru_cache(maxsize=8)
+def _render_glyphs_cached(
+    charset: str, cell_w: int, cell_h: int, font_path: str | None, font_size: int
+):
     if font_path:
         font = ImageFont.truetype(font_path, font_size)
     else:
@@ -216,9 +235,7 @@ def render_glyphs(
     sd = glyph_feats.std(axis=0, keepdims=True) + 1e-6
     glyph_feats_n = (glyph_feats - mu) / sd
 
-    result = (glyph_imgs, glyph_feats_n, chars, (mu.reshape(-1), sd.reshape(-1)))
-    _GLYPH_CACHE[cache_key] = result
-    return result
+    return glyph_imgs, glyph_feats_n, chars, (mu.reshape(-1), sd.reshape(-1))
 
 
 # -----------------------------
@@ -268,7 +285,7 @@ def image_to_text_glyph_mode(
     invert: bool,
     topk: int,
 ):
-    img = Image.open(image_path).convert("L")
+    img = open_oriented(image_path, "L")
     return image_to_text_glyph_from_image(
         img=img,
         cols=cols,
@@ -299,6 +316,11 @@ def image_to_text_glyph_from_image(
     invert: bool,
     topk: int,
 ):
+    if cols < 1:
+        raise ValueError("cols must be >= 1")
+    if cell_w < 1 or cell_h < 1:
+        raise ValueError("cell dimensions must be >= 1")
+
     img = img.convert("L")
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 
@@ -410,7 +432,7 @@ def image_to_braille(
     threshold: float,
     dither: bool = False,
 ):
-    img = Image.open(image_path).convert("L")
+    img = open_oriented(image_path, "L")
     return image_to_braille_from_image(
         img=img,
         cols=cols,
@@ -431,6 +453,9 @@ def image_to_braille_from_image(
     threshold: float,
     dither: bool = False,
 ):
+    if cols < 1:
+        raise ValueError("cols must be >= 1")
+
     img = img.convert("L")
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 
@@ -559,6 +584,29 @@ def main():
         help="Braille mode: Floyd-Steinberg dithering (preserves smooth gradients)",
     )
 
+    ap.add_argument(
+        "--color",
+        action="store_true",
+        help="Colorize the result from the source image in one step "
+        "(ANSI, or HTML when the output file ends in .html)",
+    )
+
+    ap.add_argument("--caption", default=None, metavar="TEXT",
+                    help="Render TEXT as ASCII and stitch it onto the art")
+    ap.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
+    ap.add_argument("--caption-style",
+                    choices=["block", "small", "shadow", "box", "banner", "figlet"], default="block")
+    ap.add_argument("--caption-scale", type=float, default=0.6, metavar="F",
+                    help="Caption width as a fraction of art width")
+    ap.add_argument("--caption-gap", type=int, default=1, metavar="N")
+    ap.add_argument("--caption-color", default=None, metavar="COLOR",
+                    help="Caption color with --color: theme name or #RRGGBB")
+    ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
+
+    ap.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
+                    help="Rotate clockwise before conversion (EXIF orientation is "
+                    "applied automatically)")
+
     args = ap.parse_args()
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
@@ -575,9 +623,13 @@ def main():
     else:
         charset = make_charset(unicode_mode=args.unicode, ascii_preset=args.ascii)
 
+    # Open once: EXIF orientation applied, optional manual rotation, and the
+    # same pixels feed both the conversion and the --color pass.
+    src_img = rotate_cw(open_oriented(args.input, "RGB"), args.rotate)
+
     if args.mode == "braille":
-        art = image_to_braille(
-            image_path=args.input,
+        art = image_to_braille_from_image(
+            img=src_img,
             cols=args.cols,
             autocontrast=args.autocontrast,
             gamma=args.gamma,
@@ -586,8 +638,8 @@ def main():
             dither=args.dither,
         )
     else:
-        art = image_to_text_glyph_mode(
-            image_path=args.input,
+        art = image_to_text_glyph_from_image(
+            img=src_img,
             cols=args.cols,
             cell_w=args.cell_w,
             cell_h=args.cell_h,
@@ -599,6 +651,40 @@ def main():
             gamma=args.gamma,
             invert=args.invert,
             topk=args.topk,
+        )
+
+    if args.color:
+        from .colorize_ascii import CaptionOptions, Options
+        from .pipeline import AsciiPipelineContext, colorize
+
+        ctx = AsciiPipelineContext(
+            source_image=src_img,
+            ascii_text=art,
+        )
+        fmt = "html" if (args.output or "").lower().endswith(".html") else "ansi"
+        opt = Options(out_format=fmt)
+        if args.caption:
+            opt.caption = CaptionOptions(
+                text=args.caption,
+                position=args.caption_pos,
+                style=args.caption_style,
+                scale=args.caption_scale,
+                gap=args.caption_gap,
+                color=args.caption_color,
+                align=args.caption_align,
+            )
+        art = colorize(ctx, opt=opt).rstrip("\n")
+    elif args.caption:
+        from .text_to_ascii import compose_caption
+
+        art = compose_caption(
+            art,
+            args.caption,
+            position=args.caption_pos,
+            style=args.caption_style,
+            scale=args.caption_scale,
+            gap=args.caption_gap,
+            align=args.caption_align,
         )
 
     if args.output:

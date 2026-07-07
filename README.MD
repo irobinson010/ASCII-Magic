@@ -85,8 +85,30 @@ python -m ascii_magic.image_to_ascii input.png -o output.txt
 - `--autocontrast` - Auto-adjust image contrast
 - `--gamma` - Apply gamma correction
 - `--invert` - Invert image colors
+- `--rotate` - Rotate clockwise (90/180/270) before conversion; EXIF orientation from phone photos is applied automatically
 - `--threshold` - Braille mode dot threshold (0-1)
 - `--dither` - Braille mode: Floyd-Steinberg dithering (keeps smooth gradients a hard threshold flattens)
+- `--color` - Convert and colorize in one step (ANSI, or HTML when the output ends in `.html`) — no separate `colorize` invocation needed
+- `--caption TEXT` - Render TEXT as ASCII and stitch it onto the art (see Captions below)
+
+### Captions
+
+Attach text above or below the art — rendered as ASCII letters sized to the art, or as a simple box/banner. Works on both the `image` and `colorize` commands, and composes with `--color` (the caption keeps its own color instead of being smeared by the image):
+
+```bash
+ascii-magic image cat.png --color --caption "Whiskers 2010-2024" -o cat.ans
+ascii-magic image cat.png --caption "Whiskers" --caption-style box --caption-pos top
+```
+
+**Options (prefix `--caption-`):**
+- `pos` : `bottom` (default) or `top`
+- `style` : `block` (default), `small`, `shadow`, `box`, `banner`, `figlet` (classic terminal-banner lettering)
+- `scale F` : caption width as a fraction of the art width for rendered styles (default 0.6) — the sizing knob
+- `gap N` : blank lines between caption and art (default 1)
+- `color COLOR` : caption color — theme name, `#RRGGBB`, `image` (colors from the strip of the picture nearest the caption), or `image-full` (the whole picture stretched over the text); default: terminal foreground
+- `align` : `center` (default), `left`, `right`
+
+The web GUI has a matching **Caption** panel (text, position, style, size slider, alignment, color).
 
 ### ASCII Colorization (`colorize_ascii.py`)
 
@@ -129,6 +151,7 @@ A special colorization mode that produces the classic "Matrix" effect: green gly
 - `--matrix-gamma F` : Gamma applied to the subject score (default: 2.0). Higher values emphasize bright/edge regions.
 - `--matrix-fg-min N`, `--matrix-fg-max N` : Foreground (glyph) green intensity range (0..255). Defaults: `20..255`.
 - `--matrix-bg-min N`, `--matrix-bg-max N` : Background green intensity range (0..255). Defaults: `0..60`.
+- `--matrix-color COLOR` : Rain color — `green` (classic, default), `amber`, `cyan`, `crimson`, `violet`, `white`, or any `#RRGGBB`.
 - `--matrix-chars STR` : String of glyphs to choose from (default includes digits, letters, and symbols).
 - `--matrix-fill-spaces` : Keep background color on space characters (fills spaces with background color instead of leaving them blank).
 - `--matrix-mask` : Use the input ASCII glyphs as a mask to bias glyph placement toward inked characters.
@@ -168,8 +191,9 @@ colorize-ascii photo.png art.txt --animate --loops 3                   # play in
 - `--fps F` : Playback speed (default: 12)
 - `--tail F` : Fade length in rows behind each drop head (default: 6)
 - `--loops N` : Terminal playback repeats; `0` plays until Ctrl-C (default: 3)
+- `--reveal` : The rain uncovers the colorized image, which persists beneath it — the loop ends (and holds) on the fully revealed picture
 
-All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing) apply to the rain too. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `ascii_magic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
+All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing, `--matrix-color` themes) apply to the rain too, and `--caption*` works in every animation sink — the caption stays static (matching the rain tint by default, or any `--caption-color` including `image`) while the rain falls. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `ascii_magic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
 
 ### Text to ASCII (`text_to_ascii.py`)
 
@@ -190,7 +214,7 @@ ascii-magic text "Hello, world" --style block --width 80 --font-size 24
 Options:
 - `--stdin` : Read text from standard input (useful for piping)
 - `-o, --output` : Write ASCII output to a file (default: stdout)
-- `-s, --style` : Style to use (`block`, `small`, `shadow`, `box`, `banner`) — `block` is the default
+- `-s, --style` : Style to use (`block`, `small`, `shadow`, `box`, `banner`, `figlet`) — `block` is the default
 - `-w, --width` : Output width in characters (default: 80)
 - `--font-size` : Font size used when rendering text (default: 24)
 - `--font` : Path to a .ttf font file to use for rendering

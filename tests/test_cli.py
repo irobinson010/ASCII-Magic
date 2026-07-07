@@ -5,6 +5,7 @@ exercise the real modules through the dispatcher.
 """
 
 import pytest
+from PIL import Image
 
 from ascii_magic.unified_cli import COMMANDS, main as cli_main
 from ascii_magic.colorize_ascii import parse_args
@@ -30,6 +31,56 @@ def test_dispatch_greet_status(tmp_path, monkeypatch, capsys):
 def test_unknown_command_exits_2(capsys):
     assert cli_main(["frobnicate"]) == 2
     assert "Unknown command" in capsys.readouterr().err
+
+
+def _png(tmp_path, color=(200, 60, 30)):
+    p = tmp_path / "t.png"
+    Image.new("RGB", (24, 24), color).save(p)
+    return p
+
+
+def test_image_color_one_step_ansi(tmp_path):
+    out = tmp_path / "art.ans"
+    rc = cli_main(
+        ["image", str(_png(tmp_path)), "--mode", "braille", "--threshold", "0.1",
+         "-c", "10", "--color", "-o", str(out)]
+    )
+    assert rc == 0
+    content = out.read_text(encoding="utf-8")
+    assert "\x1b[38;2;" in content
+
+
+def test_image_color_one_step_html(tmp_path):
+    out = tmp_path / "art.html"
+    rc = cli_main(
+        ["image", str(_png(tmp_path)), "--mode", "braille", "--threshold", "0.1",
+         "-c", "10", "--color", "-o", str(out)]
+    )
+    assert rc == 0
+    assert "<!doctype html>" in out.read_text(encoding="utf-8").lower()
+
+
+def test_image_rotate_flag(tmp_path):
+    p = tmp_path / "wide.png"
+    Image.new("RGB", (60, 20), (10, 200, 40)).save(p)
+    out = tmp_path / "art.txt"
+
+    cli_main(["image", str(p), "--mode", "braille", "-c", "10", "-o", str(out)])
+    plain = out.read_text(encoding="utf-8").splitlines()
+    assert max(len(ln) for ln in plain) > len(plain)  # landscape
+
+    cli_main(["image", str(p), "--mode", "braille", "-c", "10", "--rotate", "90", "-o", str(out)])
+    rotated = out.read_text(encoding="utf-8").splitlines()
+    assert len(rotated) > max(len(ln) for ln in rotated)  # portrait
+
+
+def test_image_without_color_stays_plain(tmp_path):
+    out = tmp_path / "art.txt"
+    rc = cli_main(
+        ["image", str(_png(tmp_path)), "--mode", "braille", "-c", "10", "-o", str(out)]
+    )
+    assert rc == 0
+    assert "\x1b[" not in out.read_text(encoding="utf-8")
 
 
 # ---- colorize argparse ----
