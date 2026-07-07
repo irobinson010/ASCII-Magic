@@ -3,8 +3,8 @@ from PIL import Image, ImageDraw
 
 pytest.importorskip("imageio")
 
-from ascii_magic import video as video_mod
-from ascii_magic.greet import read_frames_file
+from asciimagic import video as video_mod
+from asciimagic.greet import read_frames_file
 
 
 @pytest.fixture
@@ -90,7 +90,7 @@ def test_video_glyph_mode(clip):
 
 
 def test_video_matrix_render_deterministic_and_tinted(clip):
-    from ascii_magic.colorize_ascii import MatrixOptions, parse_matrix_color
+    from asciimagic.colorize_ascii import MatrixOptions, parse_matrix_color
 
     m = MatrixOptions(enabled=True, seed=7, tint=parse_matrix_color("amber"))
     a = video_mod.video_to_ascii(str(clip), cols=20, max_frames=3, matrix=m)
@@ -106,7 +106,7 @@ def test_video_matrix_render_deterministic_and_tinted(clip):
 
 
 def test_video_caption_in_sinks(clip):
-    from ascii_magic.colorize_ascii import CaptionOptions
+    from asciimagic.colorize_ascii import CaptionOptions
 
     cap = CaptionOptions(text="Cat", style="box", position="bottom")
     v = video_mod.video_to_ascii(str(clip), cols=24, max_frames=3, caption=cap)
@@ -143,7 +143,7 @@ def test_video_matrix_cli_flags(clip, tmp_path):
         "--matrix", "--matrix-seed", "5", "--matrix-color", "cyan",
     ])
     assert rc == 0
-    from ascii_magic.greet import read_frames_file
+    from asciimagic.greet import read_frames_file
 
     frames, _, _ = read_frames_file(out)
     assert len(frames) == 3

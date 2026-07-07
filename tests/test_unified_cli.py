@@ -3,7 +3,7 @@
 import sys
 from unittest.mock import Mock, patch, MagicMock
 import pytest
-from ascii_magic.unified_cli import main, usage, _call_entry, COMMANDS
+from asciimagic.unified_cli import main, usage, _call_entry, COMMANDS
 
 # --- Fixtures ---
 
@@ -64,7 +64,7 @@ class TestCallEntry:
         mock_entry.__signature__ = Mock()
         mock_entry.__signature__.parameters = {"argv": None}
 
-        with patch("ascii_magic.unified_cli.inspect.signature") as mock_sig:
+        with patch("asciimagic.unified_cli.inspect.signature") as mock_sig:
             mock_sig.return_value.parameters = {"argv": None}
             result = _call_entry(mock_entry, ["arg1", "arg2"])
 
@@ -75,7 +75,7 @@ class TestCallEntry:
         """Test calling entry function that doesn't accept argv parameter."""
         mock_entry = Mock(return_value=0)
 
-        with patch("ascii_magic.unified_cli.inspect.signature") as mock_sig:
+        with patch("asciimagic.unified_cli.inspect.signature") as mock_sig:
             mock_sig.return_value.parameters = {}
             original_argv = sys.argv[:]
             result = _call_entry(mock_entry, ["arg1", "arg2"], module_prog="test-prog")
@@ -89,7 +89,7 @@ class TestCallEntry:
         """Test handling SystemExit exception."""
         mock_entry = Mock(side_effect=SystemExit(5))
 
-        with patch("ascii_magic.unified_cli.inspect.signature") as mock_sig:
+        with patch("asciimagic.unified_cli.inspect.signature") as mock_sig:
             mock_sig.return_value.parameters = {"argv": None}
             result = _call_entry(mock_entry, [])
 
@@ -99,7 +99,7 @@ class TestCallEntry:
         """Test handling SystemExit with None code."""
         mock_entry = Mock(side_effect=SystemExit(None))
 
-        with patch("ascii_magic.unified_cli.inspect.signature") as mock_sig:
+        with patch("asciimagic.unified_cli.inspect.signature") as mock_sig:
             mock_sig.return_value.parameters = {"argv": None}
             result = _call_entry(mock_entry, [])
 
@@ -109,7 +109,7 @@ class TestCallEntry:
         """Test handling general exceptions."""
         mock_entry = Mock(side_effect=RuntimeError("Test error"))
 
-        with patch("ascii_magic.unified_cli.inspect.signature") as mock_sig:
+        with patch("asciimagic.unified_cli.inspect.signature") as mock_sig:
             mock_sig.return_value.parameters = {"argv": None}
             result = _call_entry(mock_entry, [])
 
@@ -159,34 +159,34 @@ class TestMain:
 
     def test_main_valid_command_colorize(self, mock_module_with_main):
         """Test main with valid 'colorize' command."""
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.return_value = mock_module_with_main
             result = main(["colorize", "arg1", "arg2"])
 
         assert result == 0
-        mock_import.assert_called_once_with("ascii_magic.colorize_ascii")
+        mock_import.assert_called_once_with("asciimagic.colorize_ascii")
 
     def test_main_valid_command_image(self, mock_module_with_main):
         """Test main with valid 'image' command."""
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.return_value = mock_module_with_main
             result = main(["image", "file.jpg"])
 
         assert result == 0
-        mock_import.assert_called_once_with("ascii_magic.image_to_ascii")
+        mock_import.assert_called_once_with("asciimagic.image_to_ascii")
 
     def test_main_valid_command_text(self, mock_module_with_main):
         """Test main with valid 'text' command."""
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.return_value = mock_module_with_main
             result = main(["text", "Hello"])
 
         assert result == 0
-        mock_import.assert_called_once_with("ascii_magic.text_to_ascii")
+        mock_import.assert_called_once_with("asciimagic.text_to_ascii")
 
     def test_main_import_error(self, capsys):
         """Test main when module import fails."""
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.side_effect = ImportError("Module not found")
             result = main(["colorize"])
 
@@ -199,7 +199,7 @@ class TestMain:
         """Test main when module has no main function."""
         mock_module = Mock(spec=[])  # Module without 'main'
 
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.return_value = mock_module
             result = main(["colorize"])
 
@@ -212,7 +212,7 @@ class TestMain:
         mock_module = Mock()
         mock_module.main = "not callable"
 
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.return_value = mock_module
             result = main(["colorize"])
 
@@ -227,7 +227,7 @@ class TestMain:
             sys.argv = ["ascii-magic", "colorize", "test"]
 
             with patch(
-                "ascii_magic.unified_cli.importlib.import_module"
+                "asciimagic.unified_cli.importlib.import_module"
             ) as mock_import:
                 mock_import.return_value = mock_module_with_main
                 result = main(None)
@@ -242,8 +242,8 @@ class TestMain:
         mock_entry = Mock(return_value=0)
         mock_module.main = mock_entry
 
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
-            with patch("ascii_magic.unified_cli.inspect.signature") as mock_sig:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
+            with patch("asciimagic.unified_cli.inspect.signature") as mock_sig:
                 mock_import.return_value = mock_module
                 mock_sig.return_value.parameters = {"argv": None}
 
@@ -258,8 +258,8 @@ class TestMain:
         mock_module = Mock()
         mock_module.main = Mock(return_value=42)
 
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
-            with patch("ascii_magic.unified_cli.inspect.signature") as mock_sig:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
+            with patch("asciimagic.unified_cli.inspect.signature") as mock_sig:
                 mock_import.return_value = mock_module
                 mock_sig.return_value.parameters = {"argv": None}
                 result = main(["colorize", "test"])
@@ -268,7 +268,7 @@ class TestMain:
 
     def test_main_with_sequence_type(self, mock_module_with_main):
         """Test that main accepts different sequence types."""
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.return_value = mock_module_with_main
 
             # Test with tuple
@@ -291,9 +291,9 @@ class TestCommandsIntegration:
         assert "colorize" in COMMANDS
         assert "image" in COMMANDS
         assert "text" in COMMANDS
-        assert COMMANDS["colorize"] == "ascii_magic.colorize_ascii"
-        assert COMMANDS["image"] == "ascii_magic.image_to_ascii"
-        assert COMMANDS["text"] == "ascii_magic.text_to_ascii"
+        assert COMMANDS["colorize"] == "asciimagic.colorize_ascii"
+        assert COMMANDS["image"] == "asciimagic.image_to_ascii"
+        assert COMMANDS["text"] == "asciimagic.text_to_ascii"
 
     def test_all_commands_are_importable(self):
         """Test that all command modules can be imported."""
@@ -328,7 +328,7 @@ class TestEdgeCases:
         """Test command with many arguments."""
         args = ["arg" + str(i) for i in range(100)]
 
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.return_value = mock_module_with_main
             result = main(["colorize"] + args)
 
@@ -338,7 +338,7 @@ class TestEdgeCases:
         """Test command arguments with special characters."""
         special_args = ["--file=test.jpg", "arg with spaces", "unicode→test"]
 
-        with patch("ascii_magic.unified_cli.importlib.import_module") as mock_import:
+        with patch("asciimagic.unified_cli.importlib.import_module") as mock_import:
             mock_import.return_value = mock_module_with_main
             result = main(["colorize"] + special_args)
 

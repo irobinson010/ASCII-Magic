@@ -4,7 +4,7 @@ import shlex
 
 import pytest
 
-from ascii_magic import greet
+from asciimagic import greet
 
 # greet writes POSIX shell rc blocks; install is gated off on Windows.
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="greet targets POSIX shells")

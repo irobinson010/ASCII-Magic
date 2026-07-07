@@ -5,7 +5,7 @@ text), send knob values as a JSON blob, get back the raw ASCII plus ANSI
 and HTML renders in one response. The single-page GUI in ``static/`` is
 served from the same app.
 
-Run locally:  ascii-magic-web  (or: uvicorn ascii_magic.webapp:app)
+Run locally:  ascii-magic-web  (or: uvicorn asciimagic.webapp:app)
 """
 
 from __future__ import annotations

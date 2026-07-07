@@ -1,8 +1,8 @@
 import pytest
 from PIL import Image
 
-from ascii_magic.colorize_ascii import Options
-from ascii_magic.pipeline import AsciiPipelineContext, colorize, image_to_ascii, load_image, text_to_ascii
+from asciimagic.colorize_ascii import Options
+from asciimagic.pipeline import AsciiPipelineContext, colorize, image_to_ascii, load_image, text_to_ascii
 
 
 def test_context_text_to_ascii_then_colorize_ansi():

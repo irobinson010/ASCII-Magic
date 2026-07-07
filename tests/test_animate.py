@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from ascii_magic.animate import AnimationOptions, generate
-from ascii_magic.colorize_ascii import MatrixOptions
-from ascii_magic.pipeline import AsciiPipelineContext, animate
+from asciimagic.animate import AnimationOptions, generate
+from asciimagic.colorize_ascii import MatrixOptions
+from asciimagic.pipeline import AsciiPipelineContext, animate
 
 
 def _image():
@@ -114,7 +114,7 @@ def test_pipeline_animate():
 
 
 def test_caption_in_all_animation_sinks():
-    from ascii_magic.colorize_ascii import CaptionOptions
+    from asciimagic.colorize_ascii import CaptionOptions
 
     cap = CaptionOptions(text="Cat", style="box", position="bottom")
     anim = generate(
@@ -147,7 +147,7 @@ def test_caption_in_all_animation_sinks():
 
 
 def test_caption_image_colors_in_animation():
-    from ascii_magic.colorize_ascii import CaptionOptions
+    from asciimagic.colorize_ascii import CaptionOptions
 
     cap = CaptionOptions(text="Cat", style="box", color="image")
     anim = generate(

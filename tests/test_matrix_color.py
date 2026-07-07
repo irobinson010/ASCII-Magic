@@ -1,8 +1,8 @@
 import pytest
 from PIL import Image
 
-from ascii_magic.animate import AnimationOptions, generate
-from ascii_magic.colorize_ascii import (
+from asciimagic.animate import AnimationOptions, generate
+from asciimagic.colorize_ascii import (
     MatrixOptions,
     Options,
     colorize_ascii_text,

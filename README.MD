@@ -14,9 +14,15 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 Requires Python 3.10+.
 
 ```bash
-pip install -e .          # CLI tools only
-pip install -e ".[web]"   # CLI tools + web GUI
+pipx install ascii-magic-tools           # from PyPI (CLI tools)
+pip install "ascii-magic-tools[web]"     # + web GUI
+pip install "ascii-magic-tools[video]"   # + video support
+
+# from a checkout:
+pip install -e ".[web,video]"
 ```
+
+The import package is `asciimagic` (the PyPI project `ascii-magic` is an unrelated package that owns the `ascii_magic` import name).
 
 ## Quick Start (Unified CLI)
 
@@ -75,6 +81,10 @@ python3 -m venv .venv
 
 Always create the virtualenv as `.venv/` inside the repo — never at the repo root — so editors and tools auto-detect it and git ignores it.
 
+### Releasing
+
+Bump `version` in `pyproject.toml` and `__version__` in `src/asciimagic/__init__.py`, merge, then tag: `git tag v0.3.0 && git push origin v0.3.0`. The publish workflow runs the tests, builds sdist+wheel, and uploads via PyPI trusted publishing (configure once on PyPI: project `ascii-magic-tools` → publisher = this repo, workflow `publish.yml`, environment `pypi`).
+
 ## Usage
 
 ### Image to ASCII (`image_to_ascii.py`)
@@ -84,7 +94,7 @@ Convert an image directly to ASCII art (preferred: installed console script):
 ```bash
 image-to-ascii input.png -o output.txt
 # or, during development:
-python -m ascii_magic.image_to_ascii input.png -o output.txt
+python -m asciimagic.image_to_ascii input.png -o output.txt
 ```
 
 **Options:**
@@ -130,14 +140,14 @@ Add colors to existing ASCII art (preferred: installed console script):
 ```bash
 colorize-ascii image.png ascii.txt output.ans
 # or, during development:
-python -m ascii_magic.colorize_ascii image.png ascii.txt output.ans
+python -m asciimagic.colorize_ascii image.png ascii.txt output.ans
 ```
 
 If you omit the output file, the tool defaults to ANSI and prints to stdout (convenient for piping). To print HTML to stdout, pass `--format html` and redirect, for example:
 
 ```bash
-python -m ascii_magic.colorize_ascii image.png ascii.txt
-python -m ascii_magic.colorize_ascii image.png ascii.txt --format html > out.html
+python -m asciimagic.colorize_ascii image.png ascii.txt
+python -m asciimagic.colorize_ascii image.png ascii.txt --format html > out.html
 ```
 
 **Output formats:** `.ans` (ANSI), `.html` (HTML)
@@ -206,7 +216,7 @@ colorize-ascii photo.png art.txt --animate --loops 3                   # play in
 - `--loops N` : Terminal playback repeats; `0` plays until Ctrl-C (default: 3)
 - `--reveal` : The rain uncovers the colorized image, which persists beneath it — the loop ends (and holds) on the fully revealed picture
 
-All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing, `--matrix-color` themes) apply to the rain too, and `--caption*` works in every animation sink — the caption stays static (matching the rain tint by default, or any `--caption-color` including `image`) while the rain falls. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `ascii_magic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
+All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing, `--matrix-color` themes) apply to the rain too, and `--caption*` works in every animation sink — the caption stays static (matching the rain tint by default, or any `--caption-color` including `image`) while the rain falls. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `asciimagic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
 
 ### Text to ASCII (`text_to_ascii.py`)
 
@@ -240,14 +250,14 @@ Options:
    ```bash
    image-to-ascii photo.png -o art.txt
    # or during development:
-   python -m ascii_magic.image_to_ascii photo.png -o art.txt
+   python -m asciimagic.image_to_ascii photo.png -o art.txt
    ```
 
 2. Colorize the output (preferred: console script):
    ```bash
    colorize-ascii photo.png art.txt output.ans --max-rows 30
    # or during development:
-   python -m ascii_magic.colorize_ascii photo.png art.txt output.ans --max-rows 30
+   python -m asciimagic.colorize_ascii photo.png art.txt output.ans --max-rows 30
    ```
 
 3. View in terminal or browser
@@ -258,8 +268,8 @@ You can run image -> ASCII -> colorized output entirely in memory:
 
 ```python
 from PIL import Image
-from ascii_magic.pipeline import AsciiPipelineContext, image_to_ascii, colorize
-from ascii_magic.colorize_ascii import Options
+from asciimagic.pipeline import AsciiPipelineContext, image_to_ascii, colorize
+from asciimagic.colorize_ascii import Options
 
 img = Image.open("photo.png").convert("RGB")
 ctx = AsciiPipelineContext(source_image=img)
@@ -270,9 +280,9 @@ html_output = colorize(ctx, opt=Options(out_format="html"))
 ```
 
 There are also lower-level in-memory helpers if you do not want the context object:
-- `ascii_magic.image_to_ascii.image_to_text_glyph_from_image(...)`
-- `ascii_magic.image_to_ascii.image_to_braille_from_image(...)`
-- `ascii_magic.colorize_ascii.colorize_ascii_text(...)`
+- `asciimagic.image_to_ascii.image_to_text_glyph_from_image(...)`
+- `asciimagic.image_to_ascii.image_to_braille_from_image(...)`
+- `asciimagic.colorize_ascii.colorize_ascii_text(...)`
 
 ## Video to ASCII (`ascii-magic video`)
 
@@ -365,11 +375,11 @@ ascii-magic web
 
 The standalone scripts remain and behave identically:
 
-- `ascii-magic` -> `ascii_magic.unified_cli:main` (subcommands: image, text, colorize, greet, web)
-- `image-to-ascii` -> `ascii_magic.image_to_ascii:main`
-- `colorize-ascii` -> `ascii_magic.colorize_ascii:main`
-- `text-to-ascii` -> `ascii_magic.text_to_ascii:main`
-- `ascii-magic-greet` -> `ascii_magic.greet:main`
-- `ascii-magic-web` -> `ascii_magic.webapp:main` (requires the `[web]` extra)
+- `ascii-magic` -> `asciimagic.unified_cli:main` (subcommands: image, text, colorize, greet, web)
+- `image-to-ascii` -> `asciimagic.image_to_ascii:main`
+- `colorize-ascii` -> `asciimagic.colorize_ascii:main`
+- `text-to-ascii` -> `asciimagic.text_to_ascii:main`
+- `ascii-magic-greet` -> `asciimagic.greet:main`
+- `ascii-magic-web` -> `asciimagic.webapp:main` (requires the `[web]` extra)
 
-Prefer calling `ascii-magic` or the individual console scripts after `pip install -e .`. You can also invoke modules directly with `python -m ascii_magic.<module>` when developing.
+Prefer calling `ascii-magic` or the individual console scripts after `pip install -e .`. You can also invoke modules directly with `python -m asciimagic.<module>` when developing.
