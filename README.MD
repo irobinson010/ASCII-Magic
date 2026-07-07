@@ -42,6 +42,19 @@ ascii-magic --version
 
 The individual commands (`image-to-ascii`, `colorize-ascii`, `text-to-ascii`) continue to work as before.
 
+## Shell tab completion
+
+Generate a static completion script for bash or zsh — subcommands, flags, and enum values all complete, with filename fallback:
+
+```bash
+eval "$(ascii-magic completion bash)"     # in ~/.bashrc
+eval "$(ascii-magic completion zsh)"      # in ~/.zshrc
+# or install persistently:
+ascii-magic completion bash > ~/.local/share/bash-completion/completions/ascii-magic
+```
+
+The standalone commands (`image-to-ascii`, `colorize-ascii`, `text-to-ascii`, `ascii-magic-greet`, `ascii-magic-video`, `ascii-magic-web`) are covered by the same script.
+
 ## Development setup
 
 The repo pins its Python version in `.python-version` and locks exact dependency versions in `uv.lock`, so a fresh clone builds the same environment on any OS. With [uv](https://docs.astral.sh/uv/) installed (a single binary — it downloads the right Python by itself):
@@ -260,6 +273,27 @@ There are also lower-level in-memory helpers if you do not want the context obje
 - `ascii_magic.image_to_ascii.image_to_text_glyph_from_image(...)`
 - `ascii_magic.image_to_ascii.image_to_braille_from_image(...)`
 - `ascii_magic.colorize_ascii.colorize_ascii_text(...)`
+
+## Video to ASCII (`ascii-magic video`)
+
+Convert a video into a colorized ASCII animation — every format ffmpeg reads (mp4, webm, mov, mkv, avi, gif, ...). Requires the `[video]` extra:
+
+```bash
+pip install -e ".[video]"        # or: uv sync --extra video
+
+ascii-magic video clip.mp4 out.gif -c 100 --fps 10   # animated GIF of ASCII frames
+ascii-magic video clip.mp4 out.mp4                   # real video WITH the original audio
+ascii-magic video clip.mp4 out.frames                # playable via greet/play
+ascii-magic video clip.mp4 --loops 0                 # play live in the terminal
+```
+
+Frames are sampled at the target `--fps`, converted through the braille pipeline (dithered by default; `--no-dither` to disable), and colorized from each frame. `--max-frames` caps long clips (default 300). A `.frames` output can be installed as an animated login greeting with `ascii-magic greet install`.
+
+`.mp4` output re-encodes the ASCII frames as h264 and muxes the source's audio track back in (`--no-audio` to skip; silent sources fall back gracefully). `--caption*` stamps text onto every frame — `--caption-color image` samples the first frame.
+
+Per-frame rendering is configurable: `--mode glyph` uses character matching instead of braille, and `--matrix` (with `--matrix-color`, `--matrix-seed`, `--matrix-gamma`, `--matrix-mask`) renders each frame as matrix glyphs driven by that frame — the subject moves through the rain. Seeds advance per frame, so seeded runs are reproducible.
+
+The web GUI has a matching **Video** tab: pick a file, set width/fps/frame cap and frame mode, press Render (video renders take a few seconds — no live auto-render), preview the animated result, and download `.gif` or `.frames`. The Matrix panel applies to video too.
 
 ## Login greeting (`ascii-magic-greet`)
 

@@ -235,6 +235,82 @@ def test_manual_rotate_option():
     assert flat.status_code == 200
 
 
+def _gif_clip_bytes(n_frames=6):
+    frames = []
+    for i in range(n_frames):
+        img = Image.new("RGB", (48, 32), (10, 10, 30))
+        for x in range(8):
+            img.putpixel((i * 6 + x, 16), (250, 160, 60))
+        frames.append(img)
+    buf = io.BytesIO()
+    frames[0].save(buf, format="GIF", save_all=True, append_images=frames[1:],
+                   duration=100, loop=0)
+    return buf.getvalue()
+
+
+def test_render_video_source():
+    import base64
+
+    pytest.importorskip("imageio")
+    r = client.post(
+        "/api/render",
+        files={"image": ("clip.gif", _gif_clip_bytes(), "image/gif")},
+        data={"options": json.dumps({"source": "video", "cols": 24,
+                                     "video_fps": 10, "video_max_frames": 4})},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["video"]["frames"] == 4
+    assert base64.b64decode(body["gif_b64"])[:4] == b"GIF8"
+    assert body["frames_text"].startswith('{"fps"')
+    assert "\x1b[38;2;" in body["ansi"]
+    assert "data:image/gif;base64," in body["html"]
+
+
+def test_render_video_matrix_and_glyph_mode():
+    pytest.importorskip("imageio")
+    r = client.post(
+        "/api/render",
+        files={"image": ("clip.gif", _gif_clip_bytes(), "image/gif")},
+        data={"options": json.dumps({
+            "source": "video", "cols": 24, "video_max_frames": 3,
+            "video_mode": "glyph", "matrix": True, "matrix_seed": 5,
+            "matrix_color": "amber",
+        })},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["video"]["frames"] == 3
+    assert "\x1b[38;2;" in body["ansi"]
+
+
+def test_render_video_missing_file_400():
+    r = client.post("/api/render", data={"options": json.dumps({"source": "video"})})
+    assert r.status_code == 400
+
+
+def test_render_video_bad_suffix_400():
+    r = client.post(
+        "/api/render",
+        files={"image": ("notes.txt", b"hello", "text/plain")},
+        data={"options": json.dumps({"source": "video"})},
+    )
+    assert r.status_code == 400
+
+
+def test_render_video_size_cap_413(monkeypatch):
+    from ascii_magic import webapp
+
+    pytest.importorskip("imageio")
+    monkeypatch.setattr(webapp, "MAX_VIDEO_UPLOAD_BYTES", 100)
+    r = client.post(
+        "/api/render",
+        files={"image": ("clip.gif", _gif_clip_bytes(), "image/gif")},
+        data={"options": json.dumps({"source": "video"})},
+    )
+    assert r.status_code == 413
+
+
 def test_upload_size_cap_413(monkeypatch):
     from ascii_magic import webapp
 

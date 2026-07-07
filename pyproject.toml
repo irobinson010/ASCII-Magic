@@ -29,6 +29,10 @@ web = [
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",
 ]
+video = [
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+]
 
 [dependency-groups]
 dev = [
@@ -43,6 +47,7 @@ colorize-ascii = "ascii_magic.colorize_ascii:main"
 text-to-ascii = "ascii_magic.text_to_ascii:main"
 ascii-magic-web = "ascii_magic.webapp:main"
 ascii-magic-greet = "ascii_magic.greet:main"
+ascii-magic-video = "ascii_magic.video:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

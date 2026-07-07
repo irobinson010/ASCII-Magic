@@ -36,6 +36,8 @@ app = FastAPI(title="ASCII Magic")
 # but nothing stops a hand-crafted request, and the Docker CMD binds 0.0.0.0.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
+MAX_VIDEO_UPLOAD_BYTES = 100 * 1024 * 1024
+VIDEO_SUFFIXES = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".gif")
 
 
 def _ival(o: dict[str, Any], key: str, default, lo: int, hi: int):
@@ -133,6 +135,91 @@ def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
 
 
+def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) -> dict[str, Any]:
+    import base64 as b64mod
+    import os as os_mod
+    import tempfile
+
+    if upload is None:
+        raise HTTPException(status_code=400, detail="No video uploaded.")
+    suffix = os_mod.path.splitext(upload.filename or "")[1].lower()
+    if suffix not in VIDEO_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported video type; expected one of {', '.join(VIDEO_SUFFIXES)}.",
+        )
+
+    chunks = []
+    total = 0
+    while True:
+        chunk = upload.file.read(1 << 20)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_VIDEO_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Video larger than {MAX_VIDEO_UPLOAD_BYTES // (1024 * 1024)} MB.",
+            )
+        chunks.append(chunk)
+
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(b"".join(chunks))
+        tmp.close()
+        try:
+            from .video import video_to_ascii
+
+            built = _build_options(o, "ansi")
+            matrix = built.matrix if o.get("matrix") else None
+            caption = built.caption if o.get("caption_text") else None
+            mode = o.get("video_mode") if o.get("video_mode") in ("braille", "glyph") else "braille"
+            v = video_to_ascii(
+                tmp.name,
+                cols=_ival(o, "cols", 100, 10, 240),
+                sample_fps=_fval(o, "video_fps", 8.0, 1.0, 30.0),
+                max_frames=_ival(o, "video_max_frames", 60, 1, 120),
+                dither=bool(o.get("dither", True)),
+                threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
+                gamma=_fval(o, "gamma", 1.0, 0.05, 10.0),
+                autocontrast=bool(o.get("autocontrast")),
+                invert=bool(o.get("invert")),
+                mode=mode,
+                quality=o.get("quality") if o.get("quality") in ("fast", "balanced", "best") else "balanced",
+                matrix=matrix,
+                caption=caption,
+            )
+        except (RuntimeError, ValueError, OSError) as e:
+            raise HTTPException(status_code=400, detail=f"Could not read the video: {e}")
+    finally:
+        os_mod.unlink(tmp.name)
+
+    from .greet import FRAME_SEP
+
+    ansi_frames = v.frames_ansi()
+    frames_text = json.dumps({"fps": v.fps, "loops": 1}) + "\n" + FRAME_SEP.join(ansi_frames)
+    gif_b64 = b64mod.b64encode(v.to_gif_bytes()).decode("ascii")
+    first_lines, _ = v.frames[0]
+
+    preview = (
+        "<!doctype html><html><body style=\"margin:0;background:#000;"
+        "display:grid;place-items:start center\">"
+        f'<img style="max-width:100%" alt="ASCII video" '
+        f'src="data:image/gif;base64,{gif_b64}"></body></html>'
+    )
+    return {
+        "ascii": "\n".join(first_lines),
+        "ansi": ansi_frames[0],
+        "html": preview,
+        "gif_b64": gif_b64,
+        "frames_text": frames_text,
+        "video": {"frames": len(v.frames), "fps": round(v.fps, 2)},
+        "seed": None,
+        "warning": None,
+        "elapsed_ms": round((time.perf_counter() - t0) * 1000),
+    }
+
+
 @app.post("/api/render")
 def render(
     # Plain def: Starlette runs sync handlers in a threadpool, so a slow
@@ -158,6 +245,9 @@ def render(
     t0 = time.perf_counter()
     ctx = AsciiPipelineContext()
     warning: Optional[str] = None
+
+    if o.get("source") == "video":
+        return _render_video(image, o, t0)
 
     if image is not None:
         chunks = []

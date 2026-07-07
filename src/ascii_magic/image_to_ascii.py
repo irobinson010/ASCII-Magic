@@ -495,9 +495,10 @@ def image_to_braille_from_image(
 # -----------------------------
 # CLI
 # -----------------------------
-def main():
+def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description="Local high-quality ASCII/Unicode art (glyph match + optional braille mode)"
+        prog="image-to-ascii",
+        description="Local high-quality ASCII/Unicode art (glyph match + optional braille mode)",
     )
     ap.add_argument("input", help="Input image path")
     ap.add_argument(
@@ -607,7 +608,11 @@ def main():
                     help="Rotate clockwise before conversion (EXIF orientation is "
                     "applied automatically)")
 
-    args = ap.parse_args()
+    return ap
+
+
+def main():
+    args = build_arg_parser().parse_args()
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
             charset = "".join(ch for ch in f.read())

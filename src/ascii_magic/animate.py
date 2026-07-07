@@ -57,6 +57,60 @@ class CaptionRender:
     colors: Optional[list] = None                   # ...or per-char [y][x] RGB
 
 
+def caption_rows_ansi(cap: "CaptionRender") -> List[str]:
+    """Render a resolved caption as ANSI rows (shared by animation and video)."""
+    rows = []
+    for y, line in enumerate(cap.lines):
+        if cap.colors is not None:
+            prev = None
+            row = []
+            for x, ch in enumerate(line):
+                if ch == " ":
+                    if prev is not None:
+                        row.append(f"{ESC}[0m")
+                        prev = None
+                    row.append(" ")
+                    continue
+                c = tuple(cap.colors[y][x])
+                if c != prev:
+                    row.append(f"{ESC}[38;2;{c[0]};{c[1]};{c[2]}m")
+                    prev = c
+                row.append(ch)
+            if prev is not None:
+                row.append(f"{ESC}[0m")
+            rows.append("".join(row))
+        else:
+            r, g, b = cap.uniform
+            rows.append(
+                f"{ESC}[38;2;{r};{g};{b}m{line}{ESC}[0m" if line.strip() else line
+            )
+    return rows
+
+
+def with_caption_rows(body: List[str], cap: "CaptionRender", cap_rows: List[str]) -> List[str]:
+    spacer = [""] * cap.gap
+    if cap.position == "top":
+        return cap_rows + spacer + body
+    return body + spacer + cap_rows
+
+
+def caption_strip_array(
+    cap: "CaptionRender", font, cell_w: int, cell_h: int, width_px: int
+) -> np.ndarray:
+    """Caption drawn as a bitmap strip for stacking onto frame canvases."""
+    gap_px = cap.gap * cell_h
+    strip = Image.new("RGB", (width_px, len(cap.lines) * cell_h + gap_px), (0, 0, 0))
+    draw = ImageDraw.Draw(strip)
+    y_off = gap_px if cap.position == "bottom" else 0
+    for y, line in enumerate(cap.lines):
+        for x, ch in enumerate(line):
+            if ch == " ":
+                continue
+            color = tuple(cap.colors[y][x]) if cap.colors else cap.uniform
+            draw.text((x * cell_w, y_off + y * cell_h), ch, fill=color, font=font)
+    return np.asarray(strip, dtype=np.uint8)
+
+
 @dataclass
 class AnimationOptions:
     frames: int = 60
@@ -107,39 +161,10 @@ class MatrixAnimation:
     # ---- caption helpers ----
 
     def _caption_rows_ansi(self) -> List[str]:
-        cap = self.caption
-        rows = []
-        for y, line in enumerate(cap.lines):
-            if cap.colors is not None:
-                prev = None
-                row = []
-                for x, ch in enumerate(line):
-                    if ch == " ":
-                        if prev is not None:
-                            row.append(f"{ESC}[0m")
-                            prev = None
-                        row.append(" ")
-                        continue
-                    c = tuple(cap.colors[y][x])
-                    if c != prev:
-                        row.append(f"{ESC}[38;2;{c[0]};{c[1]};{c[2]}m")
-                        prev = c
-                    row.append(ch)
-                if prev is not None:
-                    row.append(f"{ESC}[0m")
-                rows.append("".join(row))
-            else:
-                r, g, b = cap.uniform
-                rows.append(
-                    f"{ESC}[38;2;{r};{g};{b}m{line}{ESC}[0m" if line.strip() else line
-                )
-        return rows
+        return caption_rows_ansi(self.caption)
 
     def _with_caption_rows(self, body: List[str], cap_rows: List[str]) -> List[str]:
-        spacer = [""] * self.caption.gap
-        if self.caption.position == "top":
-            return cap_rows + spacer + body
-        return body + spacer + cap_rows
+        return with_caption_rows(body, self.caption, cap_rows)
 
     # ---- ANSI ----
 
@@ -246,19 +271,9 @@ class MatrixAnimation:
 
         cap_strip: Optional[np.ndarray] = None
         if self.caption:
-            cap = self.caption
-            w_px = self.size[0] * cell_w
-            gap_px = cap.gap * cell_h
-            strip = Image.new("RGB", (w_px, len(cap.lines) * cell_h + gap_px), (0, 0, 0))
-            draw = ImageDraw.Draw(strip)
-            y_off = gap_px if cap.position == "bottom" else 0
-            for y, line in enumerate(cap.lines):
-                for x, ch in enumerate(line):
-                    if ch == " ":
-                        continue
-                    color = tuple(cap.colors[y][x]) if cap.colors else cap.uniform
-                    draw.text((x * cell_w, y_off + y * cell_h), ch, fill=color, font=font)
-            cap_strip = np.asarray(strip, dtype=np.uint8)
+            cap_strip = caption_strip_array(
+                self.caption, font, cell_w, cell_h, self.size[0] * cell_w
+            )
 
         images = []
         for t, (idx, green, head) in enumerate(self.frames):
