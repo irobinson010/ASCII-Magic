@@ -12,6 +12,7 @@ COMMANDS = {
     "greet": "ascii_magic.greet",
     "web": "ascii_magic.webapp",
     "video": "ascii_magic.video",
+    "completion": "ascii_magic.completion",
 }
 
 
