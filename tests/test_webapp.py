@@ -289,6 +289,24 @@ def test_render_video_missing_file_400():
     assert r.status_code == 400
 
 
+def test_render_mp4_on_demand():
+    pytest.importorskip("imageio")
+    pytest.importorskip("imageio_ffmpeg")
+    r = client.post(
+        "/api/render/mp4",
+        files={"image": ("clip.gif", _gif_clip_bytes(), "image/gif")},
+        data={"options": json.dumps({"source": "video", "cols": 20, "video_max_frames": 3})},
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "video/mp4"
+    assert b"ftyp" in r.content[:64]
+
+
+def test_render_mp4_missing_file_400():
+    r = client.post("/api/render/mp4", data={"options": "{}"})
+    assert r.status_code == 400
+
+
 def test_render_video_bad_suffix_400():
     r = client.post(
         "/api/render",

@@ -135,8 +135,10 @@ def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
 
 
-def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) -> dict[str, Any]:
-    import base64 as b64mod
+def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
+    """Validate + spool the upload, convert to AsciiVideo. Returns
+    (video, tmp_path); the caller must unlink tmp_path (the mp4 sink needs
+    it alive for audio muxing)."""
     import os as os_mod
     import tempfile
 
@@ -191,8 +193,18 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
             )
         except (RuntimeError, ValueError, OSError) as e:
             raise HTTPException(status_code=400, detail=f"Could not read the video: {e}")
-    finally:
+    except Exception:
         os_mod.unlink(tmp.name)
+        raise
+    return v, tmp.name
+
+
+def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) -> dict[str, Any]:
+    import base64 as b64mod
+    import os as os_mod
+
+    v, tmp_path = _video_from_upload(upload, o)
+    os_mod.unlink(tmp_path)  # the JSON response doesn't need the source again
 
     from .greet import FRAME_SEP
 
@@ -218,6 +230,45 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
         "warning": None,
         "elapsed_ms": round((time.perf_counter() - t0) * 1000),
     }
+
+
+@app.post("/api/render/mp4")
+def render_mp4(
+    image: Optional[UploadFile] = File(None),
+    options: str = Form("{}"),
+):
+    """Encode-on-demand mp4 (with the source's audio). The GUI calls this
+    only when the user clicks the .mp4 download, so previews stay fast."""
+    import os as os_mod
+    import tempfile
+
+    from fastapi.responses import Response
+
+    try:
+        o: dict[str, Any] = json.loads(options)
+        if not isinstance(o, dict):
+            raise ValueError("options must be a JSON object")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Bad options JSON: {e}")
+
+    v, src_path = _video_from_upload(image, o)
+    out = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    out.close()
+    try:
+        try:
+            v.write_mp4(out.name, audio_source=src_path)
+        except (RuntimeError, OSError) as e:
+            raise HTTPException(status_code=400, detail=f"Could not encode mp4: {e}")
+        data = open(out.name, "rb").read()
+    finally:
+        os_mod.unlink(src_path)
+        os_mod.unlink(out.name)
+
+    return Response(
+        content=data,
+        media_type="video/mp4",
+        headers={"Content-Disposition": 'attachment; filename="ascii-video.mp4"'},
+    )
 
 
 @app.post("/api/render")
