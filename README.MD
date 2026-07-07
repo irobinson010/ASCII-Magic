@@ -216,7 +216,7 @@ colorize-ascii photo.png art.txt --animate --loops 3                   # play in
 - `--loops N` : Terminal playback repeats; `0` plays until Ctrl-C (default: 3)
 - `--reveal` : The rain uncovers the colorized image, which persists beneath it — the loop ends (and holds) on the fully revealed picture
 
-All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing, `--matrix-color` themes) apply to the rain too, and `--caption*` works in every animation sink — the caption stays static (matching the rain tint by default, or any `--caption-color` including `image`) while the rain falls. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `asciimagic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
+All `--matrix-*` knobs (seed, gamma, intensity ranges, mask biasing, `--matrix-color` themes) apply to the rain too. Drop positions loop seamlessly; glyph identities re-roll at the wrap point, which reads as the same flicker the rain has everywhere else. `--caption*` works in every animation sink — the caption stays static (matching the rain tint by default, or any `--caption-color` including `image`) while the rain falls. The web GUI exposes the same controls under *Matrix mode → Animate*, previews the animation live, and adds a `.gif` download. Programmatic use: `asciimagic.pipeline.animate(ctx, ...)` returns an object with `frames_ansi()`, `play()`, `to_gif_bytes()`, and `to_html()`.
 
 ### Text to ASCII (`text_to_ascii.py`)
 

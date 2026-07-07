@@ -407,7 +407,7 @@ class MatrixAnimation:
                             key = ((r_ >> 5) << 5, (g_ >> 5) << 5, (b_ >> 5) << 5)
                             ch = html_mod.escape(ach)
                     else:
-                        key = "h" if head[y, x] else f"c{green[y, x] >> 4}"
+                        key = f"h{green[y, x] >> 4}" if head[y, x] else f"c{green[y, x] >> 4}"
                         ch = html_mod.escape(self.chars[i])
                     if key != prev:
                         flush()
@@ -424,7 +424,18 @@ class MatrixAnimation:
             for i in range(16)
             for (r, g, b) in [tint_rgb(min(255, i * 17), self.tint)]
         )
-        hr, hg, hb = (c + (255 - c) * 216 // 255 for c in self.tint)
+        # Head classes brightness-track the drop like the ANSI/GIF sinks
+        # (_cell_rgb): base tint scaled by intensity, blended 80% toward it.
+        def _head_rgb(level: int):
+            g = min(255, level * 17)
+            base = tint_rgb(g, self.tint)
+            return tuple(c + (g - c) * 4 // 5 for c in base)
+
+        css_heads = "\n".join(
+            "    .h{i} {{ color: rgb({r},{g},{b}); }}".format(i=i, r=r, g=g, b=b)
+            for i in range(16)
+            for (r, g, b) in [_head_rgb(i)]
+        )
 
         cap_top = cap_bottom = ""
         if self.caption:
@@ -448,7 +459,7 @@ class MatrixAnimation:
             f"      font-size: {font_size_px}px;\n      line-height: {font_size_px}px;\n"
             "    }\n"
             f"{css_levels}\n"
-            f"    .h {{ color: rgb({hr},{hg},{hb}); }}\n"
+            f"{css_heads}\n"
             "  </style>\n</head>\n<body>\n"
             f"{cap_top}"
             '  <pre id="m"></pre>\n'

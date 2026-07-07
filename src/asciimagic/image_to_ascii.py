@@ -400,26 +400,36 @@ _BRAILLE_BITS = {
 
 def _floyd_steinberg_dots(ink: np.ndarray, threshold: float) -> np.ndarray:
     """Error-diffusion dither: returns a boolean dot map preserving gradients
-    that a hard threshold would flatten."""
-    arr = ink.astype(np.float32).copy()
-    h, w = arr.shape
+    that a hard threshold would flatten.
+
+    Error diffusion is inherently serial per pixel, so the inner loop runs
+    on plain Python lists — roughly an order of magnitude faster than
+    per-element NumPy indexing at large sizes.
+    """
+    h, w = ink.shape
+    rows = ink.astype(np.float64).tolist()
     out = np.zeros((h, w), dtype=bool)
+    last = w - 1
     for y in range(h):
-        row = arr[y]
-        below = arr[y + 1] if y + 1 < h else None
+        row = rows[y]
+        below = rows[y + 1] if y + 1 < h else None
+        bits = bytearray(w)
         for x in range(w):
             old = row[x]
-            new = old >= threshold
-            out[y, x] = new
-            err = old - (1.0 if new else 0.0)
-            if x + 1 < w:
-                row[x + 1] += err * (7 / 16)
+            if old >= threshold:
+                bits[x] = 1
+                err = old - 1.0
+            else:
+                err = old
+            if x < last:
+                row[x + 1] += err * 0.4375       # 7/16
             if below is not None:
-                if x > 0:
-                    below[x - 1] += err * (3 / 16)
-                below[x] += err * (5 / 16)
-                if x + 1 < w:
-                    below[x + 1] += err * (1 / 16)
+                if x:
+                    below[x - 1] += err * 0.1875  # 3/16
+                below[x] += err * 0.3125          # 5/16
+                if x < last:
+                    below[x + 1] += err * 0.0625  # 1/16
+        out[y] = np.frombuffer(bytes(bits), dtype=np.uint8).astype(bool)
     return out
 
 
