@@ -7,8 +7,8 @@ exercise the real modules through the dispatcher.
 import pytest
 from PIL import Image
 
-from ascii_magic.unified_cli import COMMANDS, main as cli_main
-from ascii_magic.colorize_ascii import parse_args
+from asciimagic.unified_cli import COMMANDS, main as cli_main
+from asciimagic.colorize_ascii import parse_args
 
 
 def test_new_subcommands_registered():

@@ -2,8 +2,8 @@ import re
 
 from PIL import Image
 
-from ascii_magic.colorize_ascii import CaptionOptions, Options, colorize_ascii_text
-from ascii_magic.text_to_ascii import caption_lines, compose_caption
+from asciimagic.colorize_ascii import CaptionOptions, Options, colorize_ascii_text
+from asciimagic.text_to_ascii import caption_lines, compose_caption
 
 ART = "\n".join("#" * 40 for _ in range(10))
 STRIP = lambda s: re.sub(r"\x1b\[[0-9;]*m", "", s)
@@ -133,7 +133,7 @@ def test_caption_figlet_downscales_to_fit():
 
 
 def test_wrap_html_default_text_contrasts_background():
-    from ascii_magic.colorize_ascii import wrap_html
+    from asciimagic.colorize_ascii import wrap_html
 
     doc = wrap_html(["hello"])
     assert "background: #000" in doc

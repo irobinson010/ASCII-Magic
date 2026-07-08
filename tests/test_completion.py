@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from ascii_magic.completion import bash_script, main as completion_main, zsh_script
+from asciimagic.completion import bash_script, main as completion_main, zsh_script
 
 
 def test_bash_script_contents():
@@ -26,7 +26,7 @@ def test_bash_script_contents():
 def test_zsh_script_wraps_bash():
     z = zsh_script()
     assert "bashcompinit" in z
-    assert "_ascii_magic()" in z
+    assert "_asciimagic()" in z
 
 
 def test_completion_command(capsys):
@@ -36,10 +36,10 @@ def test_completion_command(capsys):
 
 
 def test_completion_dispatch_via_unified_cli(capsys):
-    from ascii_magic.unified_cli import main as cli_main
+    from asciimagic.unified_cli import main as cli_main
 
     assert cli_main(["completion", "bash"]) == 0
-    assert "complete -o default -F _ascii_magic" in capsys.readouterr().out
+    assert "complete -o default -F _asciimagic" in capsys.readouterr().out
 
 
 BASH = shutil.which("bash")
@@ -68,7 +68,7 @@ def test_bash_completion_behaves(tmp_path, words, expected, not_expected):
 source "{script_file}"
 COMP_WORDS=({comp_words})
 COMP_CWORD={len(words) - 1}
-_ascii_magic
+_asciimagic
 printf '%s\\n' "${{COMPREPLY[@]}}"
 """
     r = subprocess.run([BASH, "-c", harness], capture_output=True, text=True, timeout=30)

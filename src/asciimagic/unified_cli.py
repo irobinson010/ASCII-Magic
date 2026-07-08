@@ -6,13 +6,13 @@ import inspect
 from typing import Sequence, List, Optional
 
 COMMANDS = {
-    "colorize": "ascii_magic.colorize_ascii",
-    "image": "ascii_magic.image_to_ascii",
-    "text": "ascii_magic.text_to_ascii",
-    "greet": "ascii_magic.greet",
-    "web": "ascii_magic.webapp",
-    "video": "ascii_magic.video",
-    "completion": "ascii_magic.completion",
+    "colorize": "asciimagic.colorize_ascii",
+    "image": "asciimagic.image_to_ascii",
+    "text": "asciimagic.text_to_ascii",
+    "greet": "asciimagic.greet",
+    "web": "asciimagic.webapp",
+    "video": "asciimagic.video",
+    "completion": "asciimagic.completion",
 }
 
 
@@ -60,7 +60,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
 
     if argv[0] in ("-V", "--version"):
-        from ascii_magic import __version__
+        from asciimagic import __version__
 
         print(f"ascii-magic {__version__}")
         return 0

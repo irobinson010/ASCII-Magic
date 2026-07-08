@@ -2,7 +2,7 @@
 
 import pytest
 from PIL import Image
-from ascii_magic.text_to_ascii import (
+from asciimagic.text_to_ascii import (
     text_to_box,
     text_to_banner,
     text_to_ascii_art,

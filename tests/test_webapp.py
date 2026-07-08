@@ -7,7 +7,7 @@ from PIL import Image
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from ascii_magic.webapp import app
+from asciimagic.webapp import app
 
 client = TestClient(app)
 
@@ -299,7 +299,7 @@ def test_render_video_bad_suffix_400():
 
 
 def test_render_video_size_cap_413(monkeypatch):
-    from ascii_magic import webapp
+    from asciimagic import webapp
 
     pytest.importorskip("imageio")
     monkeypatch.setattr(webapp, "MAX_VIDEO_UPLOAD_BYTES", 100)
@@ -312,7 +312,7 @@ def test_render_video_size_cap_413(monkeypatch):
 
 
 def test_upload_size_cap_413(monkeypatch):
-    from ascii_magic import webapp
+    from asciimagic import webapp
 
     monkeypatch.setattr(webapp, "MAX_UPLOAD_BYTES", 100)
     r = _render({"source": "image", "cols": 10})
@@ -320,7 +320,7 @@ def test_upload_size_cap_413(monkeypatch):
 
 
 def test_pixel_cap_400(monkeypatch):
-    from ascii_magic import webapp
+    from asciimagic import webapp
 
     monkeypatch.setattr(webapp, "MAX_IMAGE_PIXELS", 500)  # 32x32 png = 1024 px
     r = _render({"source": "image", "cols": 10})

@@ -1,7 +1,7 @@
 import numpy as np
 from PIL import Image, ImageDraw
 
-from ascii_magic.image_to_ascii import (
+from asciimagic.image_to_ascii import (
     _floyd_steinberg_dots,
     image_to_braille_from_image,
     image_to_text_glyph_from_image,
@@ -59,7 +59,7 @@ def test_vectorized_matches_per_cell_reference():
     art_best = _glyph(img, "best", cols=cols)
 
     # Reference: replicate preprocessing, then match cell-by-cell.
-    from ascii_magic.image_to_ascii import preprocess_image, sobel_gradients
+    from asciimagic.image_to_ascii import preprocess_image, sobel_gradients
 
     g = preprocess_image(img.convert("L"), autocontrast=False, gamma=1.0, invert=False)
     W, H = g.size

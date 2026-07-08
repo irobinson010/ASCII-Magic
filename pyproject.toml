@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ascii-magic-tools"
-version = "0.2.0"
+version = "0.3.0"
 description = "Convert images and text to colorized ASCII art - CLI tools, an in-memory pipeline, and a web GUI"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,11 +17,24 @@ authors = [
 ]
 readme = "README.MD"
 license = {text = "Apache-2.0"}
+keywords = ["ascii", "ascii-art", "ansi", "terminal", "braille", "matrix", "figlet", "video"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Text Processing :: Fonts",
 ]
+
+[project.urls]
+Homepage = "https://github.com/irobinson010/ASCII-Magic"
+Repository = "https://github.com/irobinson010/ASCII-Magic"
+Issues = "https://github.com/irobinson010/ASCII-Magic/issues"
 
 [project.optional-dependencies]
 web = [
@@ -41,13 +54,13 @@ dev = [
 ]
 
 [project.scripts]
-ascii-magic = "ascii_magic.unified_cli:main"
-image-to-ascii = "ascii_magic.image_to_ascii:main"
-colorize-ascii = "ascii_magic.colorize_ascii:main"
-text-to-ascii = "ascii_magic.text_to_ascii:main"
-ascii-magic-web = "ascii_magic.webapp:main"
-ascii-magic-greet = "ascii_magic.greet:main"
-ascii-magic-video = "ascii_magic.video:main"
+ascii-magic = "asciimagic.unified_cli:main"
+image-to-ascii = "asciimagic.image_to_ascii:main"
+colorize-ascii = "asciimagic.colorize_ascii:main"
+text-to-ascii = "asciimagic.text_to_ascii:main"
+ascii-magic-web = "asciimagic.webapp:main"
+ascii-magic-greet = "asciimagic.greet:main"
+ascii-magic-video = "asciimagic.video:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -56,7 +69,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-ascii_magic = ["static/*"]
+asciimagic = ["static/*"]
 
 
 [tool.pytest.ini_options]
