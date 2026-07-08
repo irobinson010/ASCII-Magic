@@ -303,6 +303,18 @@ Frames are sampled at the target `--fps`, converted through the braille pipeline
 
 Per-frame rendering is configurable: `--mode glyph` uses character matching instead of braille, and `--matrix` (with `--matrix-color`, `--matrix-seed`, `--matrix-gamma`, `--matrix-mask`) renders each frame as matrix glyphs driven by that frame — the subject moves through the rain. Seeds advance per frame, so seeded runs are reproducible.
 
+### Webcam (live ASCII mirror)
+
+Point the video command at a camera device and it streams to your terminal live until Ctrl-C — mirrored like a real mirror (`--no-mirror` to disable), with all the same mode/matrix/caption knobs:
+
+```bash
+ascii-magic video "<video0>"                          # live mirror
+ascii-magic video "<video0>" --matrix --matrix-color green   # you, in the Matrix
+ascii-magic video "<video0>" selfie.gif --seconds 5   # record 5s to an ASCII GIF
+```
+
+Camera recordings are silent (`.mp4` output works but has no audio path).
+
 The web GUI has a matching **Video** tab: pick a file, set width/fps/frame cap and frame mode, press Render (video renders take a few seconds — no live auto-render), preview the animated result, and download `.gif` or `.frames`. The Matrix panel applies to video too.
 
 ## Login greeting (`ascii-magic-greet`)

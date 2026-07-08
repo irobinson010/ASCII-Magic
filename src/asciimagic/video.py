@@ -15,7 +15,9 @@ import argparse
 import dataclasses
 import io
 import random
+import re
 import sys
+import time
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -37,6 +39,24 @@ from .image_to_ascii import (
 
 # Braille blank: no ink to draw
 _BLANKS = (" ", "⠀")
+
+# ffmpeg camera device syntax, e.g. <video0> (first webcam)
+CAMERA_RE = re.compile(r"^<video\d+>$")
+
+ESC_CLEAR = "\x1b[2J\x1b[H"
+ESC_HIDE = "\x1b[?25l"
+ESC_SHOW = "\x1b[?25h"
+
+
+def is_camera(source: str) -> bool:
+    return bool(CAMERA_RE.match(source))
+
+
+def _arr_to_image(arr) -> Image.Image:
+    arr = np.asarray(arr)
+    if arr.ndim == 2:
+        return Image.fromarray(arr, mode="L").convert("RGB")
+    return Image.fromarray(arr[:, :, :3], mode="RGB")
 
 
 def _require_imageio():
@@ -93,12 +113,7 @@ def read_video_frames(
                 continue
             if len(frames) >= max_frames:
                 break
-            arr = np.asarray(arr)
-            if arr.ndim == 2:
-                img = Image.fromarray(arr, mode="L").convert("RGB")
-            else:
-                img = Image.fromarray(arr[:, :, :3], mode="RGB")
-            frames.append(img)
+            frames.append(_arr_to_image(arr))
     finally:
         reader.close()
 
@@ -293,48 +308,165 @@ def video_to_ascii(
     caption=None,  # colorize_ascii.CaptionOptions
 ) -> AsciiVideo:
     frames, out_fps = read_video_frames(path, sample_fps=sample_fps, max_frames=max_frames)
-    charset = make_charset(unicode_mode="off", ascii_preset="dense") if mode == "glyph" else None
-    converted = []
-    for img in frames:
-        if mode == "glyph":
-            art = image_to_text_glyph_from_image(
-                img=img,
-                cols=cols,
-                cell_w=8,
-                cell_h=16,
-                charset=charset,
-                quality=quality,
-                font_path=None,
-                font_size=None,
-                autocontrast=autocontrast,
-                gamma=gamma,
-                invert=invert,
-                topk=24,
-            )
-        else:
-            art = image_to_braille_from_image(
-                img,
-                cols=cols,
-                autocontrast=autocontrast,
-                gamma=gamma,
-                invert=invert,
-                threshold=threshold,
-                dither=dither,
-            )
-        converted.append((art.splitlines(), img))
-
-    cap_render = None
-    if caption is not None and caption.text and converted:
-        from .animate import _resolve_caption
-
-        first_lines, first_img = converted[0]
-        width = max(len(ln) for ln in first_lines)
-        # Image-colored captions resolve against the first frame; otherwise a
-        # neutral light default (or the matrix tint when matrix is on).
-        tint = matrix.tint if (matrix and matrix.enabled) else (224, 224, 224)
-        cap_render = _resolve_caption(caption, first_img, width, tint)
-
+    converted = _convert_frames(
+        frames, cols=cols, mode=mode, quality=quality, dither=dither,
+        threshold=threshold, gamma=gamma, autocontrast=autocontrast, invert=invert,
+    )
+    cap_render = _resolve_video_caption(caption, converted, matrix)
     return AsciiVideo(converted, out_fps, matrix=matrix, caption=cap_render)
+
+
+def _convert_frame(img: Image.Image, *, cols, mode, quality, charset,
+                   dither, threshold, gamma, autocontrast, invert) -> List[str]:
+    if mode == "glyph":
+        art = image_to_text_glyph_from_image(
+            img=img, cols=cols, cell_w=8, cell_h=16, charset=charset,
+            quality=quality, font_path=None, font_size=None,
+            autocontrast=autocontrast, gamma=gamma, invert=invert, topk=24,
+        )
+    else:
+        art = image_to_braille_from_image(
+            img, cols=cols, autocontrast=autocontrast, gamma=gamma,
+            invert=invert, threshold=threshold, dither=dither,
+        )
+    return art.splitlines()
+
+
+def _convert_frames(frames, *, cols, mode, quality, dither, threshold,
+                    gamma, autocontrast, invert):
+    charset = make_charset(unicode_mode="off", ascii_preset="dense") if mode == "glyph" else None
+    return [
+        (
+            _convert_frame(
+                img, cols=cols, mode=mode, quality=quality, charset=charset,
+                dither=dither, threshold=threshold, gamma=gamma,
+                autocontrast=autocontrast, invert=invert,
+            ),
+            img,
+        )
+        for img in frames
+    ]
+
+
+def _resolve_video_caption(caption, converted, matrix):
+    """Image-colored captions resolve against the first frame; otherwise a
+    neutral light default (or the matrix tint when matrix is on)."""
+    if caption is None or not caption.text or not converted:
+        return None
+    from .animate import _resolve_caption
+
+    first_lines, first_img = converted[0]
+    width = max(len(ln) for ln in first_lines)
+    tint = matrix.tint if (matrix and matrix.enabled) else (224, 224, 224)
+    return _resolve_caption(caption, first_img, width, tint)
+
+
+def live_view(
+    source: str,
+    cols: int = 100,
+    mode: str = "braille",
+    quality: str = "balanced",
+    dither: bool = True,
+    threshold: float = 0.5,
+    gamma: float = 1.0,
+    autocontrast: bool = False,
+    invert: bool = False,
+    matrix: Optional[MatrixOptions] = None,
+    caption=None,
+    mirror: bool = True,
+    out=None,
+    max_frames: Optional[int] = None,
+) -> int:
+    """Stream a camera (or any source) to the terminal as live ASCII until
+    Ctrl-C. Returns the number of frames shown. `max_frames`/`out` exist for
+    testing; interactive use leaves them unset."""
+    iio = _require_imageio()
+    out = out or sys.stdout
+    matrix = matrix if (matrix and matrix.enabled) else None
+    charset = make_charset(unicode_mode="off", ascii_preset="dense") if mode == "glyph" else None
+
+    reader = iio.get_reader(source)
+    shown = 0
+    cap_rows = None
+    cap_render = None
+    try:
+        out.write(f"{ESC_CLEAR}{ESC_HIDE}")
+        for arr in reader:
+            img = _arr_to_image(arr)
+            if mirror:
+                img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            lines = _convert_frame(
+                img, cols=cols, mode=mode, quality=quality, charset=charset,
+                dither=dither, threshold=threshold, gamma=gamma,
+                autocontrast=autocontrast, invert=invert,
+            )
+            if caption is not None and cap_render is None and caption.text:
+                cap_render = _resolve_video_caption(caption, [(lines, img)], matrix)
+                if cap_render is not None:
+                    from .animate import caption_rows_ansi
+
+                    cap_rows = caption_rows_ansi(cap_render)
+            if matrix:
+                mi = dataclasses.replace(
+                    matrix, seed=(matrix.seed + shown) if matrix.seed is not None else None
+                )
+                rows = matrix_lines_ansi(lines, img, mi)
+            else:
+                rows = colorize_lines_ansi(lines, img, color_spaces=False)
+            if cap_rows is not None:
+                from .animate import with_caption_rows
+
+                rows = with_caption_rows(list(rows), cap_render, cap_rows)
+            out.write("\x1b[H" + "\n".join(rows) + "\x1b[0m")
+            out.flush()
+            shown += 1
+            if max_frames is not None and shown >= max_frames:
+                break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        reader.close()
+        try:
+            out.write(f"\x1b[0m{ESC_SHOW}\n")
+            out.flush()
+        except BrokenPipeError:
+            pass
+    return shown
+
+
+def record_camera(
+    source: str,
+    seconds: float = 5.0,
+    mirror: bool = True,
+    **convert_kwargs,
+) -> AsciiVideo:
+    """Capture a camera for `seconds` of wall time, then convert like a file."""
+    iio = _require_imageio()
+    matrix = convert_kwargs.pop("matrix", None)
+    caption = convert_kwargs.pop("caption", None)
+
+    reader = iio.get_reader(source)
+    frames: List[Image.Image] = []
+    t0 = time.monotonic()
+    try:
+        for arr in reader:
+            img = _arr_to_image(arr)
+            if mirror:
+                img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            frames.append(img)
+            # wall-clock bound, plus a hard cap for absurdly fast sources
+            if time.monotonic() - t0 >= seconds or len(frames) >= 1800:
+                break
+    finally:
+        reader.close()
+    if not frames:
+        raise RuntimeError(f"No frames could be read from {source}")
+
+    elapsed = max(time.monotonic() - t0, 1e-3)
+    fps = max(1.0, len(frames) / elapsed)
+    converted = _convert_frames(frames, **convert_kwargs)
+    cap_render = _resolve_video_caption(caption, converted, matrix)
+    return AsciiVideo(converted, fps, matrix=matrix, caption=cap_render)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -343,10 +475,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Convert a video into a colorized ASCII animation "
         "(any format ffmpeg reads: mp4, webm, mov, mkv, avi, gif, ...).",
     )
-    ap.add_argument("input", help="Video file")
+    ap.add_argument("input", help="Video file, or a camera like '<video0>' for a live mirror")
     ap.add_argument("out", nargs="?", default=None,
                     help="Output: .gif, .mp4 (keeps the source audio), or .frames "
-                    "(omit to play in the terminal)")
+                    "(omit to play in the terminal; with a camera, omit to mirror live)")
     ap.add_argument("-c", "--cols", type=int, default=100, help="Width in characters")
     ap.add_argument("--fps", type=float, default=10.0,
                     help="Target sample/playback fps (default: 10)")
@@ -367,6 +499,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="Bias matrix glyphs toward inked ASCII cells")
     ap.add_argument("--no-audio", action="store_true",
                     help=".mp4 output: skip muxing the source audio")
+    ap.add_argument("--seconds", type=float, default=5.0, metavar="F",
+                    help="Camera sources with an output file: how long to record (default: 5)")
+    ap.add_argument("--mirror", action=argparse.BooleanOptionalAction, default=True,
+                    help="Camera sources: flip horizontally like a mirror (default: on)")
     ap.add_argument("--caption", default=None, metavar="TEXT",
                     help="Render TEXT as ASCII and stitch it onto every frame")
     ap.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
@@ -421,21 +557,39 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     try:
-        video = video_to_ascii(
-            args.input,
-            cols=args.cols,
-            sample_fps=args.fps,
-            max_frames=args.max_frames,
-            dither=not args.no_dither,
-            threshold=args.threshold,
-            gamma=args.gamma,
-            autocontrast=args.autocontrast,
-            invert=args.invert,
-            mode=args.mode,
-            quality=args.quality,
-            matrix=matrix,
-            caption=caption,
-        )
+        if is_camera(args.input):
+            if args.out is None:
+                live_view(
+                    args.input, cols=args.cols, mode=args.mode, quality=args.quality,
+                    dither=not args.no_dither, threshold=args.threshold,
+                    gamma=args.gamma, autocontrast=args.autocontrast,
+                    invert=args.invert, matrix=matrix, caption=caption,
+                    mirror=args.mirror,
+                )
+                return 0
+            video = record_camera(
+                args.input, seconds=args.seconds, mirror=args.mirror,
+                cols=args.cols, mode=args.mode, quality=args.quality,
+                dither=not args.no_dither, threshold=args.threshold,
+                gamma=args.gamma, autocontrast=args.autocontrast,
+                invert=args.invert, matrix=matrix, caption=caption,
+            )
+        else:
+            video = video_to_ascii(
+                args.input,
+                cols=args.cols,
+                sample_fps=args.fps,
+                max_frames=args.max_frames,
+                dither=not args.no_dither,
+                threshold=args.threshold,
+                gamma=args.gamma,
+                autocontrast=args.autocontrast,
+                invert=args.invert,
+                mode=args.mode,
+                quality=args.quality,
+                matrix=matrix,
+                caption=caption,
+            )
     except RuntimeError as e:
         raise SystemExit(str(e))
 
@@ -448,7 +602,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.out.lower().endswith(".mp4"):
         with_audio = video.write_mp4(
             args.out,
-            audio_source=None if args.no_audio else args.input,
+            # cameras have no muxable audio path; record silent
+            audio_source=None if (args.no_audio or is_camera(args.input)) else args.input,
             font_size=args.font_size,
         )
         note = "with source audio" if with_audio else "silent (no usable audio in source)"

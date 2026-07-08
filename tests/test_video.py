@@ -136,6 +136,86 @@ def test_video_mp4_output(clip, tmp_path):
     assert b"ftyp" in data[:64]  # mp4 container signature
 
 
+class _FakeReader:
+    """Stands in for imageio's camera reader: yields moving-dot frames."""
+
+    def __init__(self, n=40):
+        self.n = n
+
+    def __iter__(self):
+        import numpy as np
+
+        for i in range(self.n):
+            f = np.full((32, 48, 3), 15, dtype=np.uint8)
+            f[10:20, (i * 4) % 40:(i * 4) % 40 + 8] = (240, 160, 60)
+            yield f
+
+    def get_meta_data(self):
+        return {"fps": 30}
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def fake_camera(monkeypatch):
+    class _IIO:
+        @staticmethod
+        def get_reader(source):
+            return _FakeReader()
+
+    monkeypatch.setattr(video_mod, "_require_imageio", lambda: _IIO)
+
+
+def test_is_camera():
+    assert video_mod.is_camera("<video0>")
+    assert video_mod.is_camera("<video12>")
+    assert not video_mod.is_camera("clip.mp4")
+    assert not video_mod.is_camera("<videoX>")
+
+
+def test_live_view_streams_and_restores(fake_camera):
+    import io as _io
+
+    buf = _io.StringIO()
+    shown = video_mod.live_view("<video0>", cols=16, out=buf, max_frames=4)
+    assert shown == 4
+    out = buf.getvalue()
+    assert out.startswith(video_mod.ESC_CLEAR + video_mod.ESC_HIDE)
+    assert out.count("\x1b[H") >= 4  # cursor-home per frame
+    assert out.endswith(video_mod.ESC_SHOW + "\n")
+    assert "\x1b[38;2;" in out  # colorized
+
+
+def test_live_view_mirror_flips(fake_camera):
+    import io as _io
+    import re
+
+    strip = lambda s: re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", s)
+    a = _io.StringIO()
+    b = _io.StringIO()
+    video_mod.live_view("<video0>", cols=16, out=a, max_frames=1, mirror=False)
+    video_mod.live_view("<video0>", cols=16, out=b, max_frames=1, mirror=True)
+    assert strip(a.getvalue()) != strip(b.getvalue())
+
+
+def test_record_camera(fake_camera):
+    v = video_mod.record_camera(
+        "<video0>", seconds=0.05, cols=16, mode="braille", quality="balanced",
+        dither=False, threshold=0.5, gamma=1.0, autocontrast=False, invert=False,
+    )
+    assert len(v.frames) >= 1
+    assert v.fps >= 1.0
+    assert v.to_gif_bytes()[:4] == b"GIF8"
+
+
+def test_camera_cli_records_to_gif(fake_camera, tmp_path):
+    out = tmp_path / "cam.gif"
+    rc = video_mod.main(["<video0>", str(out), "-c", "16", "--seconds", "0.05"])
+    assert rc == 0
+    assert out.read_bytes()[:4] == b"GIF8"
+
+
 def test_video_matrix_cli_flags(clip, tmp_path):
     out = tmp_path / "m.frames"
     rc = video_mod.main([
