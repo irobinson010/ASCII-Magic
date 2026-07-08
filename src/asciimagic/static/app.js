@@ -146,6 +146,7 @@ async function render() {
     for (const b of ["dl-ans", "dl-html", "dl-txt"]) $(b).disabled = false;
     $("dl-gif").disabled = !body.gif_b64;
     $("dl-frames").disabled = !body.frames_text;
+    $("dl-mp4").disabled = !(state.tab === "video" && body.video);
 
     let msg;
     if (body.video) {
@@ -195,6 +196,28 @@ $("dl-gif").addEventListener("click", () => {
 });
 $("dl-frames").addEventListener("click", () =>
   download(`${state.fileStem}.frames`, state.result.frames_text, "text/plain"));
+
+$("dl-mp4").addEventListener("click", async () => {
+  if (!state.videoFile) return;
+  $("dl-mp4").disabled = true;
+  setStatus("Encoding mp4 with audio… this takes a few seconds", "busy");
+  try {
+    const form = new FormData();
+    form.append("image", state.videoFile);
+    form.append("options", JSON.stringify(collectOptions()));
+    const res = await fetch("/api/render/mp4", { method: "POST", body: form });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    download(`${state.fileStem}.mp4`, await res.blob(), "video/mp4");
+    setStatus("mp4 downloaded", "");
+  } catch (err) {
+    setStatus(`Error: ${err.message}`, "error");
+  } finally {
+    $("dl-mp4").disabled = false;
+  }
+});
 
 // ---------- sizing ----------
 
