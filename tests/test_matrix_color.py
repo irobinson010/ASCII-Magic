@@ -94,4 +94,7 @@ def test_animation_default_tint_is_green():
     m = MatrixOptions(enabled=True, seed=5)
     anim = generate(ASCII, _img(), m=m, a=AnimationOptions(frames=2))
     html = anim.to_html()
-    assert ".h { color: rgb(216,255,216); }" in html
+    # Head classes brightness-track the drop; full-intensity green head is
+    # (0,255,0) blended 80% toward its own intensity -> (204,255,204).
+    assert ".h15 { color: rgb(204,255,204); }" in html
+    assert ".h0 { color: rgb(0,0,0); }" in html
