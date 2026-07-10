@@ -380,8 +380,13 @@ for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale"]) {
 // so the art reports its own pixel box via postMessage from this snippet.
 const MEASURE_SNIPPET =
   '<scr' + 'ipt>(function(){function r(){var e=document.querySelector("#m")||document.querySelector("pre,img");' +
-  'if(!e)return;var b=e.getBoundingClientRect();var m={am:"artbox",x:b.left,y:b.top,w:b.width,h:b.height};' +
-  'if(e.tagName==="IMG"){m.nw=e.naturalWidth;m.nh=e.naturalHeight;}parent.postMessage(m,"*");}' +
+  'if(!e)return;var b,m;' +
+  'if(e.tagName==="IMG"){b=e.getBoundingClientRect();m={am:"artbox",x:b.left,y:b.top,w:b.width,h:b.height,nw:e.naturalWidth,nh:e.naturalHeight};}' +
+  // A block-level <pre> stretches to the full page width; measure the CONTENT
+  // (widest text line) with a Range so the ring hugs the art itself.
+  'else{var g=document.createRange();g.selectNodeContents(e);b=g.getBoundingClientRect();' +
+  'm={am:"artbox",x:b.left,y:b.top,w:b.width,h:b.height};}' +
+  'if(m.w>0)parent.postMessage(m,"*");}' +
   'window.addEventListener("load",r);window.addEventListener("resize",r);window.addEventListener("scroll",r,true);' +
   'setTimeout(r,60);setTimeout(r,300);})();</scr' + 'ipt>';
 
@@ -452,6 +457,11 @@ function updateLabel(c, r) {
 function startDrag(axis) {
   return (e) => {
     e.preventDefault();
+    const handle = e.currentTarget;
+    // Capture the pointer: without this, the iframe swallows pointermove the
+    // instant the cursor crosses it and fast drags "lose" the handle.
+    handle.setPointerCapture(e.pointerId);
+    document.getElementById("preview-wrap").classList.add("dragging");
     dragging = {
       axis, x: e.clientX, y: e.clientY,
       w: ringBox.w, h: ringBox.h,
@@ -471,14 +481,18 @@ function startDrag(axis) {
       updateLabel(d.cols, d.rows);
     };
     const up = (ev) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
       ring.classList.remove("dragging");
+      document.getElementById("preview-wrap").classList.remove("dragging");
       dragging = null;
       commitResize(axis, dragDims(ringBox.w, ringBox.h), ev.shiftKey);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
   };
 }
 $("handle-e").addEventListener("pointerdown", startDrag("e"));

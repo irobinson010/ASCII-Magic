@@ -198,7 +198,11 @@ button.primary:hover { background: var(--accent); color: #06130b; }
   border: 1px solid #06130b;
   border-radius: 2px;
   pointer-events: auto;
+  touch-action: none; /* pointer capture needs raw pointer events */
 }
+/* While dragging, the iframe must not steal pointer events */
+#preview-wrap.dragging #preview { pointer-events: none; }
+#preview-wrap.dragging { user-select: none; }
 #ring .handle:hover { background: var(--accent); }
 #handle-e { right: -7px; top: 50%; margin-top: -6px; cursor: ew-resize; }
 #handle-s { bottom: -7px; left: 50%; margin-left: -6px; cursor: ns-resize; }
