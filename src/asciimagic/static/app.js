@@ -407,20 +407,38 @@ window.addEventListener("message", (ev) => {
   showRing(d);
 });
 
+function cellHDisplay(d) {
+  if (d.nw) {
+    // video GIF: uniform cell rows across art + caption strip
+    const totalRows = state.art.rows + (state.art.cap_rows || 0);
+    return d.h / Math.max(1, totalRows);
+  }
+  return num("html_font_size") || 12; // pre line-height is pinned to font px
+}
+
+function artOnlyBox(d) {
+  // The measured block may include the caption rows; the ring wraps just
+  // the art (the server reports how many rows the caption occupies).
+  const cap = state.art.cap_rows || 0;
+  if (!cap) return { x: d.x, y: d.y, w: d.w, h: d.h };
+  const capPx = cap * cellHDisplay(d);
+  return {
+    x: d.x,
+    y: state.art.cap_pos === "top" ? d.y + capPx : d.y,
+    w: d.w,
+    h: Math.max(4, d.h - capPx),
+  };
+}
+
 function showRing(d) {
   if (!state.result || !state.art || !state.art.cols || d.w < 4) {
     ring.hidden = true;
     return;
   }
-  ringBox = { x: d.x, y: d.y, w: d.w, h: d.h };
+  ringBox = artOnlyBox(d);
   ring.hidden = false;
   applyRing();
   updateLabel(state.art.cols, state.art.rows);
-  // Height math gets ambiguous with a caption stitched into the same block —
-  // width dragging stays available, height reverts to the number knobs.
-  const capOn = !!$("caption_text").value.trim();
-  $("handle-s").style.display = capOn ? "none" : "";
-  $("handle-se").style.display = capOn ? "none" : "";
 }
 
 function applyRing() {
@@ -431,15 +449,10 @@ function applyRing() {
 }
 
 function cellSize() {
+  // Displayed box ÷ known grid counts — exact for pre text and for the video
+  // <img> even when the browser CSS-downscales it (caption padded to art width).
   const m = state.measure;
-  const art = state.art;
-  if (m.nw) {
-    // Video preview is an <img> that may be CSS-downscaled; convert through
-    // its natural size so a dragged pixel means a consistent fraction of a cell.
-    const scale = m.w / m.nw;
-    return { w: (m.nw / art.cols) * scale, h: (m.nh / art.rows) * scale };
-  }
-  return { w: m.w / art.cols, h: num("html_font_size") || 12 };
+  return { w: m.w / state.art.cols, h: cellHDisplay(m) };
 }
 
 function dragDims(w, h) {

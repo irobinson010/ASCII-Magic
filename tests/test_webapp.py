@@ -176,6 +176,43 @@ def test_art_dims_in_response():
     assert body["art"]["rows"] == len(body["ascii"].splitlines())
 
 
+def test_art_dims_report_caption_rows():
+    r = _render(
+        {"source": "image", "mode": "braille", "cols": 20,
+         "caption_text": "Cat", "caption_style": "box", "caption_gap": 2,
+         "caption_pos": "top"}
+    )
+    art = r.json()["art"]
+    assert art["cap_rows"] == 5  # 3 box lines + 2 gap
+    assert art["cap_pos"] == "top"
+
+    # no caption -> zero
+    r2 = _render({"source": "image", "mode": "braille", "cols": 20})
+    assert r2.json()["art"]["cap_rows"] == 0
+
+
+def test_animation_caption_not_counted_in_art_block():
+    # The player renders its caption in a separate element
+    r = _render(
+        {"source": "image", "cols": 12, "matrix": True, "animate": True,
+         "anim_frames": 2, "caption_text": "Cat", "caption_style": "box"}
+    )
+    assert r.json()["art"]["cap_rows"] == 0
+
+
+def test_video_art_dims_report_caption_rows():
+    pytest.importorskip("imageio")
+    r = client.post(
+        "/api/render",
+        files={"image": ("clip.gif", _gif_clip_bytes(), "image/gif")},
+        data={"options": json.dumps({"source": "video", "cols": 24, "video_max_frames": 2,
+                                     "caption_text": "Cat", "caption_style": "box"})},
+    )
+    art = r.json()["art"]
+    assert art["cap_rows"] == 4  # 3 box lines + default gap 1
+    assert art["cap_pos"] == "bottom"
+
+
 def test_exact_sizing_without_colorize():
     # The GUI resize handles set out_rows/out_cols; must work with colorize off
     r = _render(
