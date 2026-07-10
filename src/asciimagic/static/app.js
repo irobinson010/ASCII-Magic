@@ -35,6 +35,7 @@ function collectOptions() {
     // video source
     video_fps: num("video_fps"),
     video_max_frames: num("video_max_frames"),
+    video_rows: num("video_rows"),
     video_mode: $("video_mode").value,
     // text source
     text: $("text").value,
@@ -139,7 +140,9 @@ async function render() {
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
 
     state.result = body;
-    $("preview").srcdoc = body.html;
+    state.art = body.art || null;
+    $("ring").hidden = true; // re-shown when the new preview reports its box
+    $("preview").srcdoc = injectMeasure(body.html);
     if (body.seed !== null && body.seed !== undefined) {
       $("matrix_seed").value = body.seed;
     }
@@ -286,6 +289,7 @@ const TABS = ["image", "text", "video"];
 
 function setTab(name) {
   state.tab = name;
+  $("ring").hidden = true; // stale box from another source
   for (const t of TABS) {
     $(`panel-${t}`).hidden = t !== name;
     $(`tab-${t}`).classList.toggle("active", t === name);
@@ -369,6 +373,157 @@ $("reroll").addEventListener("click", (e) => {
 for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale"]) {
   $(id).addEventListener("input", () => { $(`${id}-out`).value = $(id).value; });
 }
+
+// ---------- GIMP-style resize handles ----------
+
+// The preview iframe is an opaque origin (sandbox without allow-same-origin),
+// so the art reports its own pixel box via postMessage from this snippet.
+const MEASURE_SNIPPET =
+  '<scr' + 'ipt>(function(){function r(){var e=document.querySelector("#m")||document.querySelector("pre,img");' +
+  'if(!e)return;var b=e.getBoundingClientRect();var m={am:"artbox",x:b.left,y:b.top,w:b.width,h:b.height};' +
+  'if(e.tagName==="IMG"){m.nw=e.naturalWidth;m.nh=e.naturalHeight;}parent.postMessage(m,"*");}' +
+  'window.addEventListener("load",r);window.addEventListener("resize",r);window.addEventListener("scroll",r,true);' +
+  'setTimeout(r,60);setTimeout(r,300);})();</scr' + 'ipt>';
+
+function injectMeasure(html) {
+  return html.includes("</body>")
+    ? html.replace("</body>", MEASURE_SNIPPET + "</body>")
+    : html + MEASURE_SNIPPET;
+}
+
+const ring = $("ring");
+let ringBox = null;
+let dragging = null;
+
+window.addEventListener("message", (ev) => {
+  const d = ev.data;
+  if (!d || d.am !== "artbox" || dragging) return;
+  state.measure = d;
+  showRing(d);
+});
+
+function showRing(d) {
+  if (!state.result || !state.art || !state.art.cols || d.w < 4) {
+    ring.hidden = true;
+    return;
+  }
+  ringBox = { x: d.x, y: d.y, w: d.w, h: d.h };
+  ring.hidden = false;
+  applyRing();
+  updateLabel(state.art.cols, state.art.rows);
+  // Height math gets ambiguous with a caption stitched into the same block —
+  // width dragging stays available, height reverts to the number knobs.
+  const capOn = !!$("caption_text").value.trim();
+  $("handle-s").style.display = capOn ? "none" : "";
+  $("handle-se").style.display = capOn ? "none" : "";
+}
+
+function applyRing() {
+  ring.style.left = ringBox.x + "px";
+  ring.style.top = ringBox.y + "px";
+  ring.style.width = ringBox.w + "px";
+  ring.style.height = ringBox.h + "px";
+}
+
+function cellSize() {
+  const m = state.measure;
+  const art = state.art;
+  if (m.nw) {
+    // Video preview is an <img> that may be CSS-downscaled; convert through
+    // its natural size so a dragged pixel means a consistent fraction of a cell.
+    const scale = m.w / m.nw;
+    return { w: (m.nw / art.cols) * scale, h: (m.nh / art.rows) * scale };
+  }
+  return { w: m.w / art.cols, h: num("html_font_size") || 12 };
+}
+
+function dragDims(w, h) {
+  const c = cellSize();
+  return {
+    cols: Math.min(500, Math.max(4, Math.round(w / c.w))),
+    rows: Math.min(500, Math.max(2, Math.round(h / c.h))),
+  };
+}
+
+function updateLabel(c, r) {
+  $("ring-label").textContent = `${c} × ${r}`;
+}
+
+function startDrag(axis) {
+  return (e) => {
+    e.preventDefault();
+    dragging = {
+      axis, x: e.clientX, y: e.clientY,
+      w: ringBox.w, h: ringBox.h,
+      aspect: ringBox.w / Math.max(1, ringBox.h),
+    };
+    ring.classList.add("dragging");
+    const move = (ev) => {
+      let w = dragging.w;
+      let h = dragging.h;
+      if (axis !== "s") w = Math.max(16, dragging.w + (ev.clientX - dragging.x));
+      if (axis !== "e") h = Math.max(8, dragging.h + (ev.clientY - dragging.y));
+      if (axis === "se" && ev.shiftKey) h = w / dragging.aspect; // aspect lock
+      ringBox.w = w;
+      ringBox.h = h;
+      applyRing();
+      const d = dragDims(w, h);
+      updateLabel(d.cols, d.rows);
+    };
+    const up = (ev) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      ring.classList.remove("dragging");
+      dragging = null;
+      commitResize(axis, dragDims(ringBox.w, ringBox.h), ev.shiftKey);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+}
+$("handle-e").addEventListener("pointerdown", startDrag("e"));
+$("handle-s").addEventListener("pointerdown", startDrag("s"));
+$("handle-se").addEventListener("pointerdown", startDrag("se"));
+
+function commitResize(axis, d, shift) {
+  if (state.tab === "video") {
+    if (axis !== "s") $("video_cols").value = d.cols;
+    if (axis === "s" || (axis === "se" && !shift)) $("video_rows").value = d.rows;
+    if (axis === "se" && shift) $("video_rows").value = "";
+    setStatus(`Size set to ${d.cols} × ${d.rows} — press Render`, "busy");
+    return;
+  }
+  const widthInput = state.tab === "text" ? "text_width" : "cols";
+  if (axis === "e") {
+    $(widthInput).value = d.cols;
+    if ($("out_rows").value !== "") $("out_cols").value = d.cols; // keep the squish
+  } else if (axis === "s") {
+    $("out_rows").value = d.rows;
+    $("out_cols").value = d.cols; // pin width so height alone squishes
+  } else if (shift) {
+    // aspect-locked corner: width drives, height back to auto
+    $(widthInput).value = d.cols;
+    $("out_rows").value = "";
+    $("out_cols").value = "";
+  } else {
+    // free stretch: exact box, like GIMP's Scale with the chain broken
+    $(widthInput).value = d.cols;
+    $("out_cols").value = d.cols;
+    $("out_rows").value = d.rows;
+  }
+  render();
+}
+
+ring.addEventListener("dblclick", () => {
+  $("out_rows").value = "";
+  $("out_cols").value = "";
+  $("video_rows").value = "";
+  if (state.tab === "video") {
+    setStatus("Height reset to auto — press Render", "busy");
+  } else {
+    render();
+  }
+});
 
 document.querySelectorAll("#controls input, #controls select, #controls textarea").forEach((el) => {
   el.addEventListener("change", () => { syncVisibility(); autoRender(); });

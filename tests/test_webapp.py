@@ -169,6 +169,39 @@ def test_render_bad_matrix_color_400():
     assert r.status_code == 400
 
 
+def test_art_dims_in_response():
+    r = _render({"source": "image", "mode": "braille", "cols": 16})
+    body = r.json()
+    assert body["art"]["cols"] == 16
+    assert body["art"]["rows"] == len(body["ascii"].splitlines())
+
+
+def test_exact_sizing_without_colorize():
+    # The GUI resize handles set out_rows/out_cols; must work with colorize off
+    r = _render(
+        {"source": "image", "mode": "braille", "cols": 16, "colorize": False,
+         "out_rows": 5, "out_cols": 20}
+    )
+    body = r.json()
+    lines = body["ascii"].splitlines()
+    assert len(lines) == 5
+    assert max(len(ln) for ln in lines) == 20
+    assert body["art"] == {"cols": 20, "rows": 5}
+
+
+def test_video_rows_stretch():
+    pytest.importorskip("imageio")
+    r = client.post(
+        "/api/render",
+        files={"image": ("clip.gif", _gif_clip_bytes(), "image/gif")},
+        data={"options": json.dumps({"source": "video", "cols": 20,
+                                     "video_rows": 7, "video_max_frames": 2})},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["art"] == {"cols": 20, "rows": 7}
+
+
 def test_render_colorize_off_returns_plain():
     r = _render({"source": "image", "mode": "braille", "cols": 16, "colorize": False})
     body = r.json()

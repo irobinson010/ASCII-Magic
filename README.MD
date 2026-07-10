@@ -344,6 +344,8 @@ pip install -e ".[web]"
 ascii-magic-web            # http://127.0.0.1:8000
 ```
 
+**Resize like GIMP**: the rendered art gets drag handles — pull the right edge for width, the bottom edge to stretch/squish the height, or the corner for a free resize (hold **Shift** to keep aspect). A live `cols × rows` readout follows the drag; double-click the ring to reset the height to auto. Works on images, text, and video (video applies on the next Render).
+
 The **Profile** switch in the header applies sensible defaults per target: *Terminal* (SSH greetings, `.ans` output) or *Web page* (larger canvas, filled spaces, `.html` output).
 
 ## Docker

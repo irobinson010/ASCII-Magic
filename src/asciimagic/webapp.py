@@ -181,6 +181,7 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
                 cols=_ival(o, "cols", 100, 10, 240),
                 sample_fps=_fval(o, "video_fps", 8.0, 1.0, 30.0),
                 max_frames=_ival(o, "video_max_frames", 60, 1, 120),
+                rows=_ival(o, "video_rows", None, 1, 500),
                 dither=bool(o.get("dither", True)),
                 threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
                 gamma=_fval(o, "gamma", 1.0, 0.05, 10.0),
@@ -221,6 +222,10 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
     )
     return {
         "ascii": "\n".join(first_lines),
+        "art": {
+            "cols": max((len(ln) for ln in first_lines), default=0),
+            "rows": len(first_lines),
+        },
         "ansi": ansi_frames[0],
         "html": preview,
         "gif_b64": gif_b64,
@@ -413,6 +418,14 @@ def render(
         ansi = colorize(ctx, opt=_build_options(o, "ansi"))
         html_doc = colorize(ctx, opt=_build_options(o, "html"))
     else:
+        # Exact/max sizing must work with colorize off too (the GUI's resize
+        # handles set it); colorize_ascii_text applies it internally on the
+        # colorized path.
+        size = _build_options(o, "ansi").size
+        if any((size.rows, size.cols, size.max_rows, size.max_cols)):
+            lines = ascii_display.splitlines()
+            target_h = colorize_mod.compute_target_art_height(size.max_rows, 0, len(lines))
+            ascii_display = "\n".join(colorize_mod.scale_art_block(lines, target_h, size))
         ansi = ascii_display + "\n"
         html_doc = _plain_html(ascii_display, o)
 
@@ -431,8 +444,21 @@ def render(
         html_doc = animation.to_html(font_size_px=_ival(o, "html_font_size", 12, 4, 64))
         gif_b64 = base64.b64encode(animation.to_gif_bytes()).decode("ascii")
 
+    # Post-scaling art grid dimensions (pre-caption) — the GUI's resize
+    # handles need them to convert pixel drags into cols/rows.
+    art_lines = (ctx.ascii_text or "").splitlines()
+    size = _build_options(o, "ansi").size
+    if art_lines and any((size.rows, size.cols, size.max_rows, size.max_cols)):
+        th = colorize_mod.compute_target_art_height(size.max_rows, 0, len(art_lines))
+        art_lines = colorize_mod.scale_art_block(art_lines, th, size)
+    art_dims = {
+        "cols": max((len(ln) for ln in art_lines), default=0),
+        "rows": len(art_lines),
+    }
+
     return {
         "ascii": ascii_display,
+        "art": art_dims,
         "ansi": ansi,
         "html": html_doc,
         "gif_b64": gif_b64,
