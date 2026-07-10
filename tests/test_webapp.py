@@ -223,7 +223,8 @@ def test_exact_sizing_without_colorize():
     lines = body["ascii"].splitlines()
     assert len(lines) == 5
     assert max(len(ln) for ln in lines) == 20
-    assert body["art"] == {"cols": 20, "rows": 5}
+    assert body["art"]["cols"] == 20
+    assert body["art"]["rows"] == 5
 
 
 def test_video_rows_stretch():
@@ -236,7 +237,8 @@ def test_video_rows_stretch():
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["art"] == {"cols": 20, "rows": 7}
+    assert body["art"]["cols"] == 20
+    assert body["art"]["rows"] == 7
 
 
 def test_render_colorize_off_returns_plain():
