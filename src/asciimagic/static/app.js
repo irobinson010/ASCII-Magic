@@ -142,6 +142,7 @@ async function render() {
     state.result = body;
     state.art = body.art || null;
     $("ring").hidden = true; // re-shown when the new preview reports its box
+    $("cap-ring").hidden = true;
     $("preview").srcdoc = injectMeasure(body.html);
     if (body.seed !== null && body.seed !== undefined) {
       $("matrix_seed").value = body.seed;
@@ -290,6 +291,7 @@ const TABS = ["image", "text", "video"];
 function setTab(name) {
   state.tab = name;
   $("ring").hidden = true; // stale box from another source
+  $("cap-ring").hidden = true;
   for (const t of TABS) {
     $(`panel-${t}`).hidden = t !== name;
     $(`tab-${t}`).classList.toggle("active", t === name);
@@ -397,7 +399,9 @@ function injectMeasure(html) {
 }
 
 const ring = $("ring");
+const capRing = $("cap-ring");
 let ringBox = null;
+let capBox = null;
 let dragging = null;
 
 window.addEventListener("message", (ev) => {
@@ -407,10 +411,14 @@ window.addEventListener("message", (ev) => {
   showRing(d);
 });
 
+function capRowsTotal() {
+  return (state.art.cap_lines || 0) + (state.art.cap_gap || 0);
+}
+
 function cellHDisplay(d) {
   if (d.nw) {
     // video GIF: uniform cell rows across art + caption strip
-    const totalRows = state.art.rows + (state.art.cap_rows || 0);
+    const totalRows = state.art.rows + capRowsTotal();
     return d.h / Math.max(1, totalRows);
   }
   return num("html_font_size") || 12; // pre line-height is pinned to font px
@@ -419,7 +427,7 @@ function cellHDisplay(d) {
 function artOnlyBox(d) {
   // The measured block may include the caption rows; the ring wraps just
   // the art (the server reports how many rows the caption occupies).
-  const cap = state.art.cap_rows || 0;
+  const cap = capRowsTotal();
   if (!cap) return { x: d.x, y: d.y, w: d.w, h: d.h };
   const capPx = cap * cellHDisplay(d);
   return {
@@ -430,15 +438,38 @@ function artOnlyBox(d) {
   };
 }
 
+// Caption ring: wraps just the caption lines (gap excluded), only for the
+// styles where the Size knob actually scales the lettering.
+const CAP_SCALABLE = new Set(["block", "small", "shadow", "figlet"]);
+
+function captionBox(d) {
+  const lines = state.art.cap_lines || 0;
+  if (!lines || !CAP_SCALABLE.has(state.art.cap_style)) return null;
+  const ch = cellHDisplay(d);
+  const h = lines * ch;
+  const y = state.art.cap_pos === "top" ? d.y : d.y + d.h - h;
+  return { x: d.x, y, w: d.w, h };
+}
+
 function showRing(d) {
   if (!state.result || !state.art || !state.art.cols || d.w < 4) {
     ring.hidden = true;
+    capRing.hidden = true;
     return;
   }
   ringBox = artOnlyBox(d);
   ring.hidden = false;
   applyRing();
   updateLabel(state.art.cols, state.art.rows);
+
+  capBox = captionBox(d);
+  if (capBox) {
+    capRing.hidden = false;
+    applyCapRing();
+    updateCapLabel(Math.round((num("caption_scale") || 0.6) * 100));
+  } else {
+    capRing.hidden = true;
+  }
 }
 
 function applyRing() {
@@ -446,6 +477,17 @@ function applyRing() {
   ring.style.top = ringBox.y + "px";
   ring.style.width = ringBox.w + "px";
   ring.style.height = ringBox.h + "px";
+}
+
+function applyCapRing() {
+  capRing.style.left = capBox.x + "px";
+  capRing.style.top = capBox.y + "px";
+  capRing.style.width = capBox.w + "px";
+  capRing.style.height = capBox.h + "px";
+}
+
+function updateCapLabel(pct) {
+  $("cap-ring-label").textContent = `caption ${pct}%`;
 }
 
 function cellSize() {
@@ -511,6 +553,52 @@ function startDrag(axis) {
 $("handle-e").addEventListener("pointerdown", startDrag("e"));
 $("handle-s").addEventListener("pointerdown", startDrag("s"));
 $("handle-se").addEventListener("pointerdown", startDrag("se"));
+
+// Caption drag: width maps to the caption Size knob (fraction of art width).
+$("cap-handle").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const handle = e.currentTarget;
+  handle.setPointerCapture(e.pointerId);
+  document.getElementById("preview-wrap").classList.add("dragging");
+  capRing.classList.add("dragging");
+  const start = { x: e.clientX, w: capBox.w };
+  const artW = ringBox.w; // caption scale is relative to the art width
+
+  const toScale = (w) => Math.min(1, Math.max(0.05, w / Math.max(1, artW)));
+  const snap = (s) => Math.round(s * 20) / 20; // the Size slider steps by 0.05
+
+  const move = (ev) => {
+    const w = Math.max(12, start.w + (ev.clientX - start.x));
+    capBox.w = w;
+    applyCapRing();
+    updateCapLabel(Math.round(snap(toScale(w)) * 100));
+  };
+  const up = (ev) => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", up);
+    handle.removeEventListener("pointercancel", up);
+    try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+    capRing.classList.remove("dragging");
+    document.getElementById("preview-wrap").classList.remove("dragging");
+    $("caption_scale").value = snap(toScale(capBox.w));
+    $("caption_scale-out").value = $("caption_scale").value;
+    if (state.tab === "video") {
+      setStatus(`Caption size set to ${Math.round(snap(toScale(capBox.w)) * 100)}% — press Render`, "busy");
+    } else {
+      render();
+    }
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", up);
+  handle.addEventListener("pointercancel", up);
+});
+
+capRing.addEventListener("dblclick", () => {
+  $("caption_scale").value = 0.6;
+  $("caption_scale-out").value = "0.6";
+  if (state.tab === "video") setStatus("Caption size reset — press Render", "busy");
+  else render();
+});
 
 function commitResize(axis, d, shift) {
   if (state.tab === "video") {

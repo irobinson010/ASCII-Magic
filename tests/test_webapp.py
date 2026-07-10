@@ -183,12 +183,14 @@ def test_art_dims_report_caption_rows():
          "caption_pos": "top"}
     )
     art = r.json()["art"]
-    assert art["cap_rows"] == 5  # 3 box lines + 2 gap
+    assert art["cap_lines"] == 3  # box is 3 lines tall
+    assert art["cap_gap"] == 2
     assert art["cap_pos"] == "top"
+    assert art["cap_style"] == "box"
 
     # no caption -> zero
     r2 = _render({"source": "image", "mode": "braille", "cols": 20})
-    assert r2.json()["art"]["cap_rows"] == 0
+    assert r2.json()["art"]["cap_lines"] == 0
 
 
 def test_animation_caption_not_counted_in_art_block():
@@ -197,7 +199,7 @@ def test_animation_caption_not_counted_in_art_block():
         {"source": "image", "cols": 12, "matrix": True, "animate": True,
          "anim_frames": 2, "caption_text": "Cat", "caption_style": "box"}
     )
-    assert r.json()["art"]["cap_rows"] == 0
+    assert r.json()["art"]["cap_lines"] == 0
 
 
 def test_video_art_dims_report_caption_rows():
@@ -209,7 +211,8 @@ def test_video_art_dims_report_caption_rows():
                                      "caption_text": "Cat", "caption_style": "box"})},
     )
     art = r.json()["art"]
-    assert art["cap_rows"] == 4  # 3 box lines + default gap 1
+    assert art["cap_lines"] == 3
+    assert art["cap_gap"] == 1
     assert art["cap_pos"] == "bottom"
 
 

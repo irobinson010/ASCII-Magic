@@ -172,3 +172,21 @@ def test_caption_width_matches_scaled_art():
     caption_rows = [ln for ln in out.splitlines() if "┌" in ln or "└" in ln or "│" in ln]
     assert caption_rows
     assert all(len(ln) == 24 for ln in caption_rows)
+
+
+def test_figlet_never_chooses_a_wrapped_render():
+    """Regression: at scale 1.0 the ladder used to pick a giant font whose
+    pyfiglet-wrapped output smushed letters into each other ('I see you'
+    lost its I and grew fragments of other letters)."""
+    lines = caption_lines("I see you", width=110, style="figlet", scale=1.0)
+    ink = max(len(ln.strip()) for ln in lines if ln.strip())
+    assert ink <= 110
+    # one unwrapped block, not stacked wrapped blocks (doh-wrapped was 46 rows)
+    assert len(lines) <= 16
+
+
+def test_figlet_narrow_width_wraps_cleanly_with_small_font():
+    lines = caption_lines("I see you", width=24, style="figlet", scale=0.6)
+    assert all(len(ln) == 24 for ln in lines)
+    ink = max(len(ln.strip()) for ln in lines if ln.strip())
+    assert ink <= 24

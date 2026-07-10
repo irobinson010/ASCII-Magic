@@ -226,8 +226,10 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
             "cols": max((len(ln) for ln in first_lines), default=0),
             "rows": len(first_lines),
             # the GIF bakes the caption strip into every frame
-            "cap_rows": (len(v.caption.lines) + v.caption.gap) if v.caption else 0,
+            "cap_lines": len(v.caption.lines) if v.caption else 0,
+            "cap_gap": v.caption.gap if v.caption else 0,
             "cap_pos": v.caption.position if v.caption else "bottom",
+            "cap_style": (o.get("caption_style", "block") if v.caption else None),
         },
         "ansi": ansi_frames[0],
         "html": preview,
@@ -457,8 +459,10 @@ def render(
     art_dims = {
         "cols": max((len(ln) for ln in art_lines), default=0),
         "rows": len(art_lines),
-        "cap_rows": 0,
+        "cap_lines": 0,
+        "cap_gap": 0,
         "cap_pos": "bottom",
+        "cap_style": None,
     }
     # Caption rows share the art's rendered block; report how many so the
     # GUI's resize ring can exclude them. The animation player renders its
@@ -471,8 +475,10 @@ def render(
             cl = _caption_lines(
                 cap.text, art_dims["cols"], style=cap.style, scale=cap.scale, align=cap.align
             )
-            art_dims["cap_rows"] = len(cl) + max(0, int(cap.gap))
+            art_dims["cap_lines"] = len(cl)
+            art_dims["cap_gap"] = max(0, int(cap.gap))
             art_dims["cap_pos"] = cap.position
+            art_dims["cap_style"] = cap.style
         except Exception:
             pass  # caption metrics are best-effort; the ring just wraps everything
 

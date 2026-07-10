@@ -245,14 +245,19 @@ _FIGLET_SIZES = ("mini", "small", "standard", "big", "colossal", "doh")
 
 
 def _figlet_sized(text: str, width: int, scale: float) -> str:
-    """Figlet text sized toward scale x width using the font ladder."""
+    """Figlet text sized toward scale x width using the font ladder.
+
+    Candidates render UNWRAPPED for measurement: pyfiglet's width-wrapping
+    smushes the wrapped blocks of large fonts into each other (letters merge
+    and truncate), so a wrapped render must never be chosen as "fitting".
+    """
     import pyfiglet
 
     target = max(1, int(width * min(1.0, max(0.05, float(scale)))))
     rendered = []
     for font in _FIGLET_SIZES:
         try:
-            block = pyfiglet.figlet_format(text, font=font, width=max(20, int(width)))
+            block = pyfiglet.figlet_format(text, font=font, width=100_000)
         except Exception:
             continue
         w = max((len(ln.rstrip()) for ln in block.splitlines()), default=0)
@@ -263,7 +268,13 @@ def _figlet_sized(text: str, width: int, scale: float) -> str:
     fitting = [r for r in rendered if r[0] <= width]
     if fitting:
         return min(fitting, key=lambda r: abs(r[0] - target))[1]
-    return min(rendered, key=lambda r: r[0])[1]  # nothing fits; smallest, then grid-shrink
+    # Nothing fits on one line even in the smallest font: let the small font
+    # wrap into stacked blocks (it wraps cleanly, unlike the giants). A single
+    # overlong word still falls through to caption_lines' grid-shrink.
+    try:
+        return pyfiglet.figlet_format(text, font=_FIGLET_SIZES[0], width=max(20, int(width)))
+    except Exception:
+        return text
 
 
 def caption_lines(

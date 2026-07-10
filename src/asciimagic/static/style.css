@@ -207,6 +207,38 @@ button.primary:hover { background: var(--accent); color: #06130b; }
 #handle-e { right: -7px; top: 50%; margin-top: -6px; cursor: ew-resize; }
 #handle-s { bottom: -7px; left: 50%; margin-left: -6px; cursor: ns-resize; }
 #handle-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+#cap-ring {
+  position: absolute;
+  border: 1px dashed color-mix(in srgb, var(--accent-dim) 60%, transparent);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+#cap-ring.dragging { border-color: var(--accent); }
+#cap-ring .handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--accent-dim);
+  border: 1px solid #06130b;
+  border-radius: 50%; /* round = caption, square = art */
+  pointer-events: auto;
+  touch-action: none;
+}
+#cap-ring .handle:hover { background: var(--accent); }
+#cap-handle { right: -7px; bottom: -7px; cursor: nwse-resize; }
+#cap-ring-label {
+  position: absolute;
+  bottom: -1.6rem;
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
+}
+
 #ring-label {
   position: absolute;
   top: -1.6rem;
