@@ -289,23 +289,33 @@ def caption_lines(
     scale: float = 0.6,
     align: str = "center",
     font_path: str | None = None,
+    cols: int | None = None,
+    rows: int | None = None,
 ) -> list[str]:
     """Render text as ASCII caption lines padded to exactly `width` columns.
 
-    For the rendered styles (block/small/shadow) the caption occupies
-    `scale` x width columns; box/banner styles use their natural size,
-    clipped to width. Meant for stitching above/below a block of art.
+    Auto sizing: rendered styles occupy `scale` x width columns; box/banner
+    use their natural size. Exact sizing: `cols`/`rows` free-transform the
+    block to precise dimensions (GIMP-style), deriving a missing dimension
+    from the block's aspect. Meant for stitching above/below art.
     """
     width = max(1, int(width))
+    cols = min(width, max(2, int(cols))) if cols else None
+    rows = max(1, int(rows)) if rows else None
+
+    # With an exact width requested, aim the generators at it directly so the
+    # grid transform starts from the closest natural rendering.
+    eff_scale = (cols / width) if cols else scale
+
     if style == "box":
-        block = text_to_box(text, width=width)
+        block = text_to_box(text, width=cols or width)
     elif style == "banner":
         block = text_to_banner(text)
     elif style == "figlet":
-        block = _figlet_sized(text, width, scale)
+        block = _figlet_sized(text, width, eff_scale)
     else:
-        scale = min(1.0, max(0.05, float(scale)))
-        target = max(1, int(width * scale))
+        eff = min(1.0, max(0.05, float(eff_scale)))
+        target = max(1, int(width * eff))
         block = text_to_ascii_art(text, style=style, width=target, font_path=font_path)
 
     lines = [ln.rstrip() for ln in block.splitlines()]
@@ -314,7 +324,17 @@ def caption_lines(
     while lines and not lines[-1].strip():
         lines.pop()
 
-    if style == "figlet" and lines:
+    if lines and (cols or rows):
+        # Exact free transform to cols x rows (missing dim keeps aspect).
+        from .colorize_ascii import scale_grid
+
+        nat_w = max(len(ln) for ln in lines)
+        nat_h = len(lines)
+        tc = cols or max(2, min(width, round(nat_w * (rows / nat_h))))
+        tr = rows or max(1, round(nat_h * (tc / nat_w)))
+        if (tc, tr) != (nat_w, nat_h):
+            lines = [ln.rstrip() for ln in scale_grid([ln.ljust(nat_w) for ln in lines], tr, tc)]
+    elif style == "figlet" and lines:
         # Emergency shrink only: even the smallest ladder font can overflow
         # very narrow art. Sizing up is handled by the font ladder itself.
         nat_w = max(len(ln) for ln in lines)

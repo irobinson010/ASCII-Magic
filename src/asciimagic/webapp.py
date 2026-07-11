@@ -91,6 +91,8 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
         c.position = o.get("caption_pos", "bottom")
         c.style = o.get("caption_style", "block")
         c.scale = _fval(o, "caption_scale", 0.6, 0.05, 1.0)
+        c.cols = _ival(o, "caption_cols", None, 2, 500)
+        c.rows = _ival(o, "caption_rows", None, 1, 200)
         c.gap = _ival(o, "caption_gap", 1, 0, 50)
         c.color = o.get("caption_color") or None
         c.align = o.get("caption_align", "center")
@@ -230,6 +232,8 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
             "cap_gap": v.caption.gap if v.caption else 0,
             "cap_pos": v.caption.position if v.caption else "bottom",
             "cap_style": (o.get("caption_style", "block") if v.caption else None),
+            "cap_cols": max((len(ln.strip()) for ln in v.caption.lines if ln.strip()), default=0) if v.caption else 0,
+            "cap_x": min((len(ln) - len(ln.lstrip()) for ln in v.caption.lines if ln.strip()), default=0) if v.caption else 0,
         },
         "ansi": ansi_frames[0],
         "html": preview,
@@ -473,12 +477,16 @@ def render(
             from .text_to_ascii import caption_lines as _caption_lines
 
             cl = _caption_lines(
-                cap.text, art_dims["cols"], style=cap.style, scale=cap.scale, align=cap.align
+                cap.text, art_dims["cols"], style=cap.style, scale=cap.scale, align=cap.align,
+                cols=cap.cols, rows=cap.rows,
             )
             art_dims["cap_lines"] = len(cl)
             art_dims["cap_gap"] = max(0, int(cap.gap))
             art_dims["cap_pos"] = cap.position
             art_dims["cap_style"] = cap.style
+            inked = [ln for ln in cl if ln.strip()]
+            art_dims["cap_cols"] = max((len(ln.strip()) for ln in inked), default=0)
+            art_dims["cap_x"] = min((len(ln) - len(ln.lstrip()) for ln in inked), default=0)
         except Exception:
             pass  # caption metrics are best-effort; the ring just wraps everything
 

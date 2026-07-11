@@ -225,7 +225,9 @@ button.primary:hover { background: var(--accent); color: #06130b; }
   touch-action: none;
 }
 #cap-ring .handle:hover { background: var(--accent); }
-#cap-handle { right: -7px; bottom: -7px; cursor: nwse-resize; }
+#cap-handle-e { right: -7px; top: 50%; margin-top: -6px; cursor: ew-resize; }
+#cap-handle-s { bottom: -7px; left: 50%; margin-left: -6px; cursor: ns-resize; }
+#cap-handle-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
 #cap-ring-label {
   position: absolute;
   bottom: -1.6rem;

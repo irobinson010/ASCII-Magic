@@ -520,6 +520,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--caption-style",
                     choices=["block", "small", "shadow", "box", "banner", "figlet"],
                     default="figlet")
+    ap.add_argument("--caption-cols", type=int, default=None, metavar="N",
+                    help="Exact caption width in chars (free transform)")
+    ap.add_argument("--caption-rows", type=int, default=None, metavar="N",
+                    help="Exact caption height in rows")
     ap.add_argument("--caption-scale", type=float, default=0.6, metavar="F")
     ap.add_argument("--caption-gap", type=int, default=1, metavar="N")
     ap.add_argument("--caption-color", default=None, metavar="COLOR",
@@ -562,6 +566,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             position=args.caption_pos,
             style=args.caption_style,
             scale=args.caption_scale,
+            cols=args.caption_cols,
+            rows=args.caption_rows,
             gap=args.caption_gap,
             color=args.caption_color,
             align=args.caption_align,

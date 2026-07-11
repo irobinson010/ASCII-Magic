@@ -214,3 +214,23 @@ def test_figlet_ladder_has_fine_steps():
         lines = caption_lines("I see you", width=110, style="figlet", scale=s)
         widths.add(max(len(ln.strip()) for ln in lines if ln.strip()))
     assert len(widths) >= 4
+
+
+def test_caption_exact_cols_and_rows():
+    lines = caption_lines("Hi", width=80, style="figlet", cols=40, rows=6)
+    assert all(len(ln) == 80 for ln in lines)
+    assert len(lines) == 6
+    assert _ink_width(lines) in (39, 40, 41)  # grid transform rounds by cells
+
+
+def test_caption_exact_rows_only_keeps_aspect():
+    auto = caption_lines("Hi", width=80, style="figlet", scale=0.6)
+    tall = caption_lines("Hi", width=80, style="figlet", rows=len(auto) * 2)
+    assert len(tall) == len(auto) * 2
+    assert _ink_width(tall) <= 80
+
+
+def test_caption_exact_dims_work_for_box_style():
+    lines = caption_lines("Hi", width=60, style="box", cols=30, rows=5)
+    assert len(lines) == 5
+    assert _ink_width(lines) in (29, 30, 31)

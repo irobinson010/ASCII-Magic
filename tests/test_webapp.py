@@ -193,6 +193,17 @@ def test_art_dims_report_caption_rows():
     assert r2.json()["art"]["cap_lines"] == 0
 
 
+def test_caption_exact_dims_via_api():
+    r = _render(
+        {"source": "image", "mode": "braille", "cols": 40,
+         "caption_text": "Hi", "caption_style": "figlet",
+         "caption_cols": 20, "caption_rows": 4}
+    )
+    art = r.json()["art"]
+    assert art["cap_lines"] == 4
+    assert 18 <= art["cap_cols"] <= 22
+
+
 def test_animation_caption_not_counted_in_art_block():
     # The player renders its caption in a separate element
     r = _render(

@@ -99,6 +99,8 @@ function collectOptions() {
     caption_pos: $("caption_pos").value,
     caption_style: $("caption_style").value,
     caption_scale: num("caption_scale"),
+    caption_cols: num("caption_cols"),
+    caption_rows: num("caption_rows"),
     caption_align: $("caption_align").value,
     caption_color: $("caption_color_mode").value === "custom"
       ? $("caption_custom_color").value
@@ -438,17 +440,17 @@ function artOnlyBox(d) {
   };
 }
 
-// Caption ring: wraps just the caption lines (gap excluded), only for the
-// styles where the Size knob actually scales the lettering.
-const CAP_SCALABLE = new Set(["block", "small", "shadow", "figlet"]);
-
+// Caption ring: wraps the caption's INK (gap and padding excluded). Every
+// style can free-transform now that exact cols/rows grid-scale the block.
 function captionBox(d) {
   const lines = state.art.cap_lines || 0;
-  if (!lines || !CAP_SCALABLE.has(state.art.cap_style)) return null;
-  const ch = cellHDisplay(d);
-  const h = lines * ch;
+  if (!lines) return null;
+  const c = { w: d.w / state.art.cols, h: cellHDisplay(d) };
+  const h = lines * c.h;
   const y = state.art.cap_pos === "top" ? d.y : d.y + d.h - h;
-  return { x: d.x, y, w: d.w, h };
+  const inkCols = state.art.cap_cols || state.art.cols;
+  const x = d.x + (state.art.cap_x || 0) * c.w;
+  return { x, y, w: inkCols * c.w, h };
 }
 
 function showRing(d) {
@@ -466,7 +468,7 @@ function showRing(d) {
   if (capBox) {
     capRing.hidden = false;
     applyCapRing();
-    updateCapLabel(Math.round((num("caption_scale") || 0.6) * 100));
+    updateCapLabel(`${state.art.cap_cols || "?"} × ${state.art.cap_lines}`);
   } else {
     capRing.hidden = true;
   }
@@ -486,8 +488,8 @@ function applyCapRing() {
   capRing.style.height = capBox.h + "px";
 }
 
-function updateCapLabel(pct) {
-  $("cap-ring-label").textContent = `caption ${pct}%`;
+function updateCapLabel(text) {
+  $("cap-ring-label").textContent = `caption ${text}`;
 }
 
 function cellSize() {
@@ -554,49 +556,65 @@ $("handle-e").addEventListener("pointerdown", startDrag("e"));
 $("handle-s").addEventListener("pointerdown", startDrag("s"));
 $("handle-se").addEventListener("pointerdown", startDrag("se"));
 
-// Caption drag: width maps to the caption Size knob (fraction of art width).
-$("cap-handle").addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  const handle = e.currentTarget;
-  handle.setPointerCapture(e.pointerId);
-  document.getElementById("preview-wrap").classList.add("dragging");
-  capRing.classList.add("dragging");
-  const start = { x: e.clientX, w: capBox.w };
-  const artW = ringBox.w; // caption scale is relative to the art width
+// Caption drag: continuous free transform — commits exact chars x rows to
+// the caption Width/Height knobs (the Auto-size slider only applies when
+// those are empty).
+function capStartDrag(axis) {
+  return (e) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    document.getElementById("preview-wrap").classList.add("dragging");
+    capRing.classList.add("dragging");
+    const start = { x: e.clientX, y: e.clientY, w: capBox.w, h: capBox.h,
+                    aspect: capBox.w / Math.max(1, capBox.h) };
 
-  const toScale = (w) => Math.min(1, Math.max(0.05, w / Math.max(1, artW)));
-  const snap = (s) => Math.round(s * 20) / 20; // the Size slider steps by 0.05
+    const capDims = () => {
+      const c = cellSize();
+      return {
+        cols: Math.min(state.art.cols, Math.max(2, Math.round(capBox.w / c.w))),
+        rows: Math.min(200, Math.max(1, Math.round(capBox.h / c.h))),
+      };
+    };
 
-  const move = (ev) => {
-    const w = Math.max(12, start.w + (ev.clientX - start.x));
-    capBox.w = w;
-    applyCapRing();
-    updateCapLabel(Math.round(snap(toScale(w)) * 100));
+    const move = (ev) => {
+      if (axis !== "s") capBox.w = Math.max(12, start.w + (ev.clientX - start.x));
+      if (axis !== "e") capBox.h = Math.max(6, start.h + (ev.clientY - start.y));
+      if (axis === "se" && ev.shiftKey) capBox.h = capBox.w / start.aspect;
+      applyCapRing();
+      const d = capDims();
+      updateCapLabel(`${d.cols} × ${d.rows}`);
+    };
+    const up = (ev) => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+      capRing.classList.remove("dragging");
+      document.getElementById("preview-wrap").classList.remove("dragging");
+      const d = capDims();
+      if (axis !== "s") $("caption_cols").value = d.cols;
+      if (axis !== "e") $("caption_rows").value = d.rows;
+      if (axis === "se") { $("caption_cols").value = d.cols; $("caption_rows").value = d.rows; }
+      if (state.tab === "video") {
+        setStatus(`Caption size set to ${d.cols} × ${d.rows} — press Render`, "busy");
+      } else {
+        render();
+      }
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
   };
-  const up = (ev) => {
-    handle.removeEventListener("pointermove", move);
-    handle.removeEventListener("pointerup", up);
-    handle.removeEventListener("pointercancel", up);
-    try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
-    capRing.classList.remove("dragging");
-    document.getElementById("preview-wrap").classList.remove("dragging");
-    $("caption_scale").value = snap(toScale(capBox.w));
-    $("caption_scale-out").value = $("caption_scale").value;
-    if (state.tab === "video") {
-      setStatus(`Caption size set to ${Math.round(snap(toScale(capBox.w)) * 100)}% — press Render`, "busy");
-    } else {
-      render();
-    }
-  };
-  handle.addEventListener("pointermove", move);
-  handle.addEventListener("pointerup", up);
-  handle.addEventListener("pointercancel", up);
-});
+}
+$("cap-handle-e").addEventListener("pointerdown", capStartDrag("e"));
+$("cap-handle-s").addEventListener("pointerdown", capStartDrag("s"));
+$("cap-handle-se").addEventListener("pointerdown", capStartDrag("se"));
 
 capRing.addEventListener("dblclick", () => {
-  $("caption_scale").value = 0.6;
-  $("caption_scale-out").value = "0.6";
-  if (state.tab === "video") setStatus("Caption size reset — press Render", "busy");
+  $("caption_cols").value = "";
+  $("caption_rows").value = "";
+  if (state.tab === "video") setStatus("Caption size reset to auto — press Render", "busy");
   else render();
 });
 

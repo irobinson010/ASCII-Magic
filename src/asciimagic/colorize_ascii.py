@@ -102,8 +102,10 @@ class CaptionOptions:
 
     text: Optional[str] = None
     position: str = "bottom"   # "top" | "bottom"
-    style: str = "block"       # block | small | shadow | box | banner
-    scale: float = 0.6         # fraction of art width for rendered styles
+    style: str = "block"       # block | small | shadow | box | banner | figlet
+    scale: float = 0.6         # AUTO sizing: fraction of art width for rendered styles
+    cols: Optional[int] = None  # EXACT width in chars (overrides scale; free transform)
+    rows: Optional[int] = None  # EXACT height in rows
     gap: int = 1               # blank lines between caption and art
     color: Optional[str] = None  # theme, #RRGGBB, or "image" (sample the picture); None = default fg
     align: str = "center"      # left | center | right
@@ -244,6 +246,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    default="block")
     g.add_argument("--caption-scale", type=float, default=0.6, metavar="F",
                    help="Caption width as a fraction of art width (rendered styles)")
+    g.add_argument("--caption-cols", type=int, default=None, metavar="N",
+                   help="Exact caption width in chars (free transform; overrides --caption-scale)")
+    g.add_argument("--caption-rows", type=int, default=None, metavar="N",
+                   help="Exact caption height in rows")
     g.add_argument("--caption-gap", type=int, default=1, metavar="N",
                    help="Blank lines between caption and art")
     g.add_argument("--caption-color", default=None, metavar="COLOR",
@@ -307,6 +313,8 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
             position=ns.caption_pos,
             style=ns.caption_style,
             scale=ns.caption_scale,
+            cols=ns.caption_cols,
+            rows=ns.caption_rows,
             gap=ns.caption_gap,
             color=ns.caption_color,
             align=ns.caption_align,
@@ -763,7 +771,8 @@ def _build_caption_lines(cap: CaptionOptions, width: int) -> List[str]:
     if not cap.text:
         return []
     return text_mod.caption_lines(
-        cap.text, width, style=cap.style, scale=cap.scale, align=cap.align
+        cap.text, width, style=cap.style, scale=cap.scale, align=cap.align,
+        cols=cap.cols, rows=cap.rows,
     )
 
 
