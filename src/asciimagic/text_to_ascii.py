@@ -163,12 +163,23 @@ def text_to_ascii_art(
     # Target character width (number of characters per line)
     target_w = max(1, int(width))
 
+    # Supersample: re-render so each output cell averages ~8x8 source pixels.
+    # A fixed-size render UPSCALED to a wide grid is pure blur; one measured
+    # re-render at the right size keeps strokes crisp at every width.
+    desired_px = target_w * 8
+    if img.width and abs(img.width - desired_px) > desired_px * 0.2:
+        adjusted = max(12, min(400, round(font_size * desired_px / img.width)))
+        if adjusted != font_size:
+            img = render_text_to_image(text, font_size=adjusted, font_path=font_path).convert("L")
+            logger.debug("Re-rendered at font_size=%d for %dpx target", adjusted, desired_px)
+
     # Map image pixels -> characters. Characters are taller than wide,
     # so reduce the height when computing rows to keep aspect ratio.
     scale = target_w / max(1, img.width)
     target_h = max(1, int(img.height * scale * 0.5))
 
-    img_small = img.resize((target_w, target_h))
+    # BOX = true area-average coverage per cell (default bicubic rings at edges)
+    img_small = img.resize((target_w, target_h), Image.Resampling.BOX)
     logger.debug("Resized image to %dx%d for ascii mapping", target_w, target_h)
 
     # Choose character ramps per style
@@ -186,13 +197,15 @@ def text_to_ascii_art(
     else:
         pixels = list(img_small.getdata())
     lines = []
+    n = len(ramp) - 1
     for row in range(target_h):
         line_chars = []
         for col in range(target_w):
-            val = pixels[row * target_w + col]
-            idx = int((val / 255) * (len(ramp) - 1))
-            ch = ramp[idx]
-            line_chars.append(ch)
+            val = pixels[row * target_w + col] / 255
+            # Contrast S-curve: anti-aliased letter edges otherwise become a
+            # halo of light ramp characters around every stroke.
+            val = min(1.0, max(0.0, (val - 0.18) / 0.64))
+            line_chars.append(ramp[round(val * n)])
         lines.append("".join(line_chars))
 
     return "\n".join(lines)
