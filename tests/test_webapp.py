@@ -169,6 +169,92 @@ def test_render_bad_matrix_color_400():
     assert r.status_code == 400
 
 
+def test_art_dims_in_response():
+    r = _render({"source": "image", "mode": "braille", "cols": 16})
+    body = r.json()
+    assert body["art"]["cols"] == 16
+    assert body["art"]["rows"] == len(body["ascii"].splitlines())
+
+
+def test_art_dims_report_caption_rows():
+    r = _render(
+        {"source": "image", "mode": "braille", "cols": 20,
+         "caption_text": "Cat", "caption_style": "box", "caption_gap": 2,
+         "caption_pos": "top"}
+    )
+    art = r.json()["art"]
+    assert art["cap_lines"] == 3  # box is 3 lines tall
+    assert art["cap_gap"] == 2
+    assert art["cap_pos"] == "top"
+    assert art["cap_style"] == "box"
+
+    # no caption -> zero
+    r2 = _render({"source": "image", "mode": "braille", "cols": 20})
+    assert r2.json()["art"]["cap_lines"] == 0
+
+
+def test_caption_exact_dims_via_api():
+    r = _render(
+        {"source": "image", "mode": "braille", "cols": 40,
+         "caption_text": "Hi", "caption_style": "figlet",
+         "caption_cols": 20, "caption_rows": 4}
+    )
+    art = r.json()["art"]
+    assert art["cap_lines"] == 4
+    assert 18 <= art["cap_cols"] <= 22
+
+
+def test_animation_caption_not_counted_in_art_block():
+    # The player renders its caption in a separate element
+    r = _render(
+        {"source": "image", "cols": 12, "matrix": True, "animate": True,
+         "anim_frames": 2, "caption_text": "Cat", "caption_style": "box"}
+    )
+    assert r.json()["art"]["cap_lines"] == 0
+
+
+def test_video_art_dims_report_caption_rows():
+    pytest.importorskip("imageio")
+    r = client.post(
+        "/api/render",
+        files={"image": ("clip.gif", _gif_clip_bytes(), "image/gif")},
+        data={"options": json.dumps({"source": "video", "cols": 24, "video_max_frames": 2,
+                                     "caption_text": "Cat", "caption_style": "box"})},
+    )
+    art = r.json()["art"]
+    assert art["cap_lines"] == 3
+    assert art["cap_gap"] == 1
+    assert art["cap_pos"] == "bottom"
+
+
+def test_exact_sizing_without_colorize():
+    # The GUI resize handles set out_rows/out_cols; must work with colorize off
+    r = _render(
+        {"source": "image", "mode": "braille", "cols": 16, "colorize": False,
+         "out_rows": 5, "out_cols": 20}
+    )
+    body = r.json()
+    lines = body["ascii"].splitlines()
+    assert len(lines) == 5
+    assert max(len(ln) for ln in lines) == 20
+    assert body["art"]["cols"] == 20
+    assert body["art"]["rows"] == 5
+
+
+def test_video_rows_stretch():
+    pytest.importorskip("imageio")
+    r = client.post(
+        "/api/render",
+        files={"image": ("clip.gif", _gif_clip_bytes(), "image/gif")},
+        data={"options": json.dumps({"source": "video", "cols": 20,
+                                     "video_rows": 7, "video_max_frames": 2})},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["art"]["cols"] == 20
+    assert body["art"]["rows"] == 7
+
+
 def test_render_colorize_off_returns_plain():
     r = _render({"source": "image", "mode": "braille", "cols": 16, "colorize": False})
     body = r.json()

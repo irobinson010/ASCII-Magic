@@ -82,6 +82,25 @@ def test_cli_rejects_bad_extension(clip, tmp_path):
         video_mod.main([str(clip), str(tmp_path / "out.html")])
 
 
+def test_video_exact_rows(clip):
+    v = video_mod.video_to_ascii(str(clip), cols=20, max_frames=2, rows=6)
+    for lines, _ in v.frames:
+        assert len(lines) == 6
+        assert max(len(ln) for ln in lines) == 20
+
+
+def test_video_rows_cli_flag(clip, tmp_path):
+    out = tmp_path / "sq.frames"
+    rc = video_mod.main([str(clip), str(out), "-c", "20", "--rows", "5", "--max-frames", "2"])
+    assert rc == 0
+    from asciimagic.greet import read_frames_file
+    import re
+
+    frames, _, _ = read_frames_file(out)
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", frames[0])
+    assert len(plain.splitlines()) == 5
+
+
 def test_video_glyph_mode(clip):
     v = video_mod.video_to_ascii(str(clip), cols=20, max_frames=3, mode="glyph")
     lines, _ = v.frames[0]

@@ -487,7 +487,8 @@ def _resolve_caption(
     from .text_to_ascii import caption_lines
 
     lines = caption_lines(
-        caption.text, width, style=caption.style, scale=caption.scale, align=caption.align
+        caption.text, width, style=caption.style, scale=caption.scale, align=caption.align,
+        cols=caption.cols, rows=caption.rows,
     )
     if not lines:
         return None

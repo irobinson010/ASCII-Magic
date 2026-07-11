@@ -91,6 +91,8 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
         c.position = o.get("caption_pos", "bottom")
         c.style = o.get("caption_style", "block")
         c.scale = _fval(o, "caption_scale", 0.6, 0.05, 1.0)
+        c.cols = _ival(o, "caption_cols", None, 2, 500)
+        c.rows = _ival(o, "caption_rows", None, 1, 200)
         c.gap = _ival(o, "caption_gap", 1, 0, 50)
         c.color = o.get("caption_color") or None
         c.align = o.get("caption_align", "center")
@@ -181,6 +183,7 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
                 cols=_ival(o, "cols", 100, 10, 240),
                 sample_fps=_fval(o, "video_fps", 8.0, 1.0, 30.0),
                 max_frames=_ival(o, "video_max_frames", 60, 1, 120),
+                rows=_ival(o, "video_rows", None, 1, 500),
                 dither=bool(o.get("dither", True)),
                 threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
                 gamma=_fval(o, "gamma", 1.0, 0.05, 10.0),
@@ -221,6 +224,17 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
     )
     return {
         "ascii": "\n".join(first_lines),
+        "art": {
+            "cols": max((len(ln) for ln in first_lines), default=0),
+            "rows": len(first_lines),
+            # the GIF bakes the caption strip into every frame
+            "cap_lines": len(v.caption.lines) if v.caption else 0,
+            "cap_gap": v.caption.gap if v.caption else 0,
+            "cap_pos": v.caption.position if v.caption else "bottom",
+            "cap_style": (o.get("caption_style", "block") if v.caption else None),
+            "cap_cols": max((len(ln.strip()) for ln in v.caption.lines if ln.strip()), default=0) if v.caption else 0,
+            "cap_x": min((len(ln) - len(ln.lstrip()) for ln in v.caption.lines if ln.strip()), default=0) if v.caption else 0,
+        },
         "ansi": ansi_frames[0],
         "html": preview,
         "gif_b64": gif_b64,
@@ -413,6 +427,14 @@ def render(
         ansi = colorize(ctx, opt=_build_options(o, "ansi"))
         html_doc = colorize(ctx, opt=_build_options(o, "html"))
     else:
+        # Exact/max sizing must work with colorize off too (the GUI's resize
+        # handles set it); colorize_ascii_text applies it internally on the
+        # colorized path.
+        size = _build_options(o, "ansi").size
+        if any((size.rows, size.cols, size.max_rows, size.max_cols)):
+            lines = ascii_display.splitlines()
+            target_h = colorize_mod.compute_target_art_height(size.max_rows, 0, len(lines))
+            ascii_display = "\n".join(colorize_mod.scale_art_block(lines, target_h, size))
         ansi = ascii_display + "\n"
         html_doc = _plain_html(ascii_display, o)
 
@@ -431,8 +453,46 @@ def render(
         html_doc = animation.to_html(font_size_px=_ival(o, "html_font_size", 12, 4, 64))
         gif_b64 = base64.b64encode(animation.to_gif_bytes()).decode("ascii")
 
+    # Post-scaling art grid dimensions (pre-caption) — the GUI's resize
+    # handles need them to convert pixel drags into cols/rows.
+    art_lines = (ctx.ascii_text or "").splitlines()
+    size = _build_options(o, "ansi").size
+    if art_lines and any((size.rows, size.cols, size.max_rows, size.max_cols)):
+        th = colorize_mod.compute_target_art_height(size.max_rows, 0, len(art_lines))
+        art_lines = colorize_mod.scale_art_block(art_lines, th, size)
+    art_dims = {
+        "cols": max((len(ln) for ln in art_lines), default=0),
+        "rows": len(art_lines),
+        "cap_lines": 0,
+        "cap_gap": 0,
+        "cap_pos": "bottom",
+        "cap_style": None,
+    }
+    # Caption rows share the art's rendered block; report how many so the
+    # GUI's resize ring can exclude them. The animation player renders its
+    # caption in a separate element, so nothing to exclude there.
+    cap = _build_options(o, "ansi").caption
+    if cap.text and not do_animate and art_dims["cols"]:
+        try:
+            from .text_to_ascii import caption_lines as _caption_lines
+
+            cl = _caption_lines(
+                cap.text, art_dims["cols"], style=cap.style, scale=cap.scale, align=cap.align,
+                cols=cap.cols, rows=cap.rows,
+            )
+            art_dims["cap_lines"] = len(cl)
+            art_dims["cap_gap"] = max(0, int(cap.gap))
+            art_dims["cap_pos"] = cap.position
+            art_dims["cap_style"] = cap.style
+            inked = [ln for ln in cl if ln.strip()]
+            art_dims["cap_cols"] = max((len(ln.strip()) for ln in inked), default=0)
+            art_dims["cap_x"] = min((len(ln) - len(ln.lstrip()) for ln in inked), default=0)
+        except Exception:
+            pass  # caption metrics are best-effort; the ring just wraps everything
+
     return {
         "ascii": ascii_display,
+        "art": art_dims,
         "ansi": ansi,
         "html": html_doc,
         "gif_b64": gif_b64,

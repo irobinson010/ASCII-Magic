@@ -35,6 +35,7 @@ function collectOptions() {
     // video source
     video_fps: num("video_fps"),
     video_max_frames: num("video_max_frames"),
+    video_rows: num("video_rows"),
     video_mode: $("video_mode").value,
     // text source
     text: $("text").value,
@@ -98,6 +99,8 @@ function collectOptions() {
     caption_pos: $("caption_pos").value,
     caption_style: $("caption_style").value,
     caption_scale: num("caption_scale"),
+    caption_cols: num("caption_cols"),
+    caption_rows: num("caption_rows"),
     caption_align: $("caption_align").value,
     caption_color: $("caption_color_mode").value === "custom"
       ? $("caption_custom_color").value
@@ -139,7 +142,10 @@ async function render() {
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
 
     state.result = body;
-    $("preview").srcdoc = body.html;
+    state.art = body.art || null;
+    $("ring").hidden = true; // re-shown when the new preview reports its box
+    $("cap-ring").hidden = true;
+    $("preview").srcdoc = injectMeasure(body.html);
     if (body.seed !== null && body.seed !== undefined) {
       $("matrix_seed").value = body.seed;
     }
@@ -286,6 +292,8 @@ const TABS = ["image", "text", "video"];
 
 function setTab(name) {
   state.tab = name;
+  $("ring").hidden = true; // stale box from another source
+  $("cap-ring").hidden = true;
   for (const t of TABS) {
     $(`panel-${t}`).hidden = t !== name;
     $(`tab-${t}`).classList.toggle("active", t === name);
@@ -369,6 +377,286 @@ $("reroll").addEventListener("click", (e) => {
 for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale"]) {
   $(id).addEventListener("input", () => { $(`${id}-out`).value = $(id).value; });
 }
+
+// ---------- GIMP-style resize handles ----------
+
+// The preview iframe is an opaque origin (sandbox without allow-same-origin),
+// so the art reports its own pixel box via postMessage from this snippet.
+const MEASURE_SNIPPET =
+  '<scr' + 'ipt>(function(){function r(){var e=document.querySelector("#m")||document.querySelector("pre,img");' +
+  'if(!e)return;var b,m;' +
+  'if(e.tagName==="IMG"){b=e.getBoundingClientRect();m={am:"artbox",x:b.left,y:b.top,w:b.width,h:b.height,nw:e.naturalWidth,nh:e.naturalHeight};}' +
+  // A block-level <pre> stretches to the full page width; measure the CONTENT
+  // (widest text line) with a Range so the ring hugs the art itself.
+  'else{var g=document.createRange();g.selectNodeContents(e);b=g.getBoundingClientRect();' +
+  'm={am:"artbox",x:b.left,y:b.top,w:b.width,h:b.height};}' +
+  'if(m.w>0)parent.postMessage(m,"*");}' +
+  'window.addEventListener("load",r);window.addEventListener("resize",r);window.addEventListener("scroll",r,true);' +
+  'setTimeout(r,60);setTimeout(r,300);})();</scr' + 'ipt>';
+
+function injectMeasure(html) {
+  return html.includes("</body>")
+    ? html.replace("</body>", MEASURE_SNIPPET + "</body>")
+    : html + MEASURE_SNIPPET;
+}
+
+const ring = $("ring");
+const capRing = $("cap-ring");
+let ringBox = null;
+let capBox = null;
+let dragging = null;
+
+window.addEventListener("message", (ev) => {
+  const d = ev.data;
+  if (!d || d.am !== "artbox" || dragging) return;
+  state.measure = d;
+  showRing(d);
+});
+
+function capRowsTotal() {
+  return (state.art.cap_lines || 0) + (state.art.cap_gap || 0);
+}
+
+function cellHDisplay(d) {
+  if (d.nw) {
+    // video GIF: uniform cell rows across art + caption strip
+    const totalRows = state.art.rows + capRowsTotal();
+    return d.h / Math.max(1, totalRows);
+  }
+  return num("html_font_size") || 12; // pre line-height is pinned to font px
+}
+
+function artOnlyBox(d) {
+  // The measured block may include the caption rows; the ring wraps just
+  // the art (the server reports how many rows the caption occupies).
+  const cap = capRowsTotal();
+  if (!cap) return { x: d.x, y: d.y, w: d.w, h: d.h };
+  const capPx = cap * cellHDisplay(d);
+  return {
+    x: d.x,
+    y: state.art.cap_pos === "top" ? d.y + capPx : d.y,
+    w: d.w,
+    h: Math.max(4, d.h - capPx),
+  };
+}
+
+// Caption ring: wraps the caption's INK (gap and padding excluded). Every
+// style can free-transform now that exact cols/rows grid-scale the block.
+function captionBox(d) {
+  const lines = state.art.cap_lines || 0;
+  if (!lines) return null;
+  const c = { w: d.w / state.art.cols, h: cellHDisplay(d) };
+  const h = lines * c.h;
+  const y = state.art.cap_pos === "top" ? d.y : d.y + d.h - h;
+  const inkCols = state.art.cap_cols || state.art.cols;
+  const x = d.x + (state.art.cap_x || 0) * c.w;
+  return { x, y, w: inkCols * c.w, h };
+}
+
+function showRing(d) {
+  if (!state.result || !state.art || !state.art.cols || d.w < 4) {
+    ring.hidden = true;
+    capRing.hidden = true;
+    return;
+  }
+  ringBox = artOnlyBox(d);
+  ring.hidden = false;
+  applyRing();
+  updateLabel(state.art.cols, state.art.rows);
+
+  capBox = captionBox(d);
+  if (capBox) {
+    capRing.hidden = false;
+    applyCapRing();
+    updateCapLabel(`${state.art.cap_cols || "?"} × ${state.art.cap_lines}`);
+  } else {
+    capRing.hidden = true;
+  }
+}
+
+function applyRing() {
+  ring.style.left = ringBox.x + "px";
+  ring.style.top = ringBox.y + "px";
+  ring.style.width = ringBox.w + "px";
+  ring.style.height = ringBox.h + "px";
+}
+
+function applyCapRing() {
+  capRing.style.left = capBox.x + "px";
+  capRing.style.top = capBox.y + "px";
+  capRing.style.width = capBox.w + "px";
+  capRing.style.height = capBox.h + "px";
+}
+
+function updateCapLabel(text) {
+  $("cap-ring-label").textContent = `caption ${text}`;
+}
+
+function cellSize() {
+  // Displayed box ÷ known grid counts — exact for pre text and for the video
+  // <img> even when the browser CSS-downscales it (caption padded to art width).
+  const m = state.measure;
+  return { w: m.w / state.art.cols, h: cellHDisplay(m) };
+}
+
+function dragDims(w, h) {
+  const c = cellSize();
+  return {
+    cols: Math.min(500, Math.max(4, Math.round(w / c.w))),
+    rows: Math.min(500, Math.max(2, Math.round(h / c.h))),
+  };
+}
+
+function updateLabel(c, r) {
+  $("ring-label").textContent = `${c} × ${r}`;
+}
+
+function startDrag(axis) {
+  return (e) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    // Capture the pointer: without this, the iframe swallows pointermove the
+    // instant the cursor crosses it and fast drags "lose" the handle.
+    handle.setPointerCapture(e.pointerId);
+    document.getElementById("preview-wrap").classList.add("dragging");
+    dragging = {
+      axis, x: e.clientX, y: e.clientY,
+      w: ringBox.w, h: ringBox.h,
+      aspect: ringBox.w / Math.max(1, ringBox.h),
+    };
+    ring.classList.add("dragging");
+    const move = (ev) => {
+      let w = dragging.w;
+      let h = dragging.h;
+      if (axis !== "s") w = Math.max(16, dragging.w + (ev.clientX - dragging.x));
+      if (axis !== "e") h = Math.max(8, dragging.h + (ev.clientY - dragging.y));
+      if (axis === "se" && ev.shiftKey) h = w / dragging.aspect; // aspect lock
+      ringBox.w = w;
+      ringBox.h = h;
+      applyRing();
+      const d = dragDims(w, h);
+      updateLabel(d.cols, d.rows);
+    };
+    const up = (ev) => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+      ring.classList.remove("dragging");
+      document.getElementById("preview-wrap").classList.remove("dragging");
+      dragging = null;
+      commitResize(axis, dragDims(ringBox.w, ringBox.h), ev.shiftKey);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  };
+}
+$("handle-e").addEventListener("pointerdown", startDrag("e"));
+$("handle-s").addEventListener("pointerdown", startDrag("s"));
+$("handle-se").addEventListener("pointerdown", startDrag("se"));
+
+// Caption drag: continuous free transform — commits exact chars x rows to
+// the caption Width/Height knobs (the Auto-size slider only applies when
+// those are empty).
+function capStartDrag(axis) {
+  return (e) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    document.getElementById("preview-wrap").classList.add("dragging");
+    capRing.classList.add("dragging");
+    const start = { x: e.clientX, y: e.clientY, w: capBox.w, h: capBox.h,
+                    aspect: capBox.w / Math.max(1, capBox.h) };
+
+    const capDims = () => {
+      const c = cellSize();
+      return {
+        cols: Math.min(state.art.cols, Math.max(2, Math.round(capBox.w / c.w))),
+        rows: Math.min(200, Math.max(1, Math.round(capBox.h / c.h))),
+      };
+    };
+
+    const move = (ev) => {
+      if (axis !== "s") capBox.w = Math.max(12, start.w + (ev.clientX - start.x));
+      if (axis !== "e") capBox.h = Math.max(6, start.h + (ev.clientY - start.y));
+      if (axis === "se" && ev.shiftKey) capBox.h = capBox.w / start.aspect;
+      applyCapRing();
+      const d = capDims();
+      updateCapLabel(`${d.cols} × ${d.rows}`);
+    };
+    const up = (ev) => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+      capRing.classList.remove("dragging");
+      document.getElementById("preview-wrap").classList.remove("dragging");
+      const d = capDims();
+      if (axis !== "s") $("caption_cols").value = d.cols;
+      if (axis !== "e") $("caption_rows").value = d.rows;
+      if (axis === "se") { $("caption_cols").value = d.cols; $("caption_rows").value = d.rows; }
+      if (state.tab === "video") {
+        setStatus(`Caption size set to ${d.cols} × ${d.rows} — press Render`, "busy");
+      } else {
+        render();
+      }
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  };
+}
+$("cap-handle-e").addEventListener("pointerdown", capStartDrag("e"));
+$("cap-handle-s").addEventListener("pointerdown", capStartDrag("s"));
+$("cap-handle-se").addEventListener("pointerdown", capStartDrag("se"));
+
+capRing.addEventListener("dblclick", () => {
+  $("caption_cols").value = "";
+  $("caption_rows").value = "";
+  if (state.tab === "video") setStatus("Caption size reset to auto — press Render", "busy");
+  else render();
+});
+
+function commitResize(axis, d, shift) {
+  if (state.tab === "video") {
+    if (axis !== "s") $("video_cols").value = d.cols;
+    if (axis === "s" || (axis === "se" && !shift)) $("video_rows").value = d.rows;
+    if (axis === "se" && shift) $("video_rows").value = "";
+    setStatus(`Size set to ${d.cols} × ${d.rows} — press Render`, "busy");
+    return;
+  }
+  const widthInput = state.tab === "text" ? "text_width" : "cols";
+  if (axis === "e") {
+    $(widthInput).value = d.cols;
+    if ($("out_rows").value !== "") $("out_cols").value = d.cols; // keep the squish
+  } else if (axis === "s") {
+    $("out_rows").value = d.rows;
+    $("out_cols").value = d.cols; // pin width so height alone squishes
+  } else if (shift) {
+    // aspect-locked corner: width drives, height back to auto
+    $(widthInput).value = d.cols;
+    $("out_rows").value = "";
+    $("out_cols").value = "";
+  } else {
+    // free stretch: exact box, like GIMP's Scale with the chain broken
+    $(widthInput).value = d.cols;
+    $("out_cols").value = d.cols;
+    $("out_rows").value = d.rows;
+  }
+  render();
+}
+
+ring.addEventListener("dblclick", () => {
+  $("out_rows").value = "";
+  $("out_cols").value = "";
+  $("video_rows").value = "";
+  if (state.tab === "video") {
+    setStatus("Height reset to auto — press Render", "busy");
+  } else {
+    render();
+  }
+});
 
 document.querySelectorAll("#controls input, #controls select, #controls textarea").forEach((el) => {
   el.addEventListener("change", () => { syncVisibility(); autoRender(); });

@@ -154,6 +154,7 @@
           <div class="field"><label for="video_cols">Width</label><input type="number" id="video_cols" value="100" min="10" max="240"></div>
           <div class="field"><label for="video_fps">FPS</label><input type="number" id="video_fps" value="8" min="1" max="30"></div>
           <div class="field"><label for="video_max_frames">Max frames</label><input type="number" id="video_max_frames" value="60" min="1" max="120"></div>
+          <div class="field"><label for="video_rows">Rows</label><input type="number" id="video_rows" min="2" max="500" placeholder="auto"></div>
         </div>
         <div class="field">
           <label for="video_mode">Frame mode</label>
@@ -194,9 +195,13 @@
           </div>
           <div class="field-row">
             <div class="field">
-              <label for="caption_scale">Size <output id="caption_scale-out">0.6</output></label>
+              <label for="caption_scale">Auto size <output id="caption_scale-out">0.6</output></label>
               <input type="range" id="caption_scale" min="0.1" max="1" step="0.05" value="0.6">
             </div>
+            <div class="field"><label for="caption_cols">Width</label><input type="number" id="caption_cols" min="2" max="500" placeholder="auto"></div>
+            <div class="field"><label for="caption_rows">Height</label><input type="number" id="caption_rows" min="1" max="200" placeholder="auto"></div>
+          </div>
+          <div class="field-row">
             <div class="field">
               <label for="caption_align">Align</label>
               <select id="caption_align">
@@ -331,7 +336,21 @@
 
     <section id="preview-pane">
       <div id="status">Upload an image or enter text to begin.</div>
-      <iframe id="preview" sandbox="allow-scripts" title="Preview"></iframe>
+      <div id="preview-wrap">
+        <iframe id="preview" sandbox="allow-scripts" title="Preview"></iframe>
+        <div id="ring" hidden title="Drag the handles to resize — double-click to reset to auto height">
+          <div class="handle" id="handle-e"></div>
+          <div class="handle" id="handle-s"></div>
+          <div class="handle" id="handle-se"></div>
+          <div id="ring-label"></div>
+        </div>
+        <div id="cap-ring" hidden title="Drag to resize the caption exactly — double-click to reset to auto">
+          <div class="handle" id="cap-handle-e"></div>
+          <div class="handle" id="cap-handle-s"></div>
+          <div class="handle" id="cap-handle-se"></div>
+          <div id="cap-ring-label"></div>
+        </div>
+      </div>
     </section>
   </main>
 

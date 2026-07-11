@@ -306,18 +306,27 @@ def video_to_ascii(
     quality: str = "balanced",
     matrix: Optional[MatrixOptions] = None,
     caption=None,  # colorize_ascii.CaptionOptions
+    rows: Optional[int] = None,
 ) -> AsciiVideo:
     frames, out_fps = read_video_frames(path, sample_fps=sample_fps, max_frames=max_frames)
     converted = _convert_frames(
         frames, cols=cols, mode=mode, quality=quality, dither=dither,
         threshold=threshold, gamma=gamma, autocontrast=autocontrast, invert=invert,
+        rows=rows,
     )
     cap_render = _resolve_video_caption(caption, converted, matrix)
     return AsciiVideo(converted, out_fps, matrix=matrix, caption=cap_render)
 
 
 def _convert_frame(img: Image.Image, *, cols, mode, quality, charset,
-                   dither, threshold, gamma, autocontrast, invert) -> List[str]:
+                   dither, threshold, gamma, autocontrast, invert,
+                   rows: Optional[int] = None) -> List[str]:
+    if rows:
+        # Exact output height: pre-resize the frame onto the converter's cell
+        # grid (braille cells are 2x4 px, glyph cells 8x16), so the natural
+        # rows formula lands exactly on `rows`. Stretch/squish like GIMP.
+        cw, ch = (8, 16) if mode == "glyph" else (2, 4)
+        img = img.resize((max(1, cols) * cw, max(1, rows) * ch), Image.Resampling.LANCZOS)
     if mode == "glyph":
         art = image_to_text_glyph_from_image(
             img=img, cols=cols, cell_w=8, cell_h=16, charset=charset,
@@ -333,14 +342,14 @@ def _convert_frame(img: Image.Image, *, cols, mode, quality, charset,
 
 
 def _convert_frames(frames, *, cols, mode, quality, dither, threshold,
-                    gamma, autocontrast, invert):
+                    gamma, autocontrast, invert, rows=None):
     charset = make_charset(unicode_mode="off", ascii_preset="dense") if mode == "glyph" else None
     return [
         (
             _convert_frame(
                 img, cols=cols, mode=mode, quality=quality, charset=charset,
                 dither=dither, threshold=threshold, gamma=gamma,
-                autocontrast=autocontrast, invert=invert,
+                autocontrast=autocontrast, invert=invert, rows=rows,
             ),
             img,
         )
@@ -480,6 +489,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="Output: .gif, .mp4 (keeps the source audio), or .frames "
                     "(omit to play in the terminal; with a camera, omit to mirror live)")
     ap.add_argument("-c", "--cols", type=int, default=100, help="Width in characters")
+    ap.add_argument("--rows", type=int, default=None, metavar="N",
+                    help="Exact output height in rows (stretches/squishes the frame)")
     ap.add_argument("--fps", type=float, default=10.0,
                     help="Target sample/playback fps (default: 10)")
     ap.add_argument("--max-frames", type=int, default=300,
@@ -509,6 +520,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--caption-style",
                     choices=["block", "small", "shadow", "box", "banner", "figlet"],
                     default="figlet")
+    ap.add_argument("--caption-cols", type=int, default=None, metavar="N",
+                    help="Exact caption width in chars (free transform)")
+    ap.add_argument("--caption-rows", type=int, default=None, metavar="N",
+                    help="Exact caption height in rows")
     ap.add_argument("--caption-scale", type=float, default=0.6, metavar="F")
     ap.add_argument("--caption-gap", type=int, default=1, metavar="N")
     ap.add_argument("--caption-color", default=None, metavar="COLOR",
@@ -551,6 +566,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             position=args.caption_pos,
             style=args.caption_style,
             scale=args.caption_scale,
+            cols=args.caption_cols,
+            rows=args.caption_rows,
             gap=args.caption_gap,
             color=args.caption_color,
             align=args.caption_align,
@@ -573,6 +590,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 dither=not args.no_dither, threshold=args.threshold,
                 gamma=args.gamma, autocontrast=args.autocontrast,
                 invert=args.invert, matrix=matrix, caption=caption,
+                rows=args.rows,
             )
         else:
             video = video_to_ascii(
@@ -589,6 +607,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 quality=args.quality,
                 matrix=matrix,
                 caption=caption,
+                rows=args.rows,
             )
     except RuntimeError as e:
         raise SystemExit(str(e))

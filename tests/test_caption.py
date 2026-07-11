@@ -172,3 +172,65 @@ def test_caption_width_matches_scaled_art():
     caption_rows = [ln for ln in out.splitlines() if "┌" in ln or "└" in ln or "│" in ln]
     assert caption_rows
     assert all(len(ln) == 24 for ln in caption_rows)
+
+
+def test_figlet_never_chooses_a_wrapped_render():
+    """Regression: at scale 1.0 the ladder used to pick a giant font whose
+    pyfiglet-wrapped output smushed letters into each other ('I see you'
+    lost its I and grew fragments of other letters)."""
+    lines = caption_lines("I see you", width=110, style="figlet", scale=1.0)
+    ink = max(len(ln.strip()) for ln in lines if ln.strip())
+    assert ink <= 110
+    # one unwrapped block, not stacked wrapped blocks (doh-wrapped was 46 rows)
+    assert len(lines) <= 16
+
+
+def test_figlet_narrow_width_wraps_cleanly_with_small_font():
+    lines = caption_lines("I see you", width=24, style="figlet", scale=0.6)
+    assert all(len(ln) == 24 for ln in lines)
+    ink = max(len(ln.strip()) for ln in lines if ln.strip())
+    assert ink <= 24
+
+
+def test_center_alignment_shifts_block_uniformly():
+    """Regression: center used to pad each ROW independently, shearing
+    multi-row letterforms apart (short rows drifted toward the middle)."""
+    left = caption_lines("I see you", width=90, style="figlet", scale=1.0, align="left")
+    center = caption_lines("I see you", width=90, style="figlet", scale=1.0, align="center")
+    shifts = {
+        len(c) - len(c.lstrip()) - (len(l) - len(l.lstrip()))
+        for l, c in zip(left, center)
+        if c.strip()
+    }
+    assert len(shifts) == 1  # every row moved by the same amount
+    assert shifts.pop() > 0
+
+
+def test_figlet_ladder_has_fine_steps():
+    """Regression: big gaps in the font ladder made the caption drag feel
+    dead — half the scale range mapped to the same font."""
+    widths = set()
+    for s in (0.2, 0.35, 0.5, 0.65, 0.85, 1.0):
+        lines = caption_lines("I see you", width=110, style="figlet", scale=s)
+        widths.add(max(len(ln.strip()) for ln in lines if ln.strip()))
+    assert len(widths) >= 4
+
+
+def test_caption_exact_cols_and_rows():
+    lines = caption_lines("Hi", width=80, style="figlet", cols=40, rows=6)
+    assert all(len(ln) == 80 for ln in lines)
+    assert len(lines) == 6
+    assert _ink_width(lines) in (39, 40, 41)  # grid transform rounds by cells
+
+
+def test_caption_exact_rows_only_keeps_aspect():
+    auto = caption_lines("Hi", width=80, style="figlet", scale=0.6)
+    tall = caption_lines("Hi", width=80, style="figlet", rows=len(auto) * 2)
+    assert len(tall) == len(auto) * 2
+    assert _ink_width(tall) <= 80
+
+
+def test_caption_exact_dims_work_for_box_style():
+    lines = caption_lines("Hi", width=60, style="box", cols=30, rows=5)
+    assert len(lines) == 5
+    assert _ink_width(lines) in (29, 30, 31)
