@@ -241,7 +241,12 @@ def text_to_figlet(text: str, width: int = 80, font: str = "standard") -> str:
 
 # Real figlet fonts in ascending size — scaling picks a font instead of
 # stretching character cells, so letterforms stay clean at every size.
-_FIGLET_SIZES = ("mini", "small", "standard", "big", "colossal", "doh")
+# Ascending size. Dense on purpose: the sizer picks the fitting font closest
+# to the drag/slider target, so gaps in the ladder feel like a dead knob.
+_FIGLET_SIZES = (
+    "mini", "small", "standard", "big", "chunky", "banner3",
+    "epic", "larry3d", "roman", "univers", "colossal", "doh",
+)
 
 
 def _figlet_sized(text: str, width: int, scale: float) -> str:
@@ -320,18 +325,19 @@ def caption_lines(
             new_h = max(1, round(len(lines) * factor))
             lines = [ln.rstrip() for ln in scale_grid([ln.ljust(nat_w) for ln in lines], new_h, width)]
 
+    # Align the block as a UNIT: rows in multi-row letterforms have different
+    # ink widths, so per-line centering shears the letters apart.
+    block_w = max((len(ln) for ln in lines), default=0)
+    if align == "right":
+        pad_left = max(0, width - block_w)
+    elif align == "center":
+        pad_left = max(0, (width - block_w) // 2)
+    else:
+        pad_left = 0
     out = []
     for ln in lines:
-        ln = ln[:width]
-        pad = width - len(ln)
-        if align == "left":
-            ln = ln + " " * pad
-        elif align == "right":
-            ln = " " * pad + ln
-        else:
-            left = pad // 2
-            ln = " " * left + ln + " " * (pad - left)
-        out.append(ln)
+        ln = (" " * pad_left + ln)[:width]
+        out.append(ln.ljust(width))
     return out
 
 

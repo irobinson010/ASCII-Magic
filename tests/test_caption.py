@@ -190,3 +190,27 @@ def test_figlet_narrow_width_wraps_cleanly_with_small_font():
     assert all(len(ln) == 24 for ln in lines)
     ink = max(len(ln.strip()) for ln in lines if ln.strip())
     assert ink <= 24
+
+
+def test_center_alignment_shifts_block_uniformly():
+    """Regression: center used to pad each ROW independently, shearing
+    multi-row letterforms apart (short rows drifted toward the middle)."""
+    left = caption_lines("I see you", width=90, style="figlet", scale=1.0, align="left")
+    center = caption_lines("I see you", width=90, style="figlet", scale=1.0, align="center")
+    shifts = {
+        len(c) - len(c.lstrip()) - (len(l) - len(l.lstrip()))
+        for l, c in zip(left, center)
+        if c.strip()
+    }
+    assert len(shifts) == 1  # every row moved by the same amount
+    assert shifts.pop() > 0
+
+
+def test_figlet_ladder_has_fine_steps():
+    """Regression: big gaps in the font ladder made the caption drag feel
+    dead — half the scale range mapped to the same font."""
+    widths = set()
+    for s in (0.2, 0.35, 0.5, 0.65, 0.85, 1.0):
+        lines = caption_lines("I see you", width=110, style="figlet", scale=s)
+        widths.add(max(len(ln.strip()) for ln in lines if ln.strip()))
+    assert len(widths) >= 4
