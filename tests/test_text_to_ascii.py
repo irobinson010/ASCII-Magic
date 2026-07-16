@@ -100,3 +100,27 @@ class TestIntegration:
             res = text_to_ascii_art("Test", style=style)
 
         assert len(res) > 0
+
+
+def test_block_render_fills_wide_targets():
+    """Regression: a fixed 24px render upscaled to wide grids was pure blur;
+    adaptive supersampling re-renders at the size the grid needs."""
+    from asciimagic.text_to_ascii import text_to_ascii_art
+
+    art = text_to_ascii_art("See", style="block", width=90)
+    lines = [ln for ln in art.splitlines() if ln.strip()]
+    ink = max(len(ln.rstrip()) - (len(ln) - len(ln.lstrip())) for ln in lines)
+    assert ink >= 65  # fills most of the requested width
+    assert len(lines) >= 10  # tall enough to have real letterforms
+
+
+def test_block_render_is_crisp_not_haloed():
+    """Regression: anti-aliased edges mapped straight through the ramp gave
+    every stroke a halo of light characters; the S-curve collapses them."""
+    from asciimagic.text_to_ascii import text_to_ascii_art
+
+    art = text_to_ascii_art("H", style="block", width=40)
+    inked = [c for c in art if c not in " \n"]
+    halo = [c for c in inked if c in "+=-:."]
+    assert inked
+    assert len(halo) / len(inked) < 0.35

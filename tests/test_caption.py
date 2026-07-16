@@ -234,3 +234,71 @@ def test_caption_exact_dims_work_for_box_style():
     lines = caption_lines("Hi", width=60, style="box", cols=30, rows=5)
     assert len(lines) == 5
     assert _ink_width(lines) in (29, 30, 31)
+
+
+def test_rotate_grid_helpers():
+    from asciimagic.text_to_ascii import rotate_grid_ccw, rotate_grid_cw
+
+    g = ["ab", "cd", "ef"]  # 3 rows x 2 cols
+    cw = rotate_grid_cw(g)
+    assert cw == ["eca", "fdb"]  # 2 rows x 3 cols, reads down on the right
+    ccw = rotate_grid_ccw(g)
+    assert ccw == ["bdf", "ace"]
+    # rotating one way then the other restores the grid
+    assert rotate_grid_ccw(cw) == g
+
+
+def test_marquee_frame_geometry():
+    from asciimagic.text_to_ascii import marquee_frame
+
+    f = marquee_frame("HI", inner_w=6, inner_h=3, gap=1)
+    assert len(f) == 3 + 2 + 2          # inner + gap rows + border rows
+    assert all(len(ln) == 6 + 2 + 2 for ln in f)
+    assert "H" in f[0] and "I" in f[0]  # text flows through the border
+    # interior is blank for the art to sit in
+    assert f[2][2:8].strip() == ""
+
+
+def test_compose_caption_sides_and_wrap():
+    right = compose_caption(ART, "Hi", position="right", style="box", gap=1)
+    rl = right.splitlines()
+    assert all(len(ln) == len(rl[0]) for ln in rl)
+    assert len(rl[0]) > 40  # art width + gap + rotated caption columns
+    assert rl[0][:1] != "│"  # caption is on the right, not the left
+
+    left = compose_caption(ART, "Hi", position="left", style="box", gap=1)
+    assert left.splitlines()[0] != rl[0]
+
+    wrap = compose_caption(ART, "Hi", position="wrap", gap=1)
+    wl = wrap.splitlines()
+    assert len(wl) == 10 + 4
+    assert all(len(ln) == 40 + 4 for ln in wl)
+    assert "#" * 40 in wl[2]  # art intact inside the frame
+
+
+def test_compose_caption_corner_positions():
+    tl = compose_caption(ART, "Hi", position="top-left", style="box")
+    tr = compose_caption(ART, "Hi", position="top-right", style="box")
+    assert tl.splitlines()[0].startswith("┌")
+    assert tr.splitlines()[0].endswith("┐")
+
+
+def test_colorized_side_caption_ansi():
+    opt = Options(out_format="ansi")
+    opt.caption = CaptionOptions(text="Hi", style="box", position="right", color="amber")
+    out = colorize_ascii_text(_img(), ART, opt=opt)
+    plain = STRIP(out)
+    lines = plain.splitlines()
+    assert len(lines) >= 10
+    # art rows still colorized, caption columns appended
+    assert "\x1b[38;2;255;176;0m" in out          # amber caption cells
+    assert max(len(ln) for ln in lines) > 40      # wider than the art alone
+
+
+def test_colorized_wrap_caption_ansi():
+    opt = Options(out_format="ansi")
+    opt.caption = CaptionOptions(text="Whiskers", position="wrap", gap=1)
+    out = colorize_ascii_text(_img(), ART, opt=opt)
+    lines = STRIP(out).splitlines()
+    assert len(lines) == 10 + 4
+    assert "W" in lines[0]  # marquee text in the border

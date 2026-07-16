@@ -21,6 +21,7 @@ import os
 import random
 import sys
 import time
+import dataclasses
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -484,6 +485,13 @@ def _resolve_caption(
 ) -> Optional[CaptionRender]:
     if not caption or not caption.text:
         return None
+    from .colorize_ascii import normalize_caption
+
+    caption = normalize_caption(caption)
+    if caption.position not in ("top", "bottom"):
+        # Animated/video sinks stack caption ROWS; side/wrap layouts are a
+        # static-render feature. Fall back to bottom rather than mangling.
+        caption = dataclasses.replace(caption, position="bottom")
     from .text_to_ascii import caption_lines
 
     lines = caption_lines(
