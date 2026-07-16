@@ -241,7 +241,9 @@ def _render_video(upload: Optional[UploadFile], o: dict[str, Any], t0: float) ->
         "frames_text": frames_text,
         "video": {"frames": len(v.frames), "fps": round(v.fps, 2)},
         "seed": None,
-        "warning": None,
+        "warning": ("Side/wrap captions apply to static renders; the video uses bottom."
+                    if o.get("caption_text") and o.get("caption_pos") in ("left", "right", "wrap")
+                    else None),
         "elapsed_ms": round((time.perf_counter() - t0) * 1000),
     }
 
@@ -310,6 +312,9 @@ def render(
     t0 = time.perf_counter()
     ctx = AsciiPipelineContext()
     warning: Optional[str] = None
+    if o.get("caption_text") and bool(o.get("animate")) and \
+            o.get("caption_pos") in ("left", "right", "wrap"):
+        warning = "Side/wrap captions apply to static renders; the animation uses bottom."
 
     if o.get("source") == "video":
         return _render_video(image, o, t0)
@@ -467,28 +472,34 @@ def render(
         "cap_gap": 0,
         "cap_pos": "bottom",
         "cap_style": None,
+        "ring": True,
     }
     # Caption rows share the art's rendered block; report how many so the
     # GUI's resize ring can exclude them. The animation player renders its
     # caption in a separate element, so nothing to exclude there.
-    cap = _build_options(o, "ansi").caption
+    cap = colorize_mod.normalize_caption(_build_options(o, "ansi").caption)
     if cap.text and not do_animate and art_dims["cols"]:
-        try:
-            from .text_to_ascii import caption_lines as _caption_lines
+        if cap.position in ("left", "right", "wrap"):
+            # Side/wrap layouts change the measured block in both axes; the
+            # pixel->cell math can't split them out, so the rings step aside.
+            art_dims["ring"] = False
+        else:
+            try:
+                from .text_to_ascii import caption_lines as _caption_lines
 
-            cl = _caption_lines(
-                cap.text, art_dims["cols"], style=cap.style, scale=cap.scale, align=cap.align,
-                cols=cap.cols, rows=cap.rows,
-            )
-            art_dims["cap_lines"] = len(cl)
-            art_dims["cap_gap"] = max(0, int(cap.gap))
-            art_dims["cap_pos"] = cap.position
-            art_dims["cap_style"] = cap.style
-            inked = [ln for ln in cl if ln.strip()]
-            art_dims["cap_cols"] = max((len(ln.strip()) for ln in inked), default=0)
-            art_dims["cap_x"] = min((len(ln) - len(ln.lstrip()) for ln in inked), default=0)
-        except Exception:
-            pass  # caption metrics are best-effort; the ring just wraps everything
+                cl = _caption_lines(
+                    cap.text, art_dims["cols"], style=cap.style, scale=cap.scale, align=cap.align,
+                    cols=cap.cols, rows=cap.rows,
+                )
+                art_dims["cap_lines"] = len(cl)
+                art_dims["cap_gap"] = max(0, int(cap.gap))
+                art_dims["cap_pos"] = cap.position
+                art_dims["cap_style"] = cap.style
+                inked = [ln for ln in cl if ln.strip()]
+                art_dims["cap_cols"] = max((len(ln.strip()) for ln in inked), default=0)
+                art_dims["cap_x"] = min((len(ln) - len(ln.lstrip()) for ln in inked), default=0)
+            except Exception:
+                pass  # caption metrics are best-effort; the ring just wraps everything
 
     return {
         "ascii": ascii_display,

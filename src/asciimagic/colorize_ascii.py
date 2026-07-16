@@ -5,6 +5,7 @@ import os
 import html
 import logging
 import time
+import dataclasses
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
 from PIL import Image, ImageFilter
@@ -101,7 +102,7 @@ class CaptionOptions:
     by the image (optionally tinted a uniform color)."""
 
     text: Optional[str] = None
-    position: str = "bottom"   # "top" | "bottom"
+    position: str = "bottom"   # top | bottom | left | right | wrap | the four corners
     style: str = "block"       # block | small | shadow | box | banner | figlet
     scale: float = 0.6         # AUTO sizing: fraction of art width for rendered styles
     cols: Optional[int] = None  # EXACT width in chars (overrides scale; free transform)
@@ -241,7 +242,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g = ap.add_argument_group("caption")
     g.add_argument("--caption", default=None, metavar="TEXT",
                    help="Render TEXT as ASCII and stitch it onto the art")
-    g.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
+    g.add_argument("--caption-pos", choices=["top", "bottom", "left", "right", "wrap", "top-left", "top-right", "bottom-left", "bottom-right"], default="bottom")
     g.add_argument("--caption-style", choices=["block", "small", "shadow", "box", "banner", "figlet"],
                    default="block")
     g.add_argument("--caption-scale", type=float, default=0.6, metavar="F",
@@ -794,6 +795,89 @@ def _caption_lines_html(lines: Sequence[str], cap: CaptionOptions) -> List[str]:
     ]
 
 
+def _pad_plain(row: str, width: int) -> str:
+    """Pad rows that carry no ANSI/HTML markup (headers, spacers) to the art
+    width; colored rows are already full-width."""
+    if len(row) < width and "\x1b" not in row and "<" not in row:
+        return row.ljust(width)
+    return row
+
+
+def _side_caption_block(cap: CaptionOptions, art_h: int) -> List[str]:
+    """The caption rendered against the art HEIGHT budget, rotated 90° to run
+    along the side (CW for right — book-spine style — CCW for left)."""
+    from . import text_to_ascii as text_mod
+
+    lines = text_mod.caption_lines(
+        cap.text, max(1, art_h), style=cap.style, scale=cap.scale,
+        align="center", cols=cap.cols, rows=cap.rows,
+    )
+    block = (
+        text_mod.rotate_grid_cw(lines) if cap.position == "right"
+        else text_mod.rotate_grid_ccw(lines)
+    )
+    if not block:
+        return []
+    bw = max(len(ln) for ln in block)
+    return [ln.ljust(bw) for ln in block]
+
+
+def _attach_side(body: List[str], width: int, cap: CaptionOptions, img,
+                 html_mode: bool) -> List[str]:
+    block = _side_caption_block(cap, len(body))
+    if not block:
+        return body
+    bw = len(block[0])
+    if cap.color in _CAPTION_IMAGE_COLORS:
+        strip = caption_ref_image(img, cap)
+        colored = (
+            colorize_lines_html(block, strip, color_spaces=False, fill_spaces=False)
+            if html_mode else colorize_lines_ansi(block, strip, color_spaces=False)
+        )
+    else:
+        colored = _caption_lines_html(block, cap) if html_mode else _caption_lines_ansi(block, cap)
+    blank = " " * bw
+    total = max(len(body), len(block))
+    b_off = (total - len(body)) // 2
+    c_off = (total - len(block)) // 2
+    spacer = " " * max(0, int(cap.gap))
+    out = []
+    for i in range(total):
+        row = body[i - b_off] if 0 <= i - b_off < len(body) else " " * width
+        row = _pad_plain(row, width)
+        c = colored[i - c_off] if 0 <= i - c_off < len(block) else blank
+        out.append(c + spacer + row if cap.position == "left" else row + spacer + c)
+    return out
+
+
+def _attach_wrap(body: List[str], width: int, cap: CaptionOptions, html_mode: bool) -> List[str]:
+    from . import text_to_ascii as text_mod
+
+    gap = max(0, int(cap.gap))
+    frame = text_mod.marquee_frame(cap.text, width, len(body), gap=gap)
+
+    if cap.color and cap.color not in _CAPTION_IMAGE_COLORS:
+        r, g, b = parse_matrix_color(cap.color)
+        if html_mode:
+            paint = lambda s: f'<span style="color: rgb({r},{g},{b})">{html.escape(s)}</span>'
+        else:
+            paint = lambda s: f"{ESC}[38;2;{r};{g};{b}m{s}{ESC}[0m"
+    else:
+        paint = html.escape if html_mode else (lambda s: s)
+
+    pad = " " * gap
+    out = [paint(frame[0])]
+    for i in range(1, len(frame) - 1):
+        ai = i - 1 - gap
+        if 0 <= ai < len(body):
+            mid = pad + _pad_plain(body[ai], width) + pad
+        else:
+            mid = " " * (gap + width + gap)
+        out.append(paint(frame[i][0]) + mid + paint(frame[i][-1]))
+    out.append(paint(frame[-1]))
+    return out
+
+
 def _with_caption(body: List[str], cap_lines: List[str], cap: CaptionOptions) -> List[str]:
     if not cap_lines:
         return body
@@ -803,10 +887,34 @@ def _with_caption(body: List[str], cap_lines: List[str], cap: CaptionOptions) ->
     return body + spacer + cap_lines
 
 
+_CORNER_POSITIONS = {
+    "top-left": ("top", "left"),
+    "top-right": ("top", "right"),
+    "bottom-left": ("bottom", "left"),
+    "bottom-right": ("bottom", "right"),
+}
+
+CAPTION_POSITIONS = ("top", "bottom", "left", "right", "wrap") + tuple(_CORNER_POSITIONS)
+
+
+def normalize_caption(cap: CaptionOptions) -> CaptionOptions:
+    """Corner positions are sugar for a top/bottom caption with forced
+    alignment; everything downstream sees only the five base positions."""
+    if cap.position in _CORNER_POSITIONS:
+        pos, align = _CORNER_POSITIONS[cap.position]
+        return dataclasses.replace(cap, position=pos, align=align)
+    return cap
+
+
 def caption_image_strip(img: Image.Image, position: str) -> Image.Image:
     """The quarter of the picture adjacent to the caption, so image-colored
     captions flow from the nearest art rows instead of the whole image."""
     w, h = img.size
+    if position in ("left", "right"):
+        strip_w = max(1, w // 4)
+        if position == "left":
+            return img.crop((0, 0, strip_w, h))
+        return img.crop((w - strip_w, 0, w, h))
     strip_h = max(1, h // 4)
     if position == "top":
         return img.crop((0, 0, w, strip_h))
@@ -847,14 +955,21 @@ def render_ansi(
         else:
             out_lines.extend(colorize_lines_ansi(art, img, color_spaces=False))
 
-    if cap and cap_lines:
-        if cap.color in _CAPTION_IMAGE_COLORS:
-            rendered = colorize_lines_ansi(
-                cap_lines, caption_ref_image(img, cap), color_spaces=False
-            )
-        else:
-            rendered = _caption_lines_ansi(cap_lines, cap)
-        out_lines = _with_caption(out_lines, rendered, cap)
+    if cap and cap.text:
+        base = normalize_caption(cap)
+        width = max([len(ln) for ln in art] + [len(ln) for ln in header] + [1])
+        if base.position in ("left", "right"):
+            out_lines = _attach_side(out_lines, width, base, img, html_mode=False)
+        elif base.position == "wrap":
+            out_lines = _attach_wrap(out_lines, width, base, html_mode=False)
+        elif cap_lines:
+            if base.color in _CAPTION_IMAGE_COLORS:
+                rendered = colorize_lines_ansi(
+                    cap_lines, caption_ref_image(img, base), color_spaces=False
+                )
+            else:
+                rendered = _caption_lines_ansi(cap_lines, base)
+            out_lines = _with_caption(out_lines, rendered, base)
     return out_lines
 
 def render_html(
@@ -883,15 +998,22 @@ def render_html(
         else:
             pre_lines.extend(colorize_lines_html(art, img, color_spaces=False, fill_spaces=html_opt.fill_spaces))
 
-    if cap and cap_lines:
-        if cap.color in _CAPTION_IMAGE_COLORS:
-            rendered = colorize_lines_html(
-                cap_lines, caption_ref_image(img, cap),
-                color_spaces=False, fill_spaces=False,
-            )
-        else:
-            rendered = _caption_lines_html(cap_lines, cap)
-        pre_lines = _with_caption(pre_lines, rendered, cap)
+    if cap and cap.text:
+        base = normalize_caption(cap)
+        width = max([len(ln) for ln in art] + [len(ln) for ln in header] + [1])
+        if base.position in ("left", "right"):
+            pre_lines = _attach_side(pre_lines, width, base, img, html_mode=True)
+        elif base.position == "wrap":
+            pre_lines = _attach_wrap(pre_lines, width, base, html_mode=True)
+        elif cap_lines:
+            if base.color in _CAPTION_IMAGE_COLORS:
+                rendered = colorize_lines_html(
+                    cap_lines, caption_ref_image(img, base),
+                    color_spaces=False, fill_spaces=False,
+                )
+            else:
+                rendered = _caption_lines_html(cap_lines, base)
+            pre_lines = _with_caption(pre_lines, rendered, base)
 
     return wrap_html(
         pre_lines,
@@ -926,7 +1048,7 @@ def colorize_ascii_text(
     cap_lines: List[str] = []
     if opt.caption.text:
         width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
-        cap_lines = _build_caption_lines(opt.caption, width)
+        cap_lines = _build_caption_lines(normalize_caption(opt.caption), width)
 
     if opt.out_format == "html":
         return render_html(
@@ -1023,7 +1145,7 @@ def main():
         cap_lines = []
         if opt.caption.text:
             width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
-            cap_lines = _build_caption_lines(opt.caption, width)
+            cap_lines = _build_caption_lines(normalize_caption(opt.caption), width)
         out_lines = render_ansi(
             header, scaled_art, base_img, opt.color_top, opt.matrix,
             cap=opt.caption, cap_lines=cap_lines,
@@ -1038,7 +1160,7 @@ def main():
         cap_lines = []
         if opt.caption.text:
             width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
-            cap_lines = _build_caption_lines(opt.caption, width)
+            cap_lines = _build_caption_lines(normalize_caption(opt.caption), width)
         doc = render_html(
             header, scaled_art, base_img, opt.color_top, opt.html, opt.matrix,
             cap=opt.caption, cap_lines=cap_lines,

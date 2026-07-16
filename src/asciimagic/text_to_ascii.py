@@ -374,6 +374,52 @@ def caption_lines(
     return out
 
 
+def rotate_grid_cw(lines: list[str]) -> list[str]:
+    """Rotate a character grid 90° clockwise (text reads top-to-bottom with
+    the head tilted right — book-spine style for right-side captions)."""
+    if not lines:
+        return []
+    w = max(len(ln) for ln in lines)
+    g = [ln.ljust(w) for ln in lines]
+    h = len(g)
+    return ["".join(g[h - 1 - r][c] for r in range(h)) for c in range(w)]
+
+
+def rotate_grid_ccw(lines: list[str]) -> list[str]:
+    """Rotate a character grid 90° counter-clockwise (left-side captions)."""
+    if not lines:
+        return []
+    w = max(len(ln) for ln in lines)
+    g = [ln.ljust(w) for ln in lines]
+    h = len(g)
+    return ["".join(g[r][w - 1 - c] for r in range(h)) for c in range(w)]
+
+
+def marquee_frame(text: str, inner_w: int, inner_h: int, gap: int = 1, sep: str = " · ") -> list[str]:
+    """A 1-char border of the text flowing clockwise around a block of
+    inner_w x inner_h, with `gap` columns/rows of breathing room inside.
+    Returns the framed grid rows with the interior left blank (spaces)."""
+    pad = max(0, int(gap))
+    total_w = inner_w + 2 * pad + 2
+    total_h = inner_h + 2 * pad + 2
+    perim = 2 * total_w + 2 * (total_h - 2)
+    src = (text.strip() or "·") + sep
+    flow = (src * (perim // len(src) + 1))[:perim]
+
+    # Walk the border clockwise from the top-left corner.
+    grid = [[" "] * total_w for _ in range(total_h)]
+    i = 0
+    for x in range(total_w):
+        grid[0][x] = flow[i]; i += 1
+    for y in range(1, total_h - 1):
+        grid[y][total_w - 1] = flow[i]; i += 1
+    for x in range(total_w - 1, -1, -1):
+        grid[total_h - 1][x] = flow[i]; i += 1
+    for y in range(total_h - 2, 0, -1):
+        grid[y][0] = flow[i]; i += 1
+    return ["".join(row) for row in grid]
+
+
 def compose_caption(
     art: str,
     text: str,
@@ -383,11 +429,52 @@ def compose_caption(
     gap: int = 1,
     align: str = "center",
     font_path: str | None = None,
+    cols: int | None = None,
+    rows: int | None = None,
 ) -> str:
-    """Stitch a rendered text caption above or below a block of ASCII art."""
+    """Stitch a rendered text caption onto a block of ASCII art.
+
+    Positions: top, bottom, left, right (text rotated 90° to run along the
+    side), the four corners (top-left ... bottom-right), and "wrap" (the
+    text flows clockwise as a 1-char marquee frame around the art)."""
     art_lines = art.splitlines()
     width = max((len(ln) for ln in art_lines), default=1)
-    cap = caption_lines(text, width, style=style, scale=scale, align=align, font_path=font_path)
+    height = len(art_lines)
+
+    if position in ("top-left", "top-right", "bottom-left", "bottom-right"):
+        base, align = position.split("-")
+        position = base
+
+    if position == "wrap":
+        frame = marquee_frame(text, width, height, gap=gap)
+        pad = max(0, int(gap)) + 1
+        out = list(frame)
+        for i, ln in enumerate(art_lines):
+            row = out[pad + i]
+            out[pad + i] = row[:pad] + ln.ljust(width) + row[pad + width:]
+        return "\n".join(out)
+
+    if position in ("left", "right"):
+        # Size against the art height (that budget becomes the vertical
+        # extent once rotated), then run the block down the side.
+        block = caption_lines(text, height, style=style, scale=scale,
+                              align="center", font_path=font_path, cols=cols, rows=rows)
+        block = rotate_grid_cw(block) if position == "right" else rotate_grid_ccw(block)
+        bw = max((len(ln) for ln in block), default=0)
+        block = [ln.ljust(bw) for ln in block]
+        total_h = max(height, len(block))
+        art_off = (total_h - height) // 2
+        cap_off = (total_h - len(block)) // 2
+        spacer = " " * max(0, int(gap))
+        out = []
+        for i in range(total_h):
+            a = art_lines[i - art_off].ljust(width) if 0 <= i - art_off < height else " " * width
+            c = block[i - cap_off] if 0 <= i - cap_off < len(block) else " " * bw
+            out.append(c + spacer + a if position == "left" else a + spacer + c)
+        return "\n".join(out)
+
+    cap = caption_lines(text, width, style=style, scale=scale, align=align,
+                        font_path=font_path, cols=cols, rows=rows)
     spacer = [""] * max(0, int(gap))
     if position == "top":
         combined = cap + spacer + art_lines

@@ -462,3 +462,28 @@ def test_render_bad_options_400():
 def test_render_invalid_mode_400():
     r = _render({"source": "image", "mode": "nope"})
     assert r.status_code == 400
+
+
+def test_side_and_wrap_captions_disable_ring():
+    for pos in ("left", "right", "wrap"):
+        r = _render(
+            {"source": "image", "mode": "braille", "cols": 20,
+             "caption_text": "Hi", "caption_pos": pos}
+        )
+        assert r.status_code == 200
+        assert r.json()["art"]["ring"] is False
+    r2 = _render({"source": "image", "mode": "braille", "cols": 20,
+                  "caption_text": "Hi", "caption_pos": "bottom-right"})
+    assert r2.status_code == 200
+    art = r2.json()["art"]
+    assert art["ring"] is True
+    assert art["cap_pos"] == "bottom"  # corner normalized
+
+
+def test_animate_side_caption_warns_and_coerces():
+    r = _render(
+        {"source": "image", "cols": 12, "matrix": True, "animate": True,
+         "anim_frames": 2, "caption_text": "Hi", "caption_pos": "left"}
+    )
+    assert r.status_code == 200
+    assert "static renders" in (r.json()["warning"] or "")

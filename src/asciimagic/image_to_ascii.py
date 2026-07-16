@@ -604,7 +604,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     ap.add_argument("--caption", default=None, metavar="TEXT",
                     help="Render TEXT as ASCII and stitch it onto the art")
-    ap.add_argument("--caption-pos", choices=["top", "bottom"], default="bottom")
+    ap.add_argument("--caption-pos", choices=["top", "bottom", "left", "right", "wrap", "top-left", "top-right", "bottom-left", "bottom-right"], default="bottom")
     ap.add_argument("--caption-style",
                     choices=["block", "small", "shadow", "box", "banner", "figlet"], default="block")
     ap.add_argument("--caption-cols", type=int, default=None, metavar="N",

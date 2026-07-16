@@ -454,7 +454,9 @@ function captionBox(d) {
 }
 
 function showRing(d) {
-  if (!state.result || !state.art || !state.art.cols || d.w < 4) {
+  if (!state.result || !state.art || !state.art.cols || d.w < 4 || state.art.ring === false) {
+    // ring === false: side/wrap captions reshape the block in both axes,
+    // so pixel->cell math steps aside (the number knobs still work).
     ring.hidden = true;
     capRing.hidden = true;
     return;
@@ -567,7 +569,11 @@ function capStartDrag(axis) {
     document.getElementById("preview-wrap").classList.add("dragging");
     capRing.classList.add("dragging");
     const start = { x: e.clientX, y: e.clientY, w: capBox.w, h: capBox.h,
+                    cx: capBox.x + capBox.w / 2,
                     aspect: capBox.w / Math.max(1, capBox.h) };
+    // A centered caption grows out of its middle, so the drag should too —
+    // expanding both directions keeps the text visible under the cursor.
+    const centered = $("caption_align").value === "center";
 
     const capDims = () => {
       const c = cellSize();
@@ -578,7 +584,12 @@ function capStartDrag(axis) {
     };
 
     const move = (ev) => {
-      if (axis !== "s") capBox.w = Math.max(12, start.w + (ev.clientX - start.x));
+      if (axis !== "s") {
+        // centered captions grow symmetrically: each pixel of drag adds two
+        const dx = ev.clientX - start.x;
+        capBox.w = Math.max(12, start.w + (centered ? dx * 2 : dx));
+        if (centered) capBox.x = start.cx - capBox.w / 2;
+      }
       if (axis !== "e") capBox.h = Math.max(6, start.h + (ev.clientY - start.y));
       if (axis === "se" && ev.shiftKey) capBox.h = capBox.w / start.aspect;
       applyCapRing();
