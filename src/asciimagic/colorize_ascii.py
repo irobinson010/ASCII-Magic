@@ -296,7 +296,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
-    ns = build_arg_parser().parse_args(argv[1:])
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    parser = build_arg_parser()
+    add_preset_args(parser)
+    ns = parse_with_presets(parser, argv[1:], "colorize")
 
     out_path = ns.out
     if out_path is not None and out_path != "-":

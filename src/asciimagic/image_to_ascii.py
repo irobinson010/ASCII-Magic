@@ -646,7 +646,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main():
-    args = build_arg_parser().parse_args()
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    parser = build_arg_parser()
+    add_preset_args(parser)
+    args = parse_with_presets(parser, None, "image")
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
             charset = "".join(ch for ch in f.read())

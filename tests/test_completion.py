@@ -13,7 +13,7 @@ def test_bash_script_contents():
         assert cmd in script
     # flags harvested from the parsers
     for flag in ("--matrix-color", "--caption-style", "--dither", "--rotate", "--reveal",
-                 "--save-scene", "--outline"):
+                 "--save-scene", "--outline", "--preset", "--save-preset", "--color-depth"):
         assert flag in script
     # choice values for enum flags
     assert "glyph braille" in script or "braille glyph" in script
