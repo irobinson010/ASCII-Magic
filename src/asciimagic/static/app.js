@@ -8,7 +8,7 @@ const state = {
   fileStem: "ascii-art",
   imgW: 0,           // natural dimensions of the uploaded image
   imgH: 0,
-  tab: "image",      // image | text | video
+  tab: "image",      // image | text | video | compose
   result: null,      // last /api/render response
   rendering: false,
   queued: false,
@@ -117,12 +117,14 @@ function setStatus(msg, cls) {
 }
 
 function canRender() {
+  if (state.tab === "compose") return true; // composeRender explains what is missing
   if (state.tab === "text") return $("text").value.trim() !== "";
   if (state.tab === "video") return state.videoFile !== null;
   return state.file !== null;
 }
 
 async function render() {
+  if (state.tab === "compose") return composeRender(); // compose.js
   if (!canRender()) return;
   if (state.rendering) { state.queued = true; return; }
   state.rendering = true;
@@ -308,12 +310,13 @@ dz.addEventListener("drop", (e) => {
 
 // ---------- tabs & visibility ----------
 
-const TABS = ["image", "text", "video"];
+const TABS = ["image", "text", "video", "compose"];
 
 function setTab(name) {
   state.tab = name;
   $("ring").hidden = true; // stale box from another source
   $("cap-ring").hidden = true;
+  $("cmp-overlay").hidden = true;
   for (const t of TABS) {
     $(`panel-${t}`).hidden = t !== name;
     $(`tab-${t}`).classList.toggle("active", t === name);
@@ -355,6 +358,13 @@ function syncVisibility() {
   const isVideo = state.tab === "video";
   for (const id of ["sec-colorize", "sec-html"]) {
     $(id).hidden = isVideo;
+  }
+  // Compose layers carry their own color/size/text; the shared sections
+  // (caption, colorize, matrix, HTML) apply to the single-source tabs.
+  const isCompose = state.tab === "compose";
+  for (const id of ["sec-caption", "sec-colorize", "sec-matrix", "sec-html"]) {
+    if (isCompose) $(id).hidden = true;
+    else if (id === "sec-caption" || id === "sec-matrix") $(id).hidden = false;
   }
   $("animate-row").hidden = isVideo;
   if (isVideo) $("anim-knobs").hidden = true;
@@ -476,6 +486,12 @@ function captionBox(d) {
 }
 
 function showRing(d) {
+  if (state.tab === "compose") {
+    ring.hidden = true;
+    capRing.hidden = true;
+    composeShowOverlay(d); // compose.js draws per-layer boxes instead
+    return;
+  }
   if (!state.result || !state.art || !state.art.cols || d.w < 4) {
     ring.hidden = true;
     capRing.hidden = true;

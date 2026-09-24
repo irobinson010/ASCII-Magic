@@ -284,6 +284,39 @@ There are also lower-level in-memory helpers if you do not want the context obje
 - `asciimagic.image_to_ascii.image_to_braille_from_image(...)`
 - `asciimagic.colorize_ascii.colorize_ascii_text(...)`
 
+## Compose images and text (`ascii-magic compose`)
+
+Stack any number of images and text blocks on one canvas and place each one exactly. Start a layer with `--image PATH` or `--text TEXT`; the options after it apply to that layer. Later layers paint over earlier ones.
+
+```bash
+# A photo with a figlet title across the top and a boxed label bottom-right
+ascii-magic compose --canvas 100x40 --background "#000000" \
+  --image cat.png --cols 90 --color image \
+  --text "HELLO" --style figlet --at top --dy 1 --color amber \
+  --text "est. 2026" --style box --at bottom-right --dx -2 --dy -1 --color cyan \
+  -o card.ans
+
+# Save the setup, then re-render it exactly (or edit the JSON by hand)
+ascii-magic compose ... --save-scene card.json
+ascii-magic compose card.json -o card.html
+```
+
+| Layer option | What it does |
+|---|---|
+| `--at ANCHOR` | `top-left`, `top`, `top-right`, `left`, `center` (default), `right`, `bottom-left`, `bottom`, `bottom-right` |
+| `--dx N` / `--dy N` | Nudge after anchoring (negative = left/up) |
+| `--x N` / `--y N` | Exact column/row of the layer's top-left corner (overrides `--at`) |
+| `--cols N` / `--rows N` | Exact size in characters; set one and the other follows the aspect ratio. Text without either scales to `--scale` (default 0.5) of the canvas width |
+| `--color C` | `image` (an image samples its own picture; text samples the picture beneath it), a theme (`green`, `amber`, `cyan`, `crimson`, `violet`, `white`), or `#RRGGBB` |
+| `--outline N` | Clear N cells around the layer's ink so it reads over busy art (default 1 for text, 0 for images) |
+| `--opaque` | Blank characters cover what's beneath (a solid box) |
+| image: `--mode --dither --invert --autocontrast --gamma --threshold --quality --rotate` | Same meaning as `ascii-magic image` |
+| text: `--style --align --font` | Same styles as `ascii-magic text` |
+
+Canvas: `--canvas COLSxROWS` (default: just big enough for every layer) and `--background COLOR`. Output is ANSI to stdout, or `.txt` / `.ans` / `.html` by `-o` extension.
+
+In the web GUI, the **Compose** tab does the same with the mouse: add image and text layers, drag a layer's box in the preview to move it, drag its corner to resize (hold **Shift** to keep the aspect ratio), and use the arrow keys to nudge the selected layer one character (**Shift** for five). **Download scene .json** saves a scene file the CLI can render; put the images next to it.
+
 ## Video to ASCII (`ascii-magic video`)
 
 Convert a video into a colorized ASCII animation — every format ffmpeg reads (mp4, webm, mov, mkv, avi, gif, ...). Requires the `[video]` extra:

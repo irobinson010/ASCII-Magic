@@ -710,3 +710,76 @@ def test_allowed_origins_allowlist():
     c = TestClient(inner)
     assert c.post("/x", headers={"origin": "https://ascii.example.com"}).status_code == 200
     assert c.post("/x", headers={"origin": "https://other.example.com"}).status_code == 403
+
+
+# ---- /api/compose ----
+
+def _compose(scene, images=()):
+    files = [("images", (f"p{i}.png", data, "image/png")) for i, data in enumerate(images)]
+    return client.post("/api/compose", files=files or None, data={"scene": json.dumps(scene)})
+
+
+def test_compose_image_and_text():
+    r = _compose(
+        {"canvas": {"cols": 40, "rows": 14, "background": "#000000"},
+         "layers": [{"type": "image", "upload": 0, "cols": 30, "color": "image"},
+                    {"type": "text", "text": "Hi", "style": "box", "at": "bottom-right", "color": "amber"}]},
+        images=[_png_bytes(size=(64, 48))],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["canvas"] == {"cols": 40, "rows": 14}
+    assert [ly["index"] for ly in body["layers"]] == [0, 1]
+    text_box = body["layers"][1]
+    assert (text_box["x"] + text_box["w"], text_box["y"] + text_box["h"]) == (40, 14)
+    assert "\x1b[38;2;255;176;0m" in body["ansi"]
+    assert "│ Hi │" in body["ascii"]
+    assert body["html"].lower().startswith("<!doctype html>")
+    # downloadable scene names the upload so the CLI can re-render it
+    assert body["scene"]["layers"][0]["src"] == "p0.png"
+    assert "upload" not in body["scene"]["layers"][0]
+
+
+def test_compose_same_upload_in_two_layers():
+    r = _compose({"layers": [{"type": "image", "upload": 0, "cols": 20},
+                             {"type": "image", "upload": 0, "cols": 10, "at": "top-left"}]},
+                 images=[_png_bytes()])
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("scene,msg", [
+    ({"layers": []}, "at least one layer"),
+    ({"layers": [{"type": "text", "text": "x", "src": "/etc/passwd"}]}, "not allowed"),
+    ({"layers": [{"type": "text", "text": "x", "font": "/etc/passwd"}]}, "not allowed"),
+    ({"layers": [{"type": "image"}]}, "upload"),
+    ({"layers": [{"type": "image", "upload": 3}]}, "upload"),
+    ({"layers": [{"type": "text", "text": "x", "at": "middle"}]}, "anchor"),
+    ({"layers": [{"type": "text", "text": "x", "colour": "red"}]}, "unknown field"),
+    ({"layers": [{"type": "text", "text": "x" * 501}]}, "longer than"),
+    ({"layers": [{"type": "text", "text": "x"}] * 13}, "At most"),
+    ({"canvas": {"cols": 2000, "rows": 2000}, "layers": [{"type": "text", "text": "x"}]}, "limit"),
+    ("[]", "JSON object"),
+])
+def test_compose_rejects_bad_scenes(scene, msg):
+    r = client.post("/api/compose", data={"scene": scene if isinstance(scene, str) else json.dumps(scene)})
+    assert r.status_code == 400
+    assert msg in r.json()["detail"]
+
+
+def test_compose_image_budget():
+    r = _compose({"layers": [{"type": "image", "upload": 0, "cols": 500, "mode": "glyph"}]},
+                 images=[_png_bytes(size=(100, 400))])
+    assert r.status_code == 400
+    assert "Output too large" in r.json()["detail"]
+
+
+def test_compose_bad_image_upload():
+    r = client.post("/api/compose", files=[("images", ("x.png", b"not an image", "image/png"))],
+                    data={"scene": json.dumps({"layers": [{"type": "image", "upload": 0}]})})
+    assert r.status_code == 400
+
+
+def test_compose_refuses_cross_origin():
+    r = client.post("/api/compose", headers={"origin": "http://evil.example"},
+                    data={"scene": json.dumps({"layers": [{"type": "text", "text": "x"}]})})
+    assert r.status_code == 403
