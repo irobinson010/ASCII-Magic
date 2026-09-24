@@ -44,7 +44,25 @@ def _call_entry(entry, argv: List[str], module_prog: Optional[str] = None) -> in
             sys.argv = old_argv
     except SystemExit as se:
         code = se.code
-        return code if isinstance(code, int) else 0
+        if code is None:
+            return 0
+        if isinstance(code, int):
+            return code
+        # SystemExit("message") is how commands report fatal errors; Python
+        # itself prints the message and exits 1 -- do the same, instead of
+        # swallowing it as success.
+        print(code, file=sys.stderr)
+        return 1
+    except BrokenPipeError:
+        # The reader went away (e.g. `ascii-magic image x.png | head`): not an
+        # error. Point stdout at devnull so the shutdown flush stays quiet.
+        try:
+            fd = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(fd, sys.stdout.fileno())
+            os.close(fd)
+        except (OSError, ValueError):
+            pass
+        return 0
     except Exception as e:
         if os.environ.get("ASCII_MAGIC_DEBUG"):
             raise

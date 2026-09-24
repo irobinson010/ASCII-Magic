@@ -343,3 +343,58 @@ class TestEdgeCases:
             result = main(["colorize"] + special_args)
 
         assert result == 0
+
+
+def test_systemexit_message_is_printed_and_fails(capsys):
+    from asciimagic.unified_cli import _call_entry
+
+    def entry(argv):
+        raise SystemExit("something went wrong")
+
+    assert _call_entry(entry, []) == 1
+    assert "something went wrong" in capsys.readouterr().err
+
+
+def test_real_command_error_message_reaches_the_user(tmp_path, capsys):
+    from PIL import Image
+
+    from asciimagic.unified_cli import main
+
+    img = tmp_path / "i.png"
+    Image.new("RGB", (8, 8)).save(img)
+    art = tmp_path / "a.txt"
+    art.write_text("#\n", encoding="utf-8")
+    # colorize: .gif output without --animate is a fatal usage error
+    assert main(["colorize", str(img), str(art), str(tmp_path / "o.gif")]) == 1
+    assert "requires --animate" in capsys.readouterr().err
+
+
+def test_broken_pipe_is_quiet_success(capsys):
+    from asciimagic import unified_cli
+
+    def entry(argv):
+        raise BrokenPipeError()
+
+    assert unified_cli._call_entry(entry, []) == 0
+    assert "Error" not in capsys.readouterr().err
+
+
+def test_broken_pipe_via_real_pipe(tmp_path):
+    """`ascii-magic image x.png | head -1`: no traceback, no error message."""
+    import subprocess
+
+    from PIL import Image
+
+    img = tmp_path / "i.png"
+    Image.new("RGB", (400, 400), (30, 30, 30)).save(img)
+    code = (
+        "import sys; from asciimagic.unified_cli import main; "
+        "sys.exit(main(['image', sys.argv[1], '--mode', 'braille', '-c', '400']))"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", code, str(img)],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc.stdout.read(10)
+    proc.stdout.close()  # the reader goes away early
+    _, err = proc.communicate(timeout=60)
+    assert proc.returncode == 0
+    assert b"Error" not in err and b"Traceback" not in err
