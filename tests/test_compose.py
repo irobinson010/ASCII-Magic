@@ -166,7 +166,7 @@ def test_scene_round_trip_with_relative_paths(photo, tmp_path):
     out = tmp_path / "scenes" / "card.json"
     out.parent.mkdir()
     scene.save(str(out))
-    raw = json.loads(out.read_text())
+    raw = json.loads(out.read_text(encoding="utf-8"))
     assert raw["layers"][0]["src"] == "../photo.png"
     assert "mode" not in raw["layers"][0]  # defaults are omitted
     loaded = Scene.load(str(out))
@@ -205,9 +205,24 @@ def test_cli_save_then_render_scene(photo, tmp_path, capsys):
 def test_cli_html_output_by_extension(tmp_path):
     out = tmp_path / "x.html"
     assert compose_main(["--text", "Hi", "--style", "box", "-o", str(out)]) == 0
-    assert out.read_text().lower().startswith("<!doctype html>")
+    assert out.read_text(encoding="utf-8").lower().startswith("<!doctype html>")
 
 
 def test_cli_reports_bad_color(capsys):
     assert compose_main(["--text", "Hi", "--color", "puce"]) == 2
     assert "puce" in capsys.readouterr().err
+
+
+def test_saved_scene_paths_use_forward_slashes_on_windows(photo, tmp_path, monkeypatch):
+    import os
+
+    import asciimagic.compose as compose_mod
+
+    # Simulate Windows: relpath yields backslashes and os.sep is "\\".
+    monkeypatch.setattr(compose_mod.os.path, "relpath", lambda p, b: "..\\imgs\\photo.png")
+    monkeypatch.setattr(compose_mod.os, "sep", "\\")
+    out = tmp_path / "card.json"
+    Scene(layers=[Layer(type="image", src=str(photo))]).save(str(out))
+    monkeypatch.undo()
+    assert json.loads(out.read_text(encoding="utf-8"))["layers"][0]["src"] == "../imgs/photo.png"
+    assert os.sep  # restored

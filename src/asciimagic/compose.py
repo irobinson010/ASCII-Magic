@@ -191,7 +191,10 @@ class Scene:
         for raw in data["layers"]:
             if raw.get("src"):
                 try:
-                    raw["src"] = os.path.relpath(os.path.abspath(raw["src"]), base)
+                    rel = os.path.relpath(os.path.abspath(raw["src"]), base)
+                    # Forward slashes load on every OS (Windows accepts them),
+                    # so a scene made on Windows still renders on Linux.
+                    raw["src"] = rel.replace(os.sep, "/")
                 except ValueError:  # different drive on Windows: keep absolute
                     raw["src"] = os.path.abspath(raw["src"])
         with open(path, "w", encoding="utf-8") as f:
