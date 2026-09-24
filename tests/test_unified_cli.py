@@ -395,6 +395,43 @@ def test_broken_pipe_via_real_pipe(tmp_path):
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     proc.stdout.read(10)
     proc.stdout.close()  # the reader goes away early
-    _, err = proc.communicate(timeout=60)
-    assert proc.returncode == 0
+    # Not communicate(): on Windows it reads stdout from a thread, which
+    # fails on the pipe closed above.
+    err = proc.stderr.read()
+    proc.stderr.close()
+    proc.wait(timeout=60)
+    assert proc.returncode == 0, err.decode(errors="replace")
     assert b"Error" not in err and b"Traceback" not in err
+
+
+def test_windows_style_closed_pipe_is_quiet_success(monkeypatch, capsys):
+    """Windows reports a closed pipe as OSError(EINVAL), not BrokenPipeError."""
+    import errno
+
+    from asciimagic import unified_cli
+
+    class DeadStdout:
+        def write(self, s):
+            raise OSError(errno.EINVAL, "Invalid argument")
+
+        def flush(self):
+            raise OSError(errno.EINVAL, "Invalid argument")
+
+        def fileno(self):
+            raise ValueError("no fd")
+
+    def entry(argv):
+        sys.stdout.write("art")
+
+    monkeypatch.setattr(sys, "stdout", DeadStdout())
+    assert unified_cli._call_entry(entry, []) == 0
+
+
+def test_other_oserrors_still_fail(capsys):
+    from asciimagic import unified_cli
+
+    def entry(argv):
+        raise FileNotFoundError(2, "No such file", "missing.png")
+
+    assert unified_cli._call_entry(entry, []) == 1
+    assert "No such file" in capsys.readouterr().err
