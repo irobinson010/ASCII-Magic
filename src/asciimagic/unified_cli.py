@@ -14,6 +14,7 @@ COMMANDS = {
     "video": "asciimagic.video",
     "completion": "asciimagic.completion",
     "compose": "asciimagic.compose",
+    "presets": "asciimagic.presets",
 }
 
 

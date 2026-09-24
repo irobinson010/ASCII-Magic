@@ -641,7 +641,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    parser = build_arg_parser()
+    add_preset_args(parser)
+    args = parse_with_presets(parser, argv, "video")
 
     if args.out and not args.out.lower().endswith((".gif", ".frames", ".mp4")):
         raise SystemExit("Output must be .gif, .mp4, or .frames (or omitted for terminal playback)")
