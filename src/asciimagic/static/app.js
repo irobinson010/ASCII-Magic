@@ -138,7 +138,7 @@ async function render() {
 
   try {
     const res = await fetch("/api/render", { method: "POST", body: form });
-    const body = await res.json();
+    const body = await readJson(res);
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
 
     state.result = body;
@@ -178,14 +178,26 @@ function autoRender() {
   debounceTimer = setTimeout(render, 350);
 }
 
+// Error pages from a proxy (or a crash) are not JSON; surface the HTTP
+// status instead of "Unexpected token '<'".
+async function readJson(res) {
+  try {
+    return await res.json();
+  } catch {
+    return { detail: `HTTP ${res.status} ${res.statusText}`.trim() };
+  }
+}
+
 // ---------- downloads ----------
 
 function download(name, content, type) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([content], { type }));
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(a.href);
+  // Revoking synchronously can cancel the download in Firefox.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 $("dl-ans").addEventListener("click", () =>
@@ -213,7 +225,7 @@ $("dl-mp4").addEventListener("click", async () => {
     form.append("options", JSON.stringify(collectOptions()));
     const res = await fetch("/api/render/mp4", { method: "POST", body: form });
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
+      const body = await readJson(res);
       throw new Error(body.detail || `HTTP ${res.status}`);
     }
     download(`${state.fileStem}.mp4`, await res.blob(), "video/mp4");
@@ -221,7 +233,8 @@ $("dl-mp4").addEventListener("click", async () => {
   } catch (err) {
     setStatus(`Error: ${err.message}`, "error");
   } finally {
-    $("dl-mp4").disabled = false;
+    // Only re-enable if the user is still looking at a video render.
+    $("dl-mp4").disabled = !(state.tab === "video" && state.result && state.result.video);
   }
 });
 
@@ -261,7 +274,9 @@ function loadFile(file) {
   const thumb = $("thumb");
   thumb.src = URL.createObjectURL(file);
   thumb.hidden = false;
-  $("drop-hint").innerHTML = `${file.name}<br>(click to change)`;
+  // textContent, not innerHTML: the file name is attacker-choosable
+  // (e.g. "<img src=x onerror=...>.png").
+  $("drop-hint").replaceChildren(file.name, document.createElement("br"), "(click to change)");
 
   const probe = new Image();
   probe.onload = () => {
@@ -276,7 +291,12 @@ function loadFile(file) {
 
 const dz = $("dropzone");
 dz.addEventListener("click", () => $("file").click());
-dz.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") $("file").click(); });
+dz.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault(); // Space would otherwise scroll the page
+    $("file").click();
+  }
+});
 $("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
 dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("drag"); });
 dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
@@ -407,6 +427,8 @@ let capBox = null;
 let dragging = null;
 
 window.addEventListener("message", (ev) => {
+  // Only the preview iframe's measure script may move the resize ring.
+  if (ev.source !== $("preview").contentWindow) return;
   const d = ev.data;
   if (!d || d.am !== "artbox" || dragging) return;
   state.measure = d;
