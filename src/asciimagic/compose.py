@@ -627,6 +627,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="Canvas size in characters (default: fit the layers)")
     ap.add_argument("--background", default=None, metavar="COLOR",
                     help="Canvas background: theme name or #RRGGBB (ANSI/HTML)")
+    from .ansi import add_depth_arg
+
+    add_depth_arg(ap)
     ap.add_argument("--save-scene", default=None, metavar="FILE",
                     help="Write the scene (file + command-line layers) as JSON to reuse later")
 
@@ -699,6 +702,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         ext = os.path.splitext(args.output or "")[1].lower()
         fmt = {".txt": "text", ".html": "html", ".htm": "html"}.get(ext, "ansi")
     out = comp.render(fmt, title=os.path.basename(args.output) if args.output else "ASCII Art")
+    if fmt == "ansi":
+        from .ansi import downsample, resolve_depth
+
+        out = downsample(out, resolve_depth(args.color_depth, to_terminal=not args.output))
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(out)

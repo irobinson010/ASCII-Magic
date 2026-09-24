@@ -371,3 +371,13 @@ def test_mp4_keeps_source_audio(av_clip, tmp_path):
     out = tmp_path / "o.mp4"
     assert v.write_mp4(str(out), audio_source=str(av_clip), untrusted_source=True) is True
     assert b"mp4a" in out.read_bytes()
+
+
+def test_cli_frames_color_depth(clip, tmp_path):
+    import re
+
+    out = tmp_path / "v.frames"
+    assert video_mod.main([str(clip), str(out), "-c", "16", "--color-depth", "256"]) == 0
+    frames, _, _ = read_frames_file(out)
+    assert frames and all(not re.search(r"\x1b\[(?:38|48);2;", f) for f in frames)
+    assert any("\x1b[38;5;" in f for f in frames)

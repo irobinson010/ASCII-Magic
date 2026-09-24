@@ -635,6 +635,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="Caption color with --color: theme name or #RRGGBB")
     ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
 
+    from .ansi import add_depth_arg
+
+    add_depth_arg(ap)
     ap.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
                     help="Rotate clockwise before conversion (EXIF orientation is "
                     "applied automatically)")
@@ -712,6 +715,10 @@ def main():
                 align=args.caption_align,
             )
         art = colorize(ctx, opt=opt).rstrip("\n")
+        if fmt == "ansi":
+            from .ansi import downsample, resolve_depth
+
+            art = downsample(art, resolve_depth(args.color_depth, to_terminal=not args.output))
     elif args.caption:
         from .text_to_ascii import compose_caption
 
