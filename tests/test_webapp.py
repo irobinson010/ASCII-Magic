@@ -462,3 +462,57 @@ def test_render_bad_options_400():
 def test_render_invalid_mode_400():
     r = _render({"source": "image", "mode": "nope"})
     assert r.status_code == 400
+
+
+# ---- untrusted option values: 400 or a safe default, never a 500 ----
+
+@pytest.mark.parametrize(
+    "key,value,extra",
+    [
+        ("caption_style", "nope", {"caption_text": "Hi"}),
+        ("caption_style", 5, {"caption_text": "Hi"}),
+        ("caption_pos", "middle", {"caption_text": "Hi"}),
+        ("caption_align", "up", {"caption_text": "Hi"}),
+        ("quality", "nope", {"mode": "glyph"}),
+        ("ascii_preset", "nope", {"mode": "glyph"}),
+    ],
+)
+def test_render_rejects_unknown_enum_values(key, value, extra):
+    r = _render({"source": "image", "mode": "braille", "cols": 16, **extra, key: value})
+    assert r.status_code == 400
+    assert key in r.json()["detail"]
+
+
+@pytest.mark.parametrize("text", [["hi"], 5, {"a": 1}])
+def test_render_rejects_non_string_text(text):
+    r = _render({"source": "text", "text": text}, image=False)
+    assert r.status_code == 400
+
+
+@pytest.mark.parametrize("key", ["cols", "rotate", "gamma", "threshold"])
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", 1e400])
+def test_render_non_finite_numbers_fall_back(key, value):
+    r = _render({"source": "image", "mode": "braille", "cols": 16, key: value})
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("raw,expected", [("abc", None), ("1.5", 1), (-5, 0), ([1], None)])
+def test_render_matrix_seed_garbage_is_sanitized_and_echoed(raw, expected):
+    r = _render({"source": "image", "mode": "braille", "cols": 16, "matrix": True, "matrix_seed": raw})
+    assert r.status_code == 200
+    seed = r.json()["seed"]
+    assert isinstance(seed, int) and 0 <= seed < 2**31
+    if expected is not None:
+        assert seed == expected
+
+
+@pytest.mark.parametrize("value", ["false", "0", "off", "no", False])
+def test_render_colorize_false_strings(value):
+    r = _render({"source": "image", "mode": "braille", "cols": 16, "colorize": value})
+    assert r.status_code == 200
+    assert "\x1b[38;2;" not in r.json()["ansi"]
+
+
+def test_render_colorize_true_string():
+    r = _render({"source": "image", "mode": "braille", "cols": 16, "threshold": 1, "colorize": "true"})
+    assert "\x1b[38;2;" in r.json()["ansi"]
