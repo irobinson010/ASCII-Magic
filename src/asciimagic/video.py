@@ -641,6 +641,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    from .console import utf8_stdout
+
+    utf8_stdout()
     from .presets import add_preset_args, parse_args as parse_with_presets
 
     parser = build_arg_parser()
