@@ -317,6 +317,37 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
     return opt
 
 
+def _decode_image_upload(upload: UploadFile) -> Image.Image:
+    """Read an uploaded image under the size/pixel caps: EXIF orientation
+    applied, transparency composited, RGB. Errors are HTTP 4xx."""
+    chunks = []
+    total = 0
+    while True:
+        chunk = upload.file.read(1 << 20)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Image larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+            )
+        chunks.append(chunk)
+    try:
+        img = Image.open(io.BytesIO(b"".join(chunks)))
+        if img.width * img.height > MAX_IMAGE_PIXELS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image exceeds {MAX_IMAGE_PIXELS:,} pixels.",
+            )
+        # Honor EXIF orientation (browsers show the thumbnail rotated;
+        # without this the render comes out sideways).
+        img = ImageOps.exif_transpose(img)
+        return flatten_alpha(img).convert("RGB")  # full decode happens here
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(status_code=400, detail="Could not decode the uploaded image.")
+
+
 def _plain_html(ascii_text: str, o: dict[str, Any]) -> str:
     lines = [html_escape(ln) for ln in ascii_text.splitlines()]
     return colorize_mod.wrap_html(
@@ -532,34 +563,7 @@ def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
         return _render_video(image, o, t0)
 
     if image is not None:
-        chunks = []
-        total = 0
-        while True:
-            chunk = image.file.read(1 << 20)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Image larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
-                )
-            chunks.append(chunk)
-        raw = b"".join(chunks)
-        try:
-            img = Image.open(io.BytesIO(raw))
-            if img.width * img.height > MAX_IMAGE_PIXELS:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Image exceeds {MAX_IMAGE_PIXELS:,} pixels.",
-                )
-            # Honor EXIF orientation (browsers show the thumbnail rotated;
-            # without this the render comes out sideways) + manual rotation.
-            img = ImageOps.exif_transpose(img)
-            img = rotate_cw(img, _ival(o, "rotate", 0, 0, 270))
-            ctx.source_image = flatten_alpha(img).convert("RGB")  # full decode happens here
-        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
-            raise HTTPException(status_code=400, detail="Could not decode the uploaded image.")
+        ctx.source_image = rotate_cw(_decode_image_upload(image), _ival(o, "rotate", 0, 0, 270))
 
     source = o.get("source", "image")
     if source == "text":
@@ -736,6 +740,122 @@ def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
         "gif_b64": gif_b64,
         "seed": seed,
         "warning": warning,
+        "elapsed_ms": round((time.perf_counter() - t0) * 1000),
+    }
+
+
+MAX_COMPOSE_LAYERS = 12
+MAX_COMPOSE_TEXT = 500
+
+
+@app.post("/api/compose")
+def compose_endpoint(
+    images: list[UploadFile] = File(default=[]),
+    scene: str = Form(...),
+) -> dict[str, Any]:
+    """Render a composition. Image layers reference uploads by position:
+    ``{"type": "image", "upload": 0}`` uses the first file in `images`."""
+    with _render_slot():
+        return _compose(images, scene)
+
+
+def _compose(images: list[UploadFile], scene_json: str) -> dict[str, Any]:
+    from .compose import Scene, compose
+
+    t0 = time.perf_counter()
+    try:
+        raw = json.loads(scene_json)
+        if not isinstance(raw, dict):
+            raise ValueError("scene must be a JSON object")
+        layers_raw = raw.get("layers") or []
+        if not isinstance(layers_raw, list):
+            raise ValueError("'layers' must be a list")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Bad scene JSON: {e}")
+    if not layers_raw:
+        raise HTTPException(status_code=400, detail="Add at least one layer.")
+    if len(layers_raw) > MAX_COMPOSE_LAYERS:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_COMPOSE_LAYERS} layers.")
+    if len(images) > MAX_COMPOSE_LAYERS:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_COMPOSE_LAYERS} images.")
+
+    # Uploads replace file paths: a web scene must never make the server read
+    # its own filesystem (src) or load an arbitrary font file (font).
+    uploads: dict[int, int] = {}
+    cleaned = []
+    for i, layer in enumerate(layers_raw):
+        if not isinstance(layer, dict):
+            raise HTTPException(status_code=400, detail=f"layers[{i}] must be an object")
+        layer = dict(layer)
+        for key in ("src", "font"):
+            if layer.get(key):
+                raise HTTPException(status_code=400, detail=f"layers[{i}]: '{key}' is not allowed on the web")
+            layer.pop(key, None)
+        if layer.get("type") == "image":
+            idx = layer.pop("upload", None)
+            if not isinstance(idx, int) or not 0 <= idx < len(images):
+                raise HTTPException(status_code=400, detail=f"layers[{i}]: missing or invalid 'upload'")
+            uploads[i] = idx
+        else:
+            layer.pop("upload", None)
+            text = layer.get("text")
+            if isinstance(text, str) and len(text) > MAX_COMPOSE_TEXT:
+                raise HTTPException(status_code=400, detail=f"layers[{i}]: text longer than {MAX_COMPOSE_TEXT} chars")
+        cleaned.append(layer)
+    try:
+        sc = Scene.from_dict({"canvas": raw.get("canvas") or {}, "layers": cleaned})
+        for layer in sc.layers:
+            layer.validate()
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    decoded: dict[int, Image.Image] = {}
+    cache: dict[int, Image.Image] = {}
+    cells_total = 0
+    glyph_pixels = 0
+    for i, idx in uploads.items():
+        if idx not in cache:
+            cache[idx] = _decode_image_upload(images[idx])
+        img = cache[idx]
+        decoded[i] = img
+        layer = sc.layers[i]
+        cw, ch = (8, 16) if layer.mode == "glyph" else (2, 4)
+        w, h = (img.height, img.width) if layer.rotate in (90, 270) else img.size
+        if layer.cols is None and layer.rows is not None:
+            cols = max(1, round(layer.rows * w * ch / (h * cw)))
+        else:
+            cols = layer.cols or 80
+        rows = layer.rows or _estimated_rows(w, h, cols, cw, ch)
+        cells_total += cols * rows
+        if layer.mode == "glyph":
+            glyph_pixels += cols * rows * cw * ch
+    _check_budget(cells_total, MAX_CELLS, "characters across image layers", "Make the image layers smaller.")
+    _check_budget(glyph_pixels, MAX_GLYPH_PIXELS, "glyph-matching pixels",
+                  "Use braille mode or make the glyph layers smaller.")
+
+    try:
+        comp = compose(sc, images=decoded, max_cells=MAX_CELLS)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # A scene the CLI can re-render: uploads become file names to place
+    # next to the JSON.
+    saved = sc.to_dict()
+    for i, idx in uploads.items():
+        name = Path(images[idx].filename or f"image{idx}.png").name
+        saved["layers"][i]["src"] = name
+
+    return {
+        "ascii": comp.to_text(),
+        "ansi": comp.to_ansi(),
+        "html": comp.to_html(),
+        "gif_b64": None,
+        "scene": saved,
+        "canvas": {"cols": comp.cols, "rows": comp.rows},
+        "layers": [
+            {"index": p.index, "label": p.label, "x": p.x, "y": p.y, "w": p.w, "h": p.h}
+            for p in comp.placed
+        ],
         "elapsed_ms": round((time.perf_counter() - t0) * 1000),
     }
 
