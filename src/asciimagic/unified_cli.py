@@ -13,6 +13,7 @@ COMMANDS = {
     "web": "asciimagic.webapp",
     "video": "asciimagic.video",
     "completion": "asciimagic.completion",
+    "compose": "asciimagic.compose",
 }
 
 
