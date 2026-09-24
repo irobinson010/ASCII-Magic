@@ -353,6 +353,7 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
                 max_pixels=MAX_IMAGE_PIXELS,
                 max_decoded=MAX_DECODED_VIDEO_FRAMES,
                 max_cell_frames=MAX_ANIM_CELL_FRAMES,
+                untrusted=True,
             )
         except VideoTooLarge as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -433,17 +434,20 @@ def _render_mp4(image: Optional[UploadFile], options: str):
         raise HTTPException(status_code=400, detail=f"Bad options JSON: {e}")
 
     v, src_path = _video_from_upload(image, o)
-    out = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-    out.close()
+    out_path = None
     try:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as out:
+            out_path = out.name
         try:
-            v.write_mp4(out.name, audio_source=src_path)
+            v.write_mp4(out_path, audio_source=src_path, untrusted_source=True)
         except (RuntimeError, OSError) as e:
             raise HTTPException(status_code=400, detail=f"Could not encode mp4: {e}")
-        data = open(out.name, "rb").read()
+        with open(out_path, "rb") as f:
+            data = f.read()
     finally:
         os_mod.unlink(src_path)
-        os_mod.unlink(out.name)
+        if out_path:
+            os_mod.unlink(out_path)
 
     return Response(
         content=data,

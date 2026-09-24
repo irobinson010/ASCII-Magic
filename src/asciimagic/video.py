@@ -72,19 +72,37 @@ def _require_imageio():
     return iio
 
 
-def _has_audio_stream(path: str) -> bool:
+# ffmpeg input options for files from untrusted sources (web uploads): local
+# file I/O only, and only plain media demuxers -- no playlist/concat formats
+# that make ffmpeg open other files or URLs named inside the upload. Recent
+# ffmpeg already refuses the known tricks by default; this also covers an
+# older system ffmpeg selected via IMAGEIO_FFMPEG_EXE.
+SAFE_DEMUXERS = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,gif,mpegts,ogg,flv"
+UNTRUSTED_INPUT_PARAMS = ["-protocol_whitelist", "file,pipe", "-format_whitelist", SAFE_DEMUXERS]
+FFMPEG_PROBE_TIMEOUT_S = 30
+
+
+def _has_audio_stream(path: str, untrusted: bool = False) -> bool:
     import subprocess
 
     import imageio_ffmpeg
 
-    proc = subprocess.run(
-        [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-i", path],
-        capture_output=True,
-        text=True,
-        errors="replace",
-    )
+    cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner"]
+    if untrusted:
+        cmd += UNTRUSTED_INPUT_PARAMS
+    try:
+        proc = subprocess.run(
+            cmd + ["-i", path],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=FFMPEG_PROBE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return False
     # ffmpeg exits nonzero without an output file; the stream listing on
-    # stderr is still complete.
+    # stderr is still complete. A file the whitelisted probe cannot open
+    # lists no streams, so it is never handed to the muxer as audio.
     return "Audio:" in proc.stderr
 
 
@@ -126,6 +144,7 @@ def read_video_frames(
     max_width: Optional[int] = None,
     max_pixels: Optional[int] = None,
     max_decoded: Optional[int] = None,
+    untrusted: bool = False,
 ) -> Tuple[List[Image.Image], float]:
     """Sample video frames as PIL images. Returns (frames, output_fps).
 
@@ -133,9 +152,13 @@ def read_video_frames(
     with the output grid instead of the source resolution. ``max_pixels``
     rejects oversized source frames; ``max_decoded`` bounds how many frames
     are decoded in total (sampling skips frames, but still decodes them).
+    ``untrusted`` restricts ffmpeg to local files and plain media demuxers.
     """
     iio = _require_imageio()
-    reader = iio.get_reader(path)
+    if untrusted and not path.lower().endswith(".gif"):  # .gif goes through Pillow
+        reader = iio.get_reader(path, format="FFMPEG", input_params=list(UNTRUSTED_INPUT_PARAMS))
+    else:
+        reader = iio.get_reader(path)
     frames: List[Image.Image] = []
     try:
         src_fps = _source_fps(reader.get_meta_data())
@@ -291,6 +314,7 @@ class AsciiVideo:
         audio_source: Optional[str] = None,
         font_path: Optional[str] = None,
         font_size: int = 14,
+        untrusted_source: bool = False,
     ) -> bool:
         """Encode the frames as an mp4, muxing audio from audio_source (usually
         the original clip). Returns True if audio made it in, False if the
@@ -323,7 +347,7 @@ class AsciiVideo:
             finally:
                 gen.close()
 
-        if audio_source is not None and not _has_audio_stream(audio_source):
+        if audio_source is not None and not _has_audio_stream(audio_source, untrusted_source):
             audio_source = None  # write silent; encode errors below propagate
         _write(audio_source)
         return audio_source is not None
@@ -352,6 +376,7 @@ def video_to_ascii(
     max_pixels: Optional[int] = None,
     max_decoded: Optional[int] = None,
     max_cell_frames: Optional[int] = None,
+    untrusted: bool = False,
 ) -> AsciiVideo:
     """``max_pixels``/``max_decoded`` bound decoding (see read_video_frames);
     ``max_cell_frames`` bounds output characters x frames, checked before
@@ -362,6 +387,7 @@ def video_to_ascii(
     frames, out_fps = read_video_frames(
         path, sample_fps=sample_fps, max_frames=max_frames,
         max_width=max_width, max_pixels=max_pixels, max_decoded=max_decoded,
+        untrusted=untrusted,
     )
     if max_cell_frames is not None:
         cw, ch = (8, 16) if mode == "glyph" else (2, 4)
