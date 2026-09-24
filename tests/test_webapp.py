@@ -668,3 +668,45 @@ def test_video_oversized_frames_rejected(monkeypatch):
     r = _render_video({"cols": 40}, _gif_bytes((64, 48)))
     assert r.status_code == 400
     assert "pixels" in r.json()["detail"]
+
+
+# ---- cross-origin POSTs ----
+
+@pytest.mark.parametrize("origin,status", [
+    (None, 200),                        # curl/scripts: no Origin header
+    ("http://testserver", 200),         # the GUI itself
+    ("http://evil.example", 403),
+    ("http://testserver.evil.example", 403),
+    ("http://testserver:9999", 403),    # other local dev server, other port
+    ("null", 403),                      # sandboxed iframe / file://
+])
+def test_render_origin_check(origin, status):
+    headers = {"origin": origin} if origin else {}
+    r = client.post(
+        "/api/render",
+        files={"image": ("t.png", _png_bytes(), "image/png")},
+        data={"options": json.dumps({"source": "image", "mode": "braille", "cols": 16})},
+        headers=headers,
+    )
+    assert r.status_code == status
+
+
+def test_get_requests_skip_origin_check():
+    assert client.get("/api/health", headers={"origin": "http://evil.example"}).status_code == 200
+
+
+def test_allowed_origins_allowlist():
+    from fastapi import FastAPI
+
+    from asciimagic.webapp import SameOriginMiddleware
+
+    inner = FastAPI()
+
+    @inner.post("/x")
+    def x():
+        return {}
+
+    inner.add_middleware(SameOriginMiddleware, allowed_origins=["https://ascii.example.com/", ""])
+    c = TestClient(inner)
+    assert c.post("/x", headers={"origin": "https://ascii.example.com"}).status_code == 200
+    assert c.post("/x", headers={"origin": "https://other.example.com"}).status_code == 403

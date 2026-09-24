@@ -116,15 +116,7 @@ class BodySizeLimitMiddleware:
                 if declared > self.max_bytes or declared < 0:
                     status = 413 if declared > self.max_bytes else 400
                     detail = _too_large().detail if status == 413 else "Bad Content-Length."
-                    body = json.dumps({"detail": detail}).encode()
-                    await send({
-                        "type": "http.response.start",
-                        "status": status,
-                        "headers": [(b"content-type", b"application/json"),
-                                    (b"content-length", str(len(body)).encode()),
-                                    (b"connection", b"close")],
-                    })
-                    await send({"type": "http.response.body", "body": body})
+                    await _send_json(send, status, detail, [(b"connection", b"close")])
                     return
 
         received = 0
@@ -143,8 +135,57 @@ class BodySizeLimitMiddleware:
         await self.app(scope, limited_receive, send)
 
 
+async def _send_json(send, status: int, detail: str, extra_headers=()) -> None:
+    body = json.dumps({"detail": detail}).encode()
+    await send({
+        "type": "http.response.start",
+        "status": status,
+        "headers": [(b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()), *extra_headers],
+    })
+    await send({"type": "http.response.body", "body": body})
+
+
+class SameOriginMiddleware:
+    """Refuse state-changing requests that a browser sent from another site.
+
+    A multipart POST is a CORS "simple request": any page the user visits
+    can fire one at http://127.0.0.1:8000/api/render without a preflight,
+    and make the server burn CPU on the attacker's behalf. Browsers always
+    attach an Origin header to cross-origin POSTs, so a present Origin must
+    match the Host the request was sent to (or be listed in
+    ASCII_MAGIC_ALLOWED_ORIGINS, comma-separated, for reverse-proxy setups).
+    Requests without Origin (curl, scripts) are not browser-driven and pass.
+    """
+
+    SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+    def __init__(self, app, allowed_origins=()):
+        self.app = app
+        self.allowed = {o.strip().rstrip("/").lower() for o in allowed_origins if o.strip()}
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] in self.SAFE_METHODS:
+            await self.app(scope, receive, send)
+            return
+        headers = {k: v for k, v in scope.get("headers", ())}
+        origin = headers.get(b"origin")
+        if origin is not None:
+            origin_s = origin.decode("latin-1").strip().rstrip("/").lower()
+            host = headers.get(b"host", b"").decode("latin-1").strip().lower()
+            netloc = origin_s.split("://", 1)[-1]
+            if origin_s not in self.allowed and (origin_s == "null" or netloc != host):
+                await _send_json(send, 403, "Cross-origin request refused.")
+                return
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(title="ASCII Magic")
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
+app.add_middleware(
+    SameOriginMiddleware,
+    allowed_origins=os.environ.get("ASCII_MAGIC_ALLOWED_ORIGINS", "").split(","),
+)
 
 
 def _check_budget(value: int, limit: int, what: str, hint: str) -> None:
