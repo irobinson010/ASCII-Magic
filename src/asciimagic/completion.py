@@ -55,6 +55,7 @@ def _collect(parser: argparse.ArgumentParser) -> Spec:
 def _specs() -> Dict[str, Spec]:
     # webapp is not imported: it needs the [web] extra; its two flags are static.
     from .colorize_ascii import build_arg_parser as colorize_parser
+    from .compose import build_arg_parser as compose_parser
     from .greet import build_arg_parser as greet_parser
     from .image_to_ascii import build_arg_parser as image_parser
     from .text_to_ascii import build_arg_parser as text_parser
@@ -66,6 +67,7 @@ def _specs() -> Dict[str, Spec]:
         "text": _collect(text_parser()),
         "greet": _collect(greet_parser()),
         "video": _collect(video_parser()),
+        "compose": _collect(compose_parser()),
         "web": (["--host", "--port", "-h", "--help"], {}, {}),
         "completion": (["-h", "--help"], {"shell": ["bash", "zsh"]}, {}),
     }
