@@ -168,6 +168,9 @@ def scale_grid(lines, target_h, target_w):
     """Nearest-neighbor scale of a rectangular character grid."""
     src_h = len(lines)
     src_w = max(len(l) for l in lines) if lines else 0
+    if src_w == 0:
+        # Nothing to sample: an all-blank source scales to an all-blank grid.
+        return [" " * target_w for _ in range(target_h)]
     padded = [l.ljust(src_w) for l in lines]
 
     out = []
@@ -377,6 +380,9 @@ def scale_art_block(art_lines: Sequence[str], target_art_h: int, opt: SizeOption
 
     src_h = len(art_lines)
     src_w = max(len(ln) for ln in art_lines)
+    if src_w == 0:
+        # Only empty lines: no aspect to preserve, nothing to resample.
+        return list(art_lines[:target_art_h])
     art_rect = [ln.ljust(src_w) for ln in art_lines]
 
     # EXACT size mode (wins over max-* constraints)
@@ -471,6 +477,8 @@ def matrix_field(lines, img, m: MatrixOptions):
     h = len(lines)
     w = max(len(ln) for ln in lines)
     grid = [ln.ljust(w) for ln in lines]
+    if w == 0:
+        return grid, [[] for _ in range(h)]
 
     # Resize once for sampling
     img = img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
@@ -653,6 +661,8 @@ def colorize_lines_ansi(lines, img, color_spaces=False):
     h = len(lines)
     w = max(len(ln) for ln in lines)
     grid = [ln.ljust(w) for ln in lines]
+    if w == 0:
+        return ["" for _ in lines]
 
     img = img.resize((w, h), Image.Resampling.LANCZOS)
     px = img.load()
@@ -690,6 +700,8 @@ def colorize_lines_html(lines, img, color_spaces=False, fill_spaces=False):
     h = len(lines)
     w = max(len(ln) for ln in lines)
     grid = [ln.ljust(w) for ln in lines]
+    if w == 0:
+        return ["" for _ in lines]
 
     img = img.resize((w, h), Image.Resampling.LANCZOS)
     px = img.load()
@@ -947,6 +959,8 @@ def colorize_ascii_text(
 
 def main():
     img_path, ascii_path, out_path, opt = parse_args(sys.argv)
+    if out_path == "-":
+        out_path = None  # '-' means stdout
 
     t0 = time.perf_counter()
     setup_logging(opt.debug, opt.log_path)
