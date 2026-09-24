@@ -255,3 +255,51 @@ def test_cli_rejects_zero_fps(clip, tmp_path, capsys):
     with pytest.raises(SystemExit):
         video_main([str(clip), "-o", str(tmp_path / "o.gif"), "--fps", "0"])
     assert "--fps" in capsys.readouterr().err
+
+
+# ---- bounded decoding ----
+
+@pytest.fixture
+def big_clip(tmp_path):
+    frames = [Image.new("RGB", (800, 600), (i * 20, 40, 90)) for i in range(6)]
+    path = tmp_path / "big.gif"
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=100, loop=0)
+    return path
+
+
+def test_read_frames_downscaled_to_max_width(big_clip):
+    frames, _ = video_mod.read_video_frames(str(big_clip), max_width=100)
+    assert all(f.size == (100, 75) for f in frames)
+
+
+def test_video_to_ascii_keeps_frames_near_grid_size(big_clip):
+    v = video_mod.video_to_ascii(str(big_clip), cols=20)
+    assert all(img.width <= 20 * 4 for _, img in v.frames)
+    assert max(len(ln) for ln in v.frames[0][0]) == 20
+
+
+def test_read_frames_rejects_oversized_frames(big_clip):
+    with pytest.raises(video_mod.VideoTooLarge):
+        video_mod.read_video_frames(str(big_clip), max_pixels=100_000)
+
+
+def test_read_frames_bounds_decoding(big_clip):
+    frames, _ = video_mod.read_video_frames(str(big_clip), sample_fps=10.0, max_decoded=3)
+    assert len(frames) == 3
+
+
+def test_video_to_ascii_cell_frame_budget(big_clip):
+    with pytest.raises(video_mod.VideoTooLarge, match="characters x frames"):
+        video_mod.video_to_ascii(str(big_clip), cols=40, max_cell_frames=100)
+
+
+@pytest.mark.parametrize("meta,expected", [
+    ({"fps": 25.0}, 25.0),
+    ({"fps": 1e9}, 10.0),
+    ({"fps": float("nan")}, 10.0),
+    ({"fps": -5}, 10.0),
+    ({"fps": "junk"}, 10.0),
+    ({"duration": 50}, 20.0),
+])
+def test_source_fps_sanitizes_metadata(meta, expected):
+    assert video_mod._source_fps(meta) == expected

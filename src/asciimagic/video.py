@@ -88,33 +88,72 @@ def _has_audio_stream(path: str) -> bool:
     return "Audio:" in proc.stderr
 
 
+class VideoTooLarge(ValueError):
+    """The video (or its conversion) exceeds a caller-supplied limit."""
+
+
+# Container metadata is untrusted: a crafted fps would set the sampling step
+# (and so how many frames get decoded) to anything.
+_MAX_SANE_FPS = 1000.0
+
+
+def _source_fps(meta: dict) -> float:
+    fps = meta.get("fps")
+    if not fps:
+        # GIFs report per-frame duration (ms) instead of fps
+        duration = meta.get("duration") or 100
+        fps = 1000.0 / duration if duration else 10.0
+    try:
+        fps = float(fps)
+    except (TypeError, ValueError):
+        return 10.0
+    if not (0 < fps <= _MAX_SANE_FPS):
+        return 10.0
+    return fps
+
+
+def _fit_width(img: Image.Image, max_width: Optional[int]) -> Image.Image:
+    if max_width and img.width > max_width:
+        h = max(1, round(img.height * max_width / img.width))
+        img = img.resize((max_width, h), Image.Resampling.LANCZOS)
+    return img
+
+
 def read_video_frames(
     path: str,
     sample_fps: float = 10.0,
     max_frames: int = 300,
+    max_width: Optional[int] = None,
+    max_pixels: Optional[int] = None,
+    max_decoded: Optional[int] = None,
 ) -> Tuple[List[Image.Image], float]:
-    """Sample video frames as PIL images. Returns (frames, output_fps)."""
+    """Sample video frames as PIL images. Returns (frames, output_fps).
+
+    ``max_width`` downscales each kept frame as it is read, so memory scales
+    with the output grid instead of the source resolution. ``max_pixels``
+    rejects oversized source frames; ``max_decoded`` bounds how many frames
+    are decoded in total (sampling skips frames, but still decodes them).
+    """
     iio = _require_imageio()
     reader = iio.get_reader(path)
-    meta = reader.get_meta_data()
-
-    src_fps = meta.get("fps")
-    if not src_fps:
-        # GIFs report per-frame duration (ms) instead of fps
-        duration = meta.get("duration") or 100
-        src_fps = 1000.0 / duration if duration else 10.0
-
-    step = max(1, round(src_fps / max(0.1, sample_fps)))
-    out_fps = src_fps / step
-
     frames: List[Image.Image] = []
     try:
+        src_fps = _source_fps(reader.get_meta_data())
+        step = max(1, round(src_fps / max(0.1, sample_fps)))
+        out_fps = src_fps / step
+
         for i, arr in enumerate(reader):
+            if max_decoded is not None and i >= max_decoded:
+                break
+            if max_pixels is not None and arr.shape[0] * arr.shape[1] > max_pixels:
+                raise VideoTooLarge(
+                    f"Video frames are {arr.shape[1]}x{arr.shape[0]}; limit is {max_pixels:,} pixels."
+                )
             if i % step:
                 continue
             if len(frames) >= max_frames:
                 break
-            frames.append(_arr_to_image(arr))
+            frames.append(_fit_width(_arr_to_image(arr), max_width))
     finally:
         reader.close()
 
@@ -310,8 +349,30 @@ def video_to_ascii(
     matrix: Optional[MatrixOptions] = None,
     caption=None,  # colorize_ascii.CaptionOptions
     rows: Optional[int] = None,
+    max_pixels: Optional[int] = None,
+    max_decoded: Optional[int] = None,
+    max_cell_frames: Optional[int] = None,
 ) -> AsciiVideo:
-    frames, out_fps = read_video_frames(path, sample_fps=sample_fps, max_frames=max_frames)
+    """``max_pixels``/``max_decoded`` bound decoding (see read_video_frames);
+    ``max_cell_frames`` bounds output characters x frames, checked before
+    the per-frame conversion. Limits raise VideoTooLarge."""
+    # The converters resample to cols x (2|8) px wide anyway; keep 2x headroom
+    # for braille so its resize still has detail to average over.
+    max_width = max(1, cols) * (8 if mode == "glyph" else 4)
+    frames, out_fps = read_video_frames(
+        path, sample_fps=sample_fps, max_frames=max_frames,
+        max_width=max_width, max_pixels=max_pixels, max_decoded=max_decoded,
+    )
+    if max_cell_frames is not None:
+        cw, ch = (8, 16) if mode == "glyph" else (2, 4)
+        w, h = frames[0].size
+        n_rows = rows or max(1, int((h / w) * cols * (cw / ch)))
+        total = cols * n_rows * len(frames)
+        if total > max_cell_frames:
+            raise VideoTooLarge(
+                f"Output too large: characters x frames would be {total:,} "
+                f"(limit {max_cell_frames:,}). Lower the columns or max frames."
+            )
     converted = _convert_frames(
         frames, cols=cols, mode=mode, quality=quality, dither=dither,
         threshold=threshold, gamma=gamma, autocontrast=autocontrast, invert=invert,
@@ -457,12 +518,17 @@ def record_camera(
     matrix = convert_kwargs.pop("matrix", None)
     caption = convert_kwargs.pop("caption", None)
 
+    # Up to 1800 frames are held before conversion; shrink them on arrival
+    # (720p x 1800 at full size is ~5 GB).
+    max_width = max(1, convert_kwargs.get("cols", 100)) * (
+        8 if convert_kwargs.get("mode") == "glyph" else 4
+    )
     reader = iio.get_reader(source)
     frames: List[Image.Image] = []
     t0 = time.monotonic()
     try:
         for arr in reader:
-            img = _arr_to_image(arr)
+            img = _fit_width(_arr_to_image(arr), max_width)
             if mirror:
                 img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
             frames.append(img)

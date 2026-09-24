@@ -58,6 +58,8 @@ MAX_REQUEST_BYTES = MAX_VIDEO_UPLOAD_BYTES + 2 * 1024 * 1024
 MAX_CELLS = _env_int("ASCII_MAGIC_MAX_CELLS", 250_000)
 MAX_GLYPH_PIXELS = _env_int("ASCII_MAGIC_MAX_GLYPH_PIXELS", 16_000_000)
 MAX_ANIM_CELL_FRAMES = _env_int("ASCII_MAGIC_MAX_ANIM_CELL_FRAMES", 1_000_000)
+# Sampling skips frames but still decodes them; bounds a long, high-fps clip.
+MAX_DECODED_VIDEO_FRAMES = _env_int("ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES", 5_000)
 
 # Renders are CPU-bound; running more at once than there are cores only makes
 # every one of them slower, and an unbounded pile-up ties up every worker
@@ -325,8 +327,9 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
     try:
         tmp.write(b"".join(chunks))
         tmp.close()
+        from .video import VideoTooLarge, video_to_ascii
+
         try:
-            from .video import video_to_ascii
 
             built = _build_options(o, "ansi")
             matrix = built.matrix if _bool(o, "matrix") else None
@@ -347,8 +350,13 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
                 quality=o.get("quality") if o.get("quality") in ("fast", "balanced", "best") else "balanced",
                 matrix=matrix,
                 caption=caption,
+                max_pixels=MAX_IMAGE_PIXELS,
+                max_decoded=MAX_DECODED_VIDEO_FRAMES,
+                max_cell_frames=MAX_ANIM_CELL_FRAMES,
             )
-        except (RuntimeError, ValueError, OSError) as e:
+        except VideoTooLarge as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except (RuntimeError, ValueError, OSError, Image.DecompressionBombError) as e:
             raise HTTPException(status_code=400, detail=f"Could not read the video: {e}")
     except Exception:
         os_mod.unlink(tmp.name)
