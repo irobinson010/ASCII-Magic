@@ -370,11 +370,15 @@ def compose_caption(
     gap: int = 1,
     align: str = "center",
     font_path: str | None = None,
+    cols: int | None = None,
+    rows: int | None = None,
 ) -> str:
     """Stitch a rendered text caption above or below a block of ASCII art."""
     art_lines = art.splitlines()
     width = max((len(ln) for ln in art_lines), default=1)
-    cap = caption_lines(text, width, style=style, scale=scale, align=align, font_path=font_path)
+    cap = caption_lines(
+        text, width, style=style, scale=scale, align=align, font_path=font_path, cols=cols, rows=rows
+    )
     spacer = [""] * max(0, int(gap))
     if position == "top":
         combined = cap + spacer + art_lines

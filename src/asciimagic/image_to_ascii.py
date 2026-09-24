@@ -688,6 +688,8 @@ def main():
                 position=args.caption_pos,
                 style=args.caption_style,
                 scale=args.caption_scale,
+                cols=args.caption_cols,
+                rows=args.caption_rows,
                 gap=args.caption_gap,
                 color=args.caption_color,
                 align=args.caption_align,
