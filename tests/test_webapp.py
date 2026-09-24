@@ -629,3 +629,42 @@ def test_budget_allows_gui_defaults_on_portrait_photo():
         size=(300, 400),
     )
     assert r.status_code == 200
+
+
+def _gif_bytes(size, n=4):
+    frames = [Image.new("RGB", size, (i * 40, 60, 90)) for i in range(n)]
+    buf = io.BytesIO()
+    frames[0].save(buf, format="GIF", save_all=True, append_images=frames[1:], duration=100, loop=0)
+    return buf.getvalue()
+
+
+def _render_video(options, data):
+    return client.post(
+        "/api/render",
+        files={"image": ("v.gif", data, "image/gif")},
+        data={"options": json.dumps({"source": "video", **options})},
+    )
+
+
+def test_video_render_ok_with_defaults():
+    r = _render_video({"cols": 40}, _gif_bytes((64, 48)))
+    assert r.status_code == 200
+    assert r.json()["video"]["frames"] == 4
+
+
+def test_video_budget_rejected(monkeypatch):
+    from asciimagic import webapp
+
+    monkeypatch.setattr(webapp, "MAX_ANIM_CELL_FRAMES", 100)
+    r = _render_video({"cols": 40}, _gif_bytes((64, 48)))
+    assert r.status_code == 400
+    assert "characters x frames" in r.json()["detail"]
+
+
+def test_video_oversized_frames_rejected(monkeypatch):
+    from asciimagic import webapp
+
+    monkeypatch.setattr(webapp, "MAX_IMAGE_PIXELS", 1000)
+    r = _render_video({"cols": 40}, _gif_bytes((64, 48)))
+    assert r.status_code == 400
+    assert "pixels" in r.json()["detail"]
