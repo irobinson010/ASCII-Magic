@@ -284,6 +284,32 @@ There are also lower-level in-memory helpers if you do not want the context obje
 - `asciimagic.image_to_ascii.image_to_braille_from_image(...)`
 - `asciimagic.colorize_ascii.colorize_ascii_text(...)`
 
+## Getting the best look: tune, presets, and your terminal
+
+Which settings look best depends on the picture and on your terminal. Instead of guessing flags, let `tune` show you:
+
+```bash
+ascii-magic tune photo.png                    # ~12 numbered variants, each labeled with its exact flags
+ascii-magic tune photo.png --color -o sheet.html   # the same, side by side in a browser
+ascii-magic tune photo.png --pick 4 --save-preset my-photos
+ascii-magic image other.png --preset my-photos     # the same look on any picture
+```
+
+**Presets** save a look once and reuse it exactly. Add `--save-preset NAME` to any `image`, `colorize`, `video`, or `text` run to save every non-default flag (never the input or output file). `--preset NAME` brings them back, and flags you pass alongside still win (`--preset my-photos -c 60`). Built-ins:
+
+| Preset (image) | For |
+|---|---|
+| `photo` | Photos on a light background: braille, dithered, contrast-stretched |
+| `photo-dark-terminal` | Photos shown in a dark terminal: bright areas become ink |
+| `line-art` | Cartoons, logos, line art: glyph matching at best quality |
+| `ssh-safe` | Plain printable ASCII and 256 colors: displays correctly on any server (also for `colorize` and `video`) |
+
+`ascii-magic presets` lists them; `presets show image NAME` and `presets delete image NAME` do what they say. Saved presets live in `~/.config/ascii-magic/presets.json`.
+
+**Colors over SSH and older terminals.** Output uses 24-bit color by default. Terminals that can't show it (common over SSH, the Linux console, older macOS Terminal, tmux without truecolor) show wrong colors or garbage. `--color-depth 256` or `--color-depth 16` converts the output; `--color-depth auto` detects the terminal (files stay 24-bit). The login greeting always uses `auto`, so a greeting installed on a server adapts to whoever logs in. `ASCII_MAGIC_COLOR_DEPTH=256` forces a depth everywhere.
+
+**Squashed or stretched output?** Terminal fonts differ in how tall a character is compared to its width. Run `ascii-magic tune --aspect-chart`, see which box looks square, and pass that number as `--cell-aspect` (or save it in a preset).
+
 ## Compose images and text (`ascii-magic compose`)
 
 Stack any number of images and text blocks on one canvas and place each one exactly. Start a layer with `--image PATH` or `--text TEXT`; the options after it apply to that layer. Later layers paint over earlier ones.

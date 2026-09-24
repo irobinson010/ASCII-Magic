@@ -15,6 +15,7 @@ COMMANDS = {
     "completion": "asciimagic.completion",
     "compose": "asciimagic.compose",
     "presets": "asciimagic.presets",
+    "tune": "asciimagic.tune",
 }
 
 
