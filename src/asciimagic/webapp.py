@@ -14,8 +14,11 @@ import base64
 import io
 import json
 import math
+import os
 import random
+import threading
 import time
+from contextlib import contextmanager
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Optional
@@ -31,13 +34,128 @@ from .pipeline import AsciiPipelineContext, animate as pipeline_animate, coloriz
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="ASCII Magic")
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except ValueError:
+        return default
+
 
 # Hard server-side limits — the GUI enforces friendlier ones client-side,
 # but nothing stops a hand-crafted request, and the Docker CMD binds 0.0.0.0.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_VIDEO_UPLOAD_BYTES = 100 * 1024 * 1024
+# Whole request body (largest upload + multipart framing + options JSON).
+# Enforced while the body streams in, before anything is spooled to disk.
+MAX_REQUEST_BYTES = MAX_VIDEO_UPLOAD_BYTES + 2 * 1024 * 1024
+
+# Work budgets. Render time scales with output characters (and, for glyph
+# matching, the pixels per cell; for animations, the frame count). Measured
+# at roughly 11 us per character-frame for animations, so the defaults keep
+# a single request to ~10 s on one core. Override via environment.
+MAX_CELLS = _env_int("ASCII_MAGIC_MAX_CELLS", 250_000)
+MAX_GLYPH_PIXELS = _env_int("ASCII_MAGIC_MAX_GLYPH_PIXELS", 16_000_000)
+MAX_ANIM_CELL_FRAMES = _env_int("ASCII_MAGIC_MAX_ANIM_CELL_FRAMES", 1_000_000)
+
+# Renders are CPU-bound; running more at once than there are cores only makes
+# every one of them slower, and an unbounded pile-up ties up every worker
+# thread. Excess requests wait briefly for a slot, then get a 503.
+MAX_CONCURRENT_RENDERS = _env_int("ASCII_MAGIC_MAX_CONCURRENT", min(4, os.cpu_count() or 1))
+RENDER_QUEUE_TIMEOUT_S = 15.0
+_render_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RENDERS)
+
+
+@contextmanager
+def _render_slot():
+    if not _render_slots.acquire(timeout=RENDER_QUEUE_TIMEOUT_S):
+        raise HTTPException(
+            status_code=503,
+            detail="Server busy; try again in a few seconds.",
+            headers={"Retry-After": "5"},
+        )
+    try:
+        yield
+    finally:
+        _render_slots.release()
+
+
+def _too_large() -> HTTPException:
+    return HTTPException(
+        status_code=413, detail=f"Request larger than {MAX_REQUEST_BYTES // (1024 * 1024)} MB."
+    )
+
+
+class BodySizeLimitMiddleware:
+    """Reject oversized request bodies while they stream in.
+
+    Starlette spools multipart files to disk with no size cap before the
+    handler runs, so a per-file check in the handler comes too late: a
+    multi-GB POST fills the disk first. A declared Content-Length over the
+    limit is refused up front; chunked bodies are counted as they arrive.
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        for name, value in scope.get("headers", ()):
+            if name == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    declared = -1
+                if declared > self.max_bytes or declared < 0:
+                    status = 413 if declared > self.max_bytes else 400
+                    detail = _too_large().detail if status == 413 else "Bad Content-Length."
+                    body = json.dumps({"detail": detail}).encode()
+                    await send({
+                        "type": "http.response.start",
+                        "status": status,
+                        "headers": [(b"content-type", b"application/json"),
+                                    (b"content-length", str(len(body)).encode()),
+                                    (b"connection", b"close")],
+                    })
+                    await send({"type": "http.response.body", "body": body})
+                    return
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    # Raised inside the route's body parsing, so FastAPI's
+                    # exception handling turns it into a normal 413 response.
+                    raise _too_large()
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+
+app = FastAPI(title="ASCII Magic")
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
+
+
+def _check_budget(value: int, limit: int, what: str, hint: str) -> None:
+    if value > limit:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Output too large: {what} would be {value:,} (limit {limit:,}). {hint}",
+        )
+
+
+def _estimated_rows(img_w: int, img_h: int, cols: int, cell_w: int, cell_h: int) -> int:
+    """Rows the image converters produce for `cols` (their aspect formula)."""
+    return max(1, int((img_h / max(1, img_w)) * cols * (cell_w / cell_h)))
 VIDEO_SUFFIXES = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".gif")
 
 
@@ -113,6 +231,8 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
         v = _ival(o, src_key, None, 1, 2000)
         if v:
             setattr(size, attr, v)
+    if size.rows and size.cols:
+        _check_budget(size.rows * size.cols, MAX_CELLS, "characters", "Lower the exact rows/cols.")
 
     h = opt.html
     h.font_size_px = _ival(o, "html_font_size", 12, 4, 64)
@@ -287,6 +407,11 @@ def render_mp4(
 ):
     """Encode-on-demand mp4 (with the source's audio). The GUI calls this
     only when the user clicks the .mp4 download, so previews stay fast."""
+    with _render_slot():
+        return _render_mp4(image, options)
+
+
+def _render_mp4(image: Optional[UploadFile], options: str):
     import os as os_mod
     import tempfile
 
@@ -326,6 +451,11 @@ def render(
     image: Optional[UploadFile] = File(None),
     options: str = Form("{}"),
 ) -> dict[str, Any]:
+    with _render_slot():
+        return _render(image, options)
+
+
+def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
     try:
         o: dict[str, Any] = json.loads(options)
         if not isinstance(o, dict):
@@ -400,15 +530,27 @@ def render(
     elif source == "image":
         if ctx.source_image is None:
             raise HTTPException(status_code=400, detail="No image uploaded.")
+        mode = o.get("mode", "braille")
+        cols = _ival(o, "cols", 120, 1, 500)
+        cell_w = _ival(o, "cell_w", 8, 1, 32)
+        cell_h = _ival(o, "cell_h", 16, 1, 64)
+        cw, ch = (cell_w, cell_h) if mode == "glyph" else (2, 4)  # braille: 2x4 dots
+        cells = cols * _estimated_rows(*ctx.source_image.size, cols, cw, ch)
+        _check_budget(cells, MAX_CELLS, "characters", "Lower the column count.")
+        if mode == "glyph":
+            _check_budget(
+                cells * cell_w * cell_h, MAX_GLYPH_PIXELS, "glyph-matching pixels",
+                "Lower the column count or the cell size.",
+            )
         try:
             image_to_ascii(
                 ctx,
-                mode=o.get("mode", "braille"),
-                cols=_ival(o, "cols", 120, 1, 500),
-                cell_w=_ival(o, "cell_w", 8, 1, 64),
-                cell_h=_ival(o, "cell_h", 16, 1, 128),
+                mode=mode,
+                cols=cols,
+                cell_w=cell_w,
+                cell_h=cell_h,
                 quality=_choice(o, "quality", "balanced", QUALITIES),
-                topk=_ival(o, "topk", 24, 1, 500),
+                topk=_ival(o, "topk", 24, 1, 200),
                 ascii_preset=_choice(o, "ascii_preset", "dense", ASCII_PRESETS),
                 unicode_mode=o.get("unicode_mode", "off"),
                 autocontrast=_bool(o, "autocontrast"),
@@ -484,6 +626,12 @@ def render(
             fps=_fval(o, "anim_fps", 12.0, 1.0, 30.0),
             tail=_fval(o, "anim_tail", 6.0, 0.5, 40.0),
             reveal=_bool(o, "anim_reveal"),
+        )
+        art = (ctx.ascii_text or "").splitlines()
+        _check_budget(
+            len(art) * max((len(ln) for ln in art), default=0) * anim_opt.frames,
+            MAX_ANIM_CELL_FRAMES, "characters x frames",
+            "Lower the column count or the number of frames.",
         )
         built = _build_options(o, "ansi")
         animation = pipeline_animate(ctx, matrix=built.matrix, anim=anim_opt, caption=built.caption)

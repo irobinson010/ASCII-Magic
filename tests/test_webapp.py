@@ -516,3 +516,116 @@ def test_render_colorize_false_strings(value):
 def test_render_colorize_true_string():
     r = _render({"source": "image", "mode": "braille", "cols": 16, "threshold": 1, "colorize": "true"})
     assert "\x1b[38;2;" in r.json()["ansi"]
+
+
+# ---- resource limits ----
+
+def _limited_app(max_bytes):
+    from fastapi import FastAPI, File, UploadFile
+
+    from asciimagic.webapp import BodySizeLimitMiddleware
+
+    inner = FastAPI()
+
+    @inner.post("/up")
+    def up(f: UploadFile = File(...)):
+        return {"n": len(f.file.read())}
+
+    inner.add_middleware(BodySizeLimitMiddleware, max_bytes=max_bytes)
+    return TestClient(inner)
+
+
+def test_body_limit_allows_small_uploads():
+    r = _limited_app(10_000).post("/up", files={"f": ("a.bin", b"x" * 100)})
+    assert r.status_code == 200 and r.json() == {"n": 100}
+
+
+def test_body_limit_rejects_declared_content_length():
+    r = _limited_app(1_000).post("/up", files={"f": ("a.bin", b"x" * 5_000)})
+    assert r.status_code == 413
+
+
+def test_body_limit_rejects_chunked_body_without_content_length():
+    boundary = "b0undary"
+    payload = (
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"f\"; filename=\"a.bin\"\r\n\r\n"
+    ).encode() + b"x" * 5_000 + f"\r\n--{boundary}--\r\n".encode()
+
+    def chunks():
+        for i in range(0, len(payload), 512):
+            yield payload[i:i + 512]
+
+    r = _limited_app(1_000).post(
+        "/up", content=chunks(), headers={"content-type": f"multipart/form-data; boundary={boundary}"}
+    )
+    assert r.status_code == 413
+
+
+def test_render_returns_503_when_all_slots_busy(monkeypatch):
+    import threading
+
+    from asciimagic import webapp
+
+    busy = threading.BoundedSemaphore(1)
+    busy.acquire()
+    monkeypatch.setattr(webapp, "_render_slots", busy)
+    monkeypatch.setattr(webapp, "RENDER_QUEUE_TIMEOUT_S", 0.01)
+    r = _render({"source": "image", "mode": "braille", "cols": 16})
+    assert r.status_code == 503
+    assert r.headers.get("retry-after")
+
+
+def test_render_slot_released_after_error(monkeypatch):
+    import threading
+
+    from asciimagic import webapp
+
+    monkeypatch.setattr(webapp, "_render_slots", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(webapp, "RENDER_QUEUE_TIMEOUT_S", 0.01)
+    assert _render({"source": "image", "mode": "nope"}).status_code == 400
+    assert _render({"source": "image", "mode": "braille", "cols": 16}).status_code == 200
+
+
+def _render_img(options, size):
+    files = {"image": ("t.png", _png_bytes(size=size), "image/png")}
+    return client.post("/api/render", files=files, data={"options": json.dumps(options)})
+
+
+def test_budget_rejects_huge_cell_count():
+    # 1:50 portrait at 500 cols -> ~12,500 braille rows
+    r = _render_img({"source": "image", "mode": "braille", "cols": 500}, size=(20, 1000))
+    assert r.status_code == 400
+    assert "Output too large" in r.json()["detail"]
+
+
+def test_budget_rejects_huge_glyph_pixels():
+    r = _render_img(
+        {"source": "image", "mode": "glyph", "cols": 500, "cell_w": 32, "cell_h": 64}, size=(400, 400)
+    )
+    assert r.status_code == 400
+    assert "glyph-matching pixels" in r.json()["detail"]
+
+
+def test_budget_rejects_exact_size_over_limit():
+    r = _render({"source": "image", "mode": "braille", "cols": 16, "out_rows": 2000, "out_cols": 2000})
+    assert r.status_code == 400
+
+
+def test_budget_rejects_long_animation():
+    r = _render_img(
+        {"source": "image", "mode": "braille", "cols": 240, "matrix": True, "animate": True,
+         "anim_frames": 240},
+        size=(400, 400),
+    )
+    assert r.status_code == 400
+    assert "frames" in r.json()["detail"]
+
+
+def test_budget_allows_gui_defaults_on_portrait_photo():
+    # GUI defaults: 100 cols braille, 60-frame animation; 3:4 portrait photo.
+    r = _render_img(
+        {"source": "image", "mode": "braille", "cols": 100, "matrix": True, "animate": True,
+         "anim_frames": 60},
+        size=(300, 400),
+    )
+    assert r.status_code == 200
