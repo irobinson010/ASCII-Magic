@@ -184,6 +184,17 @@ def scale_grid(lines, target_h, target_w):
 _OUT_EXTS = (".ans", ".html", ".gif", ".frames")
 
 
+def positive_float(value: str) -> float:
+    """argparse type: a finite float > 0 (e.g. --fps; 0 would divide by zero)."""
+    try:
+        f = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid number: {value!r}")
+    if not (0 < f < float("inf")):
+        raise argparse.ArgumentTypeError(f"must be a positive number, got {value}")
+    return f
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="colorize-ascii",
@@ -265,7 +276,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--animate", action="store_true",
                    help="Matrix rain animation (implies --matrix)")
     g.add_argument("--frames", type=int, default=60, metavar="N", help="Frames per loop")
-    g.add_argument("--fps", type=float, default=12.0, metavar="F")
+    g.add_argument("--fps", type=positive_float, default=12.0, metavar="F")
     g.add_argument("--tail", type=float, default=6.0, metavar="F", help="Drop tail fade length")
     g.add_argument("--loops", type=int, default=3, metavar="N",
                    help="Terminal playback repeats (0 = until Ctrl-C)")

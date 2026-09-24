@@ -29,6 +29,7 @@ from .colorize_ascii import (
     matrix_lines_ansi,
     matrix_render_cells,
     parse_matrix_color,
+    positive_float,
 )
 from .image_to_ascii import (
     find_default_mono_font,
@@ -132,6 +133,8 @@ class AsciiVideo:
         matrix: Optional[MatrixOptions] = None,
         caption=None,  # animate.CaptionRender
     ):
+        if not (0 < fps < float("inf")):
+            raise ValueError(f"fps must be a positive number, got {fps}")
         self.frames = frames  # per frame: (ascii lines, source frame image)
         self.fps = fps
         self.matrix = matrix if (matrix and matrix.enabled) else None
@@ -491,7 +494,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("-c", "--cols", type=int, default=100, help="Width in characters")
     ap.add_argument("--rows", type=int, default=None, metavar="N",
                     help="Exact output height in rows (stretches/squishes the frame)")
-    ap.add_argument("--fps", type=float, default=10.0,
+    ap.add_argument("--fps", type=positive_float, default=10.0,
                     help="Target sample/playback fps (default: 10)")
     ap.add_argument("--max-frames", type=int, default=300,
                     help="Cap on sampled frames (default: 300)")
