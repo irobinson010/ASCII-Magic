@@ -56,18 +56,26 @@ def _specs() -> Dict[str, Spec]:
     # webapp is not imported: it needs the [web] extra; its two flags are static.
     from .colorize_ascii import build_arg_parser as colorize_parser
     from .compose import build_arg_parser as compose_parser
+    from .presets import add_preset_args, build_arg_parser as presets_parser
+    from .tune import build_arg_parser as tune_parser
     from .greet import build_arg_parser as greet_parser
     from .image_to_ascii import build_arg_parser as image_parser
     from .text_to_ascii import build_arg_parser as text_parser
     from .video import build_arg_parser as video_parser
 
+    def with_presets(parser):
+        add_preset_args(parser)  # added in each command's main(), not its parser
+        return parser
+
     specs = {
-        "colorize": _collect(colorize_parser()),
-        "image": _collect(image_parser()),
-        "text": _collect(text_parser()),
+        "colorize": _collect(with_presets(colorize_parser())),
+        "image": _collect(with_presets(image_parser())),
+        "text": _collect(with_presets(text_parser())),
         "greet": _collect(greet_parser()),
-        "video": _collect(video_parser()),
+        "video": _collect(with_presets(video_parser())),
         "compose": _collect(compose_parser()),
+        "presets": _collect(presets_parser()),
+        "tune": _collect(tune_parser()),
         "web": (["--host", "--port", "-h", "--help"], {}, {}),
         "completion": (["-h", "--help"], {"shell": ["bash", "zsh"]}, {}),
     }

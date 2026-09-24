@@ -14,6 +14,8 @@ COMMANDS = {
     "video": "asciimagic.video",
     "completion": "asciimagic.completion",
     "compose": "asciimagic.compose",
+    "presets": "asciimagic.presets",
+    "tune": "asciimagic.tune",
 }
 
 
@@ -22,6 +24,23 @@ def usage(prog: Optional[str] = None) -> None:
     cmds = ", ".join(sorted(COMMANDS))
     print(f"Usage: {prog} <command> [args...]")
     print(f"Commands: {cmds}")
+
+
+def _is_closed_stdout(e: OSError) -> bool:
+    """A write to a pipe whose reader exited: BrokenPipeError (EPIPE) on
+    POSIX, but OSError EINVAL on Windows. EINVAL is ambiguous, so only count
+    it when stdout itself is now unusable."""
+    import errno
+
+    if isinstance(e, BrokenPipeError) or e.errno == errno.EPIPE:
+        return True
+    if e.errno != errno.EINVAL:
+        return False
+    try:
+        sys.stdout.flush()
+    except OSError:
+        return True
+    return False
 
 
 def _call_entry(entry, argv: List[str], module_prog: Optional[str] = None) -> int:
@@ -43,7 +62,30 @@ def _call_entry(entry, argv: List[str], module_prog: Optional[str] = None) -> in
             sys.argv = old_argv
     except SystemExit as se:
         code = se.code
-        return code if isinstance(code, int) else 0
+        if code is None:
+            return 0
+        if isinstance(code, int):
+            return code
+        # SystemExit("message") is how commands report fatal errors; Python
+        # itself prints the message and exits 1 -- do the same, instead of
+        # swallowing it as success.
+        print(code, file=sys.stderr)
+        return 1
+    except OSError as e:
+        if not _is_closed_stdout(e):
+            if os.environ.get("ASCII_MAGIC_DEBUG"):
+                raise
+            print(f"Error running command: {e} (set ASCII_MAGIC_DEBUG=1 for a traceback)", file=sys.stderr)
+            return 1
+        # The reader went away (e.g. `ascii-magic image x.png | head`): not an
+        # error. Point stdout at devnull so the shutdown flush stays quiet.
+        try:
+            fd = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(fd, sys.stdout.fileno())
+            os.close(fd)
+        except (OSError, ValueError):
+            pass
+        return 0
     except Exception as e:
         if os.environ.get("ASCII_MAGIC_DEBUG"):
             raise
@@ -52,6 +94,9 @@ def _call_entry(entry, argv: List[str], module_prog: Optional[str] = None) -> in
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    from .console import utf8_stdout
+
+    utf8_stdout()
     if argv is None:
         argv = sys.argv[1:]
     argv = list(argv)

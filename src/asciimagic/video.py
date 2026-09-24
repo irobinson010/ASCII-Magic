@@ -23,6 +23,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from .ansi import add_depth_arg, downsample, resolve_depth
 from .colorize_ascii import (
     MatrixOptions,
     colorize_lines_ansi,
@@ -352,10 +353,11 @@ class AsciiVideo:
         _write(audio_source)
         return audio_source is not None
 
-    def play(self, loops: int = 1) -> None:
+    def play(self, loops: int = 1, color_depth: str = "truecolor") -> None:
+        from .ansi import downsample
         from .greet import play_frames
 
-        play_frames(self.frames_ansi(), self.fps, loops)
+        play_frames([downsample(f, color_depth) for f in self.frames_ansi()], self.fps, loops)
 
 
 def video_to_ascii(
@@ -475,6 +477,7 @@ def live_view(
     mirror: bool = True,
     out=None,
     max_frames: Optional[int] = None,
+    color_depth: str = "truecolor",
 ) -> int:
     """Stream a camera (or any source) to the terminal as live ASCII until
     Ctrl-C. Returns the number of frames shown. `max_frames`/`out` exist for
@@ -516,7 +519,7 @@ def live_view(
                 from .animate import with_caption_rows
 
                 rows = with_caption_rows(list(rows), cap_render, cap_rows)
-            out.write("\x1b[H" + "\n".join(rows) + "\x1b[0m")
+            out.write(downsample("\x1b[H" + "\n".join(rows) + "\x1b[0m", color_depth))
             out.flush()
             shown += 1
             if max_frames is not None and shown >= max_frames:
@@ -630,6 +633,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gamma", type=float, default=1.0)
     ap.add_argument("--autocontrast", action="store_true")
     ap.add_argument("--invert", action="store_true")
+    add_depth_arg(ap)
     ap.add_argument("--loops", type=int, default=1,
                     help="Terminal playback repeats (0 = until Ctrl-C)")
     ap.add_argument("--font-size", type=int, default=14, help="GIF glyph size")
@@ -637,7 +641,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    from .console import utf8_stdout
+
+    utf8_stdout()
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    parser = build_arg_parser()
+    add_preset_args(parser)
+    args = parse_with_presets(parser, argv, "video")
 
     if args.out and not args.out.lower().endswith((".gif", ".frames", ".mp4")):
         raise SystemExit("Output must be .gif, .mp4, or .frames (or omitted for terminal playback)")
@@ -677,6 +688,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     gamma=args.gamma, autocontrast=args.autocontrast,
                     invert=args.invert, matrix=matrix, caption=caption,
                     mirror=args.mirror,
+                    color_depth=resolve_depth(args.color_depth, to_terminal=True),
                 )
                 return 0
             video = record_camera(
@@ -708,7 +720,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         raise SystemExit(str(e))
 
     if args.out is None:
-        video.play(loops=args.loops)
+        video.play(loops=args.loops, color_depth=resolve_depth(args.color_depth, to_terminal=True))
     elif args.out.lower().endswith(".gif"):
         with open(args.out, "wb") as f:
             f.write(video.to_gif_bytes(font_size=args.font_size))
@@ -727,7 +739,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         from .greet import write_frames_file
 
-        write_frames_file(Path(args.out), video.frames_ansi(), fps=video.fps, loops=args.loops)
+        depth = resolve_depth(args.color_depth, to_terminal=False)
+        frames = [downsample(f, depth) for f in video.frames_ansi()]
+        write_frames_file(Path(args.out), frames, fps=video.fps, loops=args.loops)
         print(f"Wrote {args.out} ({len(video.frames)} frames @ {video.fps:.1f} fps)")
     return 0
 

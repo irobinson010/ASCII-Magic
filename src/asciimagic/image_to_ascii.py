@@ -92,6 +92,35 @@ _CW_TRANSPOSE = {
 }
 
 
+# The converters assume a character cell half as wide as it is tall.
+DEFAULT_CELL_ASPECT = 0.5
+
+
+def _cell_aspect(value: str) -> float:
+    import argparse
+
+    try:
+        f = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid number: {value!r}")
+    if not 0.2 <= f <= 1.2:
+        raise argparse.ArgumentTypeError(f"cell aspect must be between 0.2 and 1.2, got {value}")
+    return f
+
+
+def apply_cell_aspect(img: Image.Image, aspect: float) -> Image.Image:
+    """Compensate for terminals whose cells are not 1:2 (width:height).
+
+    Each output row covers a fixed slice of image height computed for 0.5;
+    scaling the height by aspect/0.5 makes circles come out round on a
+    terminal whose cells are `aspect` wide per unit of height.
+    """
+    if abs(aspect - DEFAULT_CELL_ASPECT) < 1e-9:
+        return img
+    w, h = img.size
+    return img.resize((w, max(1, round(h * aspect / DEFAULT_CELL_ASPECT))), Image.Resampling.LANCZOS)
+
+
 def rotate_cw(img: Image.Image, degrees: int) -> Image.Image:
     """Rotate clockwise in 90-degree steps (0/90/180/270)."""
     degrees = (int(degrees) // 90 * 90) % 360
@@ -635,6 +664,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="Caption color with --color: theme name or #RRGGBB")
     ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
 
+    from .ansi import add_depth_arg
+
+    add_depth_arg(ap)
+    ap.add_argument("--cell-aspect", type=_cell_aspect, default=DEFAULT_CELL_ASPECT, metavar="W/H",
+                    help="Your terminal's character cell width/height (default 0.5). Raise it if "
+                    "output looks squashed, lower it if stretched; `ascii-magic tune "
+                    "--aspect-chart` shows which value fits")
     ap.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
                     help="Rotate clockwise before conversion (EXIF orientation is "
                     "applied automatically)")
@@ -643,7 +679,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main():
-    args = build_arg_parser().parse_args()
+    from .console import utf8_stdout
+
+    utf8_stdout()
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    parser = build_arg_parser()
+    add_preset_args(parser)
+    args = parse_with_presets(parser, None, "image")
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
             charset = "".join(ch for ch in f.read())
@@ -661,7 +704,7 @@ def main():
 
     # Open once: EXIF orientation applied, optional manual rotation, and the
     # same pixels feed both the conversion and the --color pass.
-    src_img = rotate_cw(open_oriented(args.input, "RGB"), args.rotate)
+    src_img = apply_cell_aspect(rotate_cw(open_oriented(args.input, "RGB"), args.rotate), args.cell_aspect)
 
     if args.mode == "braille":
         art = image_to_braille_from_image(
@@ -712,6 +755,10 @@ def main():
                 align=args.caption_align,
             )
         art = colorize(ctx, opt=opt).rstrip("\n")
+        if fmt == "ansi":
+            from .ansi import downsample, resolve_depth
+
+            art = downsample(art, resolve_depth(args.color_depth, to_terminal=not args.output))
     elif args.caption:
         from .text_to_ascii import compose_caption
 

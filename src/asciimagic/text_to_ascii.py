@@ -455,8 +455,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main():
     """Main entry point for text-to-ASCII CLI."""
+    from .console import utf8_stdout
+
+    utf8_stdout()
     parser = build_arg_parser()
-    args = parser.parse_args()
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    add_preset_args(parser)
+    args = parse_with_presets(parser, None, "text")
 
     # Configure logging early so other functions can emit messages
     numeric_level = getattr(logging, args.log_level.upper(), None)
