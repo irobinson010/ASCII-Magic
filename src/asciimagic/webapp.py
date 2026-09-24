@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
 import random
 import time
 from html import escape as html_escape
@@ -47,7 +48,7 @@ def _ival(o: dict[str, Any], key: str, default, lo: int, hi: int):
         return default
     try:
         n = int(float(v))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: "inf"
         return default
     return max(lo, min(hi, n))
 
@@ -60,14 +61,47 @@ def _fval(o: dict[str, Any], key: str, default, lo: float, hi: float):
         n = float(v)
     except (TypeError, ValueError):
         return default
+    if not math.isfinite(n):
+        return default
     return max(lo, min(hi, n))
+
+
+_FALSY_STRINGS = {"", "0", "false", "off", "no"}
+
+
+def _bool(o: dict[str, Any], key: str, default: bool = False) -> bool:
+    """Bool from untrusted JSON; the string "false" must not read as True."""
+    v = o.get(key, default)
+    if isinstance(v, str):
+        return v.strip().lower() not in _FALSY_STRINGS
+    return bool(v)
+
+
+def _choice(o: dict[str, Any], key: str, default: str, allowed: tuple[str, ...]) -> str:
+    """Enum option from untrusted JSON; unknown values are a 400, not a 500
+    deep in the renderer (or a silent fallback)."""
+    v = o.get(key)
+    if v in (None, ""):
+        return default
+    if v not in allowed:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid {key}: {v!r} (expected one of {', '.join(allowed)})"
+        )
+    return v
+
+
+CAPTION_STYLES = ("block", "small", "shadow", "box", "banner", "figlet")
+CAPTION_POSITIONS = ("top", "bottom")
+CAPTION_ALIGNS = ("left", "center", "right")
+QUALITIES = ("fast", "balanced", "best")
+ASCII_PRESETS = ("dense", "printable")
 
 
 def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
     opt = colorize_mod.Options()
     opt.out_format = out_format
     opt.keep_top = _ival(o, "keep_top", 0, 0, 5000)
-    opt.color_top = bool(o.get("color_top"))
+    opt.color_top = _bool(o, "color_top")
 
     size = opt.size
     for src_key, attr in (
@@ -83,26 +117,26 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
     h = opt.html
     h.font_size_px = _ival(o, "html_font_size", 12, 4, 64)
     h.line_height_px = _ival(o, "html_line_height", None, 4, 96)
-    h.fill_spaces = bool(o.get("html_fill_spaces"))
+    h.fill_spaces = _bool(o, "html_fill_spaces")
 
     if o.get("caption_text"):
         c = opt.caption
         c.text = str(o["caption_text"])[:500]
-        c.position = o.get("caption_pos", "bottom")
-        c.style = o.get("caption_style", "block")
+        c.position = _choice(o, "caption_pos", "bottom", CAPTION_POSITIONS)
+        c.style = _choice(o, "caption_style", "block", CAPTION_STYLES)
         c.scale = _fval(o, "caption_scale", 0.6, 0.05, 1.0)
         c.cols = _ival(o, "caption_cols", None, 2, 500)
         c.rows = _ival(o, "caption_rows", None, 1, 200)
         c.gap = _ival(o, "caption_gap", 1, 0, 50)
         c.color = o.get("caption_color") or None
-        c.align = o.get("caption_align", "center")
+        c.align = _choice(o, "caption_align", "center", CAPTION_ALIGNS)
 
     m = opt.matrix
-    m.enabled = bool(o.get("matrix"))
+    m.enabled = _bool(o, "matrix")
     if m.enabled:
         if o.get("matrix_color"):
             m.tint = colorize_mod.parse_matrix_color(o["matrix_color"])
-        m.top = bool(o.get("matrix_top"))
+        m.top = _bool(o, "matrix_top")
         m.seed = _ival(o, "matrix_seed", None, 0, 2**31 - 1)
         m.gamma = _fval(o, "matrix_gamma", m.gamma, 0.1, 10.0)
         m.fg_min = _ival(o, "matrix_fg_min", m.fg_min, 0, 255)
@@ -111,8 +145,8 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
         m.bg_max = _ival(o, "matrix_bg_max", m.bg_max, 0, 255)
         if o.get("matrix_chars"):
             m.chars = str(o["matrix_chars"])[:500]
-        m.fill_spaces = bool(o.get("matrix_fill_spaces"))
-        m.use_mask = bool(o.get("matrix_mask"))
+        m.fill_spaces = _bool(o, "matrix_fill_spaces")
+        m.use_mask = _bool(o, "matrix_mask")
         m.mask_boost = _fval(o, "matrix_mask_boost", m.mask_boost, 0.0, 1.0)
         m.mask_density_floor = _fval(o, "matrix_mask_density_floor", m.mask_density_floor, 0.0, 1.0)
         m.bg_dim = _fval(o, "matrix_bg_dim", m.bg_dim, 0.0, 1.0)
@@ -175,7 +209,7 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
             from .video import video_to_ascii
 
             built = _build_options(o, "ansi")
-            matrix = built.matrix if o.get("matrix") else None
+            matrix = built.matrix if _bool(o, "matrix") else None
             caption = built.caption if o.get("caption_text") else None
             mode = o.get("video_mode") if o.get("video_mode") in ("braille", "glyph") else "braille"
             v = video_to_ascii(
@@ -184,11 +218,11 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
                 sample_fps=_fval(o, "video_fps", 8.0, 1.0, 30.0),
                 max_frames=_ival(o, "video_max_frames", 60, 1, 120),
                 rows=_ival(o, "video_rows", None, 1, 500),
-                dither=bool(o.get("dither", True)),
+                dither=_bool(o, "dither", True),
                 threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
                 gamma=_fval(o, "gamma", 1.0, 0.05, 10.0),
-                autocontrast=bool(o.get("autocontrast")),
-                invert=bool(o.get("invert")),
+                autocontrast=_bool(o, "autocontrast"),
+                invert=_bool(o, "invert"),
                 mode=mode,
                 quality=o.get("quality") if o.get("quality") in ("fast", "balanced", "best") else "balanced",
                 matrix=matrix,
@@ -346,7 +380,10 @@ def render(
 
     source = o.get("source", "image")
     if source == "text":
-        text = (o.get("text") or "").strip("\n")
+        text = o.get("text") or ""
+        if not isinstance(text, str):
+            raise HTTPException(status_code=400, detail="text must be a string.")
+        text = text.strip("\n")
         if not text:
             raise HTTPException(status_code=400, detail="No text provided.")
         try:
@@ -370,15 +407,15 @@ def render(
                 cols=_ival(o, "cols", 120, 1, 500),
                 cell_w=_ival(o, "cell_w", 8, 1, 64),
                 cell_h=_ival(o, "cell_h", 16, 1, 128),
-                quality=o.get("quality", "balanced"),
+                quality=_choice(o, "quality", "balanced", QUALITIES),
                 topk=_ival(o, "topk", 24, 1, 500),
-                ascii_preset=o.get("ascii_preset", "dense"),
+                ascii_preset=_choice(o, "ascii_preset", "dense", ASCII_PRESETS),
                 unicode_mode=o.get("unicode_mode", "off"),
-                autocontrast=bool(o.get("autocontrast")),
+                autocontrast=_bool(o, "autocontrast"),
                 gamma=_fval(o, "gamma", 1.0, 0.05, 10.0),
-                invert=bool(o.get("invert")),
+                invert=_bool(o, "invert"),
                 threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
-                dither=bool(o.get("dither")),
+                dither=_bool(o, "dither"),
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -387,8 +424,8 @@ def render(
 
     ascii_text = ctx.ascii_text or ""
     seed: Optional[int] = None
-    do_colorize = o.get("colorize", True)
-    do_animate = bool(o.get("animate"))
+    do_colorize = _bool(o, "colorize", True)
+    do_animate = _bool(o, "animate")
     if do_animate:
         o = {**o, "matrix": True}
 
@@ -400,11 +437,11 @@ def render(
         ascii_display = compose_caption(
             ascii_text,
             str(o["caption_text"])[:500],
-            position=o.get("caption_pos", "bottom"),
-            style=o.get("caption_style", "block"),
+            position=_choice(o, "caption_pos", "bottom", CAPTION_POSITIONS),
+            style=_choice(o, "caption_style", "block", CAPTION_STYLES),
             scale=_fval(o, "caption_scale", 0.6, 0.05, 1.0),
             gap=_ival(o, "caption_gap", 1, 0, 50),
-            align=o.get("caption_align", "center"),
+            align=_choice(o, "caption_align", "center", CAPTION_ALIGNS),
         )
 
     # Colorizing/animating needs a reference image; box/banner text styles
@@ -416,12 +453,12 @@ def render(
 
     # ANSI, HTML, and animation are rendered separately, so a random matrix
     # seed would diverge between them — pin one and echo it back.
-    if o.get("matrix") and (do_colorize or do_animate):
-        if o.get("matrix_seed") in (None, ""):
+    if _bool(o, "matrix") and (do_colorize or do_animate):
+        # Same parse as _build_options, so the echoed seed is the one used.
+        seed = _ival(o, "matrix_seed", None, 0, 2**31 - 1)
+        if seed is None:
             seed = random.randrange(2**31)
-            o = {**o, "matrix_seed": seed}
-        else:
-            seed = int(o["matrix_seed"])
+        o = {**o, "matrix_seed": seed}
 
     if do_colorize:
         ansi = colorize(ctx, opt=_build_options(o, "ansi"))
@@ -446,7 +483,7 @@ def render(
             frames=_ival(o, "anim_frames", 60, 1, 240),
             fps=_fval(o, "anim_fps", 12.0, 1.0, 30.0),
             tail=_fval(o, "anim_tail", 6.0, 0.5, 40.0),
-            reveal=bool(o.get("anim_reveal")),
+            reveal=_bool(o, "anim_reveal"),
         )
         built = _build_options(o, "ansi")
         animation = pipeline_animate(ctx, matrix=built.matrix, anim=anim_opt, caption=built.caption)
