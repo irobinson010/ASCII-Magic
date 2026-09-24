@@ -4,6 +4,8 @@ Mock-based unit tests for unified_cli live in test_unified_cli.py; these
 exercise the real modules through the dispatcher.
 """
 
+import re
+
 import pytest
 from PIL import Image
 
@@ -81,6 +83,33 @@ def test_image_without_color_stays_plain(tmp_path):
     )
     assert rc == 0
     assert "\x1b[" not in out.read_text(encoding="utf-8")
+
+
+def test_image_caption_without_color(tmp_path):
+    out = tmp_path / "art.txt"
+    rc = cli_main(
+        ["image", str(_png(tmp_path)), "--mode", "braille", "-c", "20",
+         "--caption", "Hi", "--caption-style", "box", "-o", str(out)]
+    )
+    assert rc == 0
+    content = out.read_text(encoding="utf-8")
+    assert "Hi" in content
+    assert "\x1b[" not in content
+
+
+def test_image_caption_exact_cols_rows(tmp_path):
+    out = tmp_path / "art.txt"
+    for extra in ([], ["--color"]):
+        rc = cli_main(
+            ["image", str(_png(tmp_path)), "--mode", "braille", "-c", "40",
+             "--caption", "Hi", "--caption-cols", "12", "--caption-rows", "3",
+             "--caption-gap", "0", "--caption-align", "left", *extra, "-o", str(out)]
+        )
+        assert rc == 0
+        lines = re.sub(r"\x1b\[[0-9;]*m", "", out.read_text(encoding="utf-8")).splitlines()
+        cap = lines[-3:]
+        assert max(len(ln.rstrip()) for ln in cap) <= 12
+        assert any(ln.strip() for ln in cap)
 
 
 # ---- colorize argparse ----
