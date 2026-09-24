@@ -348,6 +348,19 @@ ascii-magic-web            # http://127.0.0.1:8000
 
 The **Profile** switch in the header applies sensible defaults per target: *Terminal* (SSH greetings, `.ans` output) or *Web page* (larger canvas, filled spaces, `.html` output).
 
+### Server limits
+
+The server is safe to expose on a LAN or behind a reverse proxy: request bodies over ~102 MB get a 413 before anything touches disk, cross-site browser POSTs get a 403, and each render is checked against a work budget up front (a 400 names the knob to lower). The defaults keep one request to roughly 10 seconds of CPU. Tune them with environment variables:
+
+| Variable | Default | Limits |
+|---|---|---|
+| `ASCII_MAGIC_MAX_CONCURRENT` | `min(4, cores)` | Renders running at once; extra requests wait up to 15 s, then get a 503 |
+| `ASCII_MAGIC_MAX_CELLS` | `250000` | Output characters (cols × rows) |
+| `ASCII_MAGIC_MAX_GLYPH_PIXELS` | `16000000` | Glyph mode: characters × cell width × cell height |
+| `ASCII_MAGIC_MAX_ANIM_CELL_FRAMES` | `1000000` | Animations and video: characters × frames |
+| `ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES` | `5000` | Video frames decoded per upload (sampling skips frames but still decodes them) |
+| `ASCII_MAGIC_ALLOWED_ORIGINS` | *(none)* | Extra allowed `Origin`s, comma-separated, for a proxy that rewrites `Host` |
+
 ## Docker
 
 One image covers both the web GUI and one-shot CLI runs (it bundles DejaVu Sans Mono, so glyph matching works out of the box):
