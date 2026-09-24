@@ -100,3 +100,25 @@ class TestIntegration:
             res = text_to_ascii_art("Test", style=style)
 
         assert len(res) > 0
+
+
+def test_log_output_goes_to_stderr_not_stdout(monkeypatch, capsys):
+    import logging
+    import sys
+
+    from asciimagic import text_to_ascii
+
+    # basicConfig is a no-op once the root logger has handlers; start clean.
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [])
+    monkeypatch.setattr(sys, "argv", ["text-to-ascii", "Hi", "--log-level", "INFO"])
+    try:
+        text_to_ascii.main()
+    except SystemExit as e:
+        assert not e.code
+    finally:
+        for h in root.handlers:
+            root.removeHandler(h)
+    out, err = capsys.readouterr()
+    assert "INFO" not in out
+    assert "INFO" in err

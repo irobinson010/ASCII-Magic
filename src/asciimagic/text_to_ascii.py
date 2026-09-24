@@ -462,8 +462,9 @@ def main():
     numeric_level = getattr(logging, args.log_level.upper(), None)
     if not isinstance(numeric_level, int):
         numeric_level = logging.WARNING
+    # stderr: stdout carries the art, so log lines must not mix into it.
     logging.basicConfig(
-        stream=sys.stdout, level=numeric_level, format="%(levelname)s: %(message)s"
+        stream=sys.stderr, level=numeric_level, format="%(levelname)s: %(message)s"
     )
 
     # If no args, show help and exit 0

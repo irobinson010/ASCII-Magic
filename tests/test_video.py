@@ -247,3 +247,11 @@ def test_video_matrix_cli_flags(clip, tmp_path):
     frames, _, _ = read_frames_file(out)
     assert len(frames) == 3
     assert "\x1b[38;2;" in frames[0]
+
+
+def test_cli_rejects_zero_fps(clip, tmp_path, capsys):
+    from asciimagic.video import main as video_main
+
+    with pytest.raises(SystemExit):
+        video_main([str(clip), "-o", str(tmp_path / "o.gif"), "--fps", "0"])
+    assert "--fps" in capsys.readouterr().err

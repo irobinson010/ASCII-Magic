@@ -181,3 +181,10 @@ def test_parse_stdout_dash():
     _, _, out, opt = _parse("img.png", "art.txt", "-")
     assert out == "-"
     assert opt.out_format == "ansi"
+
+
+@pytest.mark.parametrize("fps", ["0", "-2", "inf", "abc"])
+def test_parse_rejects_bad_fps(fps, capsys):
+    with pytest.raises(SystemExit):
+        _parse("img.png", "art.txt", "out.gif", "--animate", "--fps", fps)
+    assert "--fps" in capsys.readouterr().err
