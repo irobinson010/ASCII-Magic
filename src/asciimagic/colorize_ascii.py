@@ -978,6 +978,9 @@ def colorize_ascii_text(
 # -----------------------------
 
 def main():
+    from .console import utf8_stdout
+
+    utf8_stdout()
     img_path, ascii_path, out_path, opt = parse_args(sys.argv)
     if out_path == "-":
         out_path = None  # '-' means stdout

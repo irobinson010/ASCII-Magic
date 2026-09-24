@@ -135,6 +135,9 @@ def _chosen(args, n_variants: int) -> List[int]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    from .console import utf8_stdout
+
+    utf8_stdout()
     ap = build_arg_parser()
     args = ap.parse_args(argv)
 

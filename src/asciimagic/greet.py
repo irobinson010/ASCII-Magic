@@ -328,6 +328,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    from .console import utf8_stdout
+
+    utf8_stdout()
     args = build_arg_parser().parse_args(argv)
     return args.func(args)
 

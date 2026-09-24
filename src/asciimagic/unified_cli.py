@@ -94,6 +94,9 @@ def _call_entry(entry, argv: List[str], module_prog: Optional[str] = None) -> in
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    from .console import utf8_stdout
+
+    utf8_stdout()
     if argv is None:
         argv = sys.argv[1:]
     argv = list(argv)
