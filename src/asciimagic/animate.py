@@ -137,6 +137,8 @@ class MatrixAnimation:
         art_chars: Optional[List[str]] = None,            # padded source art grid
         art_rgb: Optional[np.ndarray] = None,             # (H,W,3) uint8 image colors
     ):
+        if not (0 < fps < float("inf")):
+            raise ValueError(f"fps must be a positive number, got {fps}")
         self.frames = frames  # per frame: (glyph idx int16, intensity uint8, head bool)
         self.chars = chars
         self.fps = fps

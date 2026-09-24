@@ -370,11 +370,15 @@ def compose_caption(
     gap: int = 1,
     align: str = "center",
     font_path: str | None = None,
+    cols: int | None = None,
+    rows: int | None = None,
 ) -> str:
     """Stitch a rendered text caption above or below a block of ASCII art."""
     art_lines = art.splitlines()
     width = max((len(ln) for ln in art_lines), default=1)
-    cap = caption_lines(text, width, style=style, scale=scale, align=align, font_path=font_path)
+    cap = caption_lines(
+        text, width, style=style, scale=scale, align=align, font_path=font_path, cols=cols, rows=rows
+    )
     spacer = [""] * max(0, int(gap))
     if position == "top":
         combined = cap + spacer + art_lines
@@ -458,8 +462,9 @@ def main():
     numeric_level = getattr(logging, args.log_level.upper(), None)
     if not isinstance(numeric_level, int):
         numeric_level = logging.WARNING
+    # stderr: stdout carries the art, so log lines must not mix into it.
     logging.basicConfig(
-        stream=sys.stdout, level=numeric_level, format="%(levelname)s: %(message)s"
+        stream=sys.stderr, level=numeric_level, format="%(levelname)s: %(message)s"
     )
 
     # If no args, show help and exit 0

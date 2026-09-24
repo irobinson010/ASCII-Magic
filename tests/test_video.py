@@ -247,3 +247,127 @@ def test_video_matrix_cli_flags(clip, tmp_path):
     frames, _, _ = read_frames_file(out)
     assert len(frames) == 3
     assert "\x1b[38;2;" in frames[0]
+
+
+def test_cli_rejects_zero_fps(clip, tmp_path, capsys):
+    from asciimagic.video import main as video_main
+
+    with pytest.raises(SystemExit):
+        video_main([str(clip), "-o", str(tmp_path / "o.gif"), "--fps", "0"])
+    assert "--fps" in capsys.readouterr().err
+
+
+# ---- bounded decoding ----
+
+@pytest.fixture
+def big_clip(tmp_path):
+    frames = [Image.new("RGB", (800, 600), (i * 20, 40, 90)) for i in range(6)]
+    path = tmp_path / "big.gif"
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=100, loop=0)
+    return path
+
+
+def test_read_frames_downscaled_to_max_width(big_clip):
+    frames, _ = video_mod.read_video_frames(str(big_clip), max_width=100)
+    assert all(f.size == (100, 75) for f in frames)
+
+
+def test_video_to_ascii_keeps_frames_near_grid_size(big_clip):
+    v = video_mod.video_to_ascii(str(big_clip), cols=20)
+    assert all(img.width <= 20 * 4 for _, img in v.frames)
+    assert max(len(ln) for ln in v.frames[0][0]) == 20
+
+
+def test_read_frames_rejects_oversized_frames(big_clip):
+    with pytest.raises(video_mod.VideoTooLarge):
+        video_mod.read_video_frames(str(big_clip), max_pixels=100_000)
+
+
+def test_read_frames_bounds_decoding(big_clip):
+    frames, _ = video_mod.read_video_frames(str(big_clip), sample_fps=10.0, max_decoded=3)
+    assert len(frames) == 3
+
+
+def test_video_to_ascii_cell_frame_budget(big_clip):
+    with pytest.raises(video_mod.VideoTooLarge, match="characters x frames"):
+        video_mod.video_to_ascii(str(big_clip), cols=40, max_cell_frames=100)
+
+
+@pytest.mark.parametrize("meta,expected", [
+    ({"fps": 25.0}, 25.0),
+    ({"fps": 1e9}, 10.0),
+    ({"fps": float("nan")}, 10.0),
+    ({"fps": -5}, 10.0),
+    ({"fps": "junk"}, 10.0),
+    ({"duration": 50}, 20.0),
+])
+def test_source_fps_sanitizes_metadata(meta, expected):
+    assert video_mod._source_fps(meta) == expected
+
+
+# ---- untrusted input (web uploads) ----
+
+@pytest.fixture
+def av_clip(tmp_path):
+    """1 s mp4 with an aac audio track, made by the bundled ffmpeg."""
+    import subprocess
+
+    imageio_ffmpeg = pytest.importorskip("imageio_ffmpeg")
+    path = tmp_path / "av.mp4"
+    proc = subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-v", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10",
+         "-f", "lavfi", "-i", "sine=frequency=440",
+         "-t", "1", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-c:a", "aac", "-shortest", str(path)],
+        capture_output=True, timeout=60,
+    )
+    if proc.returncode != 0:  # a build without lavfi/libx264: nothing to test with
+        pytest.skip(f"bundled ffmpeg cannot synthesize a test clip: {proc.stderr[-200:]!r}")
+    return path
+
+
+def test_untrusted_read_passes_ffmpeg_whitelists(monkeypatch, tmp_path):
+    seen = {}
+
+    class _IIO:
+        @staticmethod
+        def get_reader(path, **kw):
+            seen.update(kw)
+            return _FakeReader(n=2)
+
+    monkeypatch.setattr(video_mod, "_require_imageio", lambda: _IIO)
+    video_mod.read_video_frames(str(tmp_path / "x.mp4"), untrusted=True)
+    params = seen["input_params"]
+    assert params[params.index("-protocol_whitelist") + 1] == "file,pipe"
+    assert "hls" not in params[params.index("-format_whitelist") + 1]
+    assert "concat" not in params[params.index("-format_whitelist") + 1]
+
+
+def test_untrusted_read_decodes_real_mp4(av_clip):
+    frames, fps = video_mod.read_video_frames(str(av_clip), untrusted=True)
+    assert len(frames) == 10 and fps == 10.0
+
+
+def test_untrusted_read_refuses_concat_script(av_clip, tmp_path):
+    evil = tmp_path / "evil.mkv"
+    evil.write_text(f"ffconcat version 1.0\nfile {av_clip}\n")
+    with pytest.raises(OSError):
+        video_mod.read_video_frames(str(evil), untrusted=True)
+    assert video_mod._has_audio_stream(str(evil), untrusted=True) is False
+
+
+def test_audio_probe_times_out_quietly(monkeypatch, av_clip):
+    import subprocess
+
+    def hang(*a, **kw):
+        raise subprocess.TimeoutExpired(cmd="ffmpeg", timeout=kw.get("timeout"))
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    assert video_mod._has_audio_stream(str(av_clip), untrusted=True) is False
+
+
+def test_mp4_keeps_source_audio(av_clip, tmp_path):
+    v = video_mod.video_to_ascii(str(av_clip), cols=16, max_frames=5, untrusted=True)
+    out = tmp_path / "o.mp4"
+    assert v.write_mp4(str(out), audio_source=str(av_clip), untrusted_source=True) is True
+    assert b"mp4a" in out.read_bytes()

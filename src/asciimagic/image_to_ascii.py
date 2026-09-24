@@ -65,7 +65,24 @@ def open_oriented(path_or_file, mode: str = "RGB") -> Image.Image:
     it, PIL does not — without this, portrait photos render sideways.
     """
     img = ImageOps.exif_transpose(Image.open(path_or_file))
-    return img.convert(mode)
+    return flatten_alpha(img).convert(mode)
+
+
+def flatten_alpha(img: Image.Image, background=(255, 255, 255)) -> Image.Image:
+    """Composite any transparency onto a solid background.
+
+    A bare convert("RGB") drops alpha and exposes whatever color the
+    transparent pixels happen to store (usually black), which reads as solid
+    ink. White is the "paper" color here: light pixels map to blank cells.
+    """
+    has_alpha = img.mode in ("RGBA", "LA", "PA", "RGBa", "La") or (
+        img.mode in ("P", "L", "RGB") and "transparency" in img.info
+    )
+    if not has_alpha:
+        return img
+    rgba = img.convert("RGBA")
+    base = Image.new("RGBA", rgba.size, (*background, 255))
+    return Image.alpha_composite(base, rgba).convert("RGB")
 
 
 _CW_TRANSPOSE = {
@@ -688,6 +705,8 @@ def main():
                 position=args.caption_pos,
                 style=args.caption_style,
                 scale=args.caption_scale,
+                cols=args.caption_cols,
+                rows=args.caption_rows,
                 gap=args.caption_gap,
                 color=args.caption_color,
                 align=args.caption_align,

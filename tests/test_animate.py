@@ -194,3 +194,9 @@ def test_pipeline_animate_requires_ascii():
     ctx = AsciiPipelineContext(source_image=_image())
     with pytest.raises(ValueError, match="No ASCII text"):
         animate(ctx)
+
+
+@pytest.mark.parametrize("fps", [0, -1, float("inf"), float("nan")])
+def test_non_positive_fps_rejected(fps):
+    with pytest.raises(ValueError, match="fps"):
+        _gen(frames=2, fps=fps)
