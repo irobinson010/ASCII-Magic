@@ -119,6 +119,7 @@ class Options:
     color_top: bool = False
 
     rotate: int = 0  # CLI-only: clockwise rotation of the reference image
+    color_depth: str = "truecolor"  # CLI-only: truecolor | 256 | 16 | auto (ANSI sinks)
 
     debug: bool = False
     log_path: Optional[str] = None
@@ -286,6 +287,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--reveal", action="store_true",
                    help="Rain uncovers the colorized art, which persists beneath it")
 
+    from .ansi import add_depth_arg
+
+    add_depth_arg(ap)
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--log", dest="log_path", default=None, metavar="FILE")
     return ap
@@ -310,6 +314,7 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
         debug=ns.debug,
         log_path=ns.log_path,
         rotate=ns.rotate,
+        color_depth=ns.color_depth,
         animate=ns.animate,
         anim_frames=ns.frames,
         anim_fps=ns.fps,
@@ -1023,8 +1028,11 @@ def main():
             "\n".join(header + scaled_art), base_img, m=opt.matrix, a=anim_opt,
             caption=opt.caption,
         )
+        from .ansi import downsample, resolve_depth
+
+        depth = resolve_depth(opt.color_depth, to_terminal=out_path is None)
         if out_path is None:
-            animation.play(loops=opt.anim_loops)
+            animation.play(loops=opt.anim_loops, color_depth=depth)
         elif ext == ".gif":
             with open(out_path, "wb") as out:
                 out.write(animation.to_gif_bytes())
@@ -1036,7 +1044,8 @@ def main():
             from pathlib import Path
 
             write_frames_file(
-                Path(out_path), animation.frames_ansi(), fps=opt.anim_fps, loops=opt.anim_loops
+                Path(out_path), [downsample(f, depth) for f in animation.frames_ansi()],
+                fps=opt.anim_fps, loops=opt.anim_loops,
             )
         else:
             raise SystemExit("--animate output must be .gif, .html, .frames, or omitted for terminal playback")
@@ -1053,7 +1062,10 @@ def main():
             header, scaled_art, base_img, opt.color_top, opt.matrix,
             cap=opt.caption, cap_lines=cap_lines,
         )
+        from .ansi import downsample, resolve_depth
+
         text = "\n".join(out_lines) + "\n"
+        text = downsample(text, resolve_depth(opt.color_depth, to_terminal=out_path is None))
         if out_path:
             with open(out_path, "w", encoding="utf-8") as out:
                 out.write(text)
