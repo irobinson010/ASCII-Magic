@@ -57,6 +57,7 @@ def _specs() -> Dict[str, Spec]:
     from .colorize_ascii import build_arg_parser as colorize_parser
     from .compose import build_arg_parser as compose_parser
     from .presets import add_preset_args, build_arg_parser as presets_parser
+    from .tune import build_arg_parser as tune_parser
     from .greet import build_arg_parser as greet_parser
     from .image_to_ascii import build_arg_parser as image_parser
     from .text_to_ascii import build_arg_parser as text_parser
@@ -74,6 +75,7 @@ def _specs() -> Dict[str, Spec]:
         "video": _collect(with_presets(video_parser())),
         "compose": _collect(compose_parser()),
         "presets": _collect(presets_parser()),
+        "tune": _collect(tune_parser()),
         "web": (["--host", "--port", "-h", "--help"], {}, {}),
         "completion": (["-h", "--help"], {"shell": ["bash", "zsh"]}, {}),
     }
