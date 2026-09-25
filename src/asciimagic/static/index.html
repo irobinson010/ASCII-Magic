@@ -126,6 +126,10 @@
         <div class="field">
           <label for="text">Text</label>
           <textarea id="text" rows="3" placeholder="Hello, world"></textarea>
+          <span class="seed-row translate-row" data-target="text">
+            <select class="translate-to" aria-label="Translate to"></select>
+            <button class="translate-btn" type="button">Translate</button>
+          </span>
         </div>
         <div class="field">
           <label for="text_style">Style</label>
@@ -213,6 +217,10 @@
           <div class="field">
             <label for="caption_text">Text</label>
             <input type="text" id="caption_text" placeholder="e.g. Whiskers 2010–2024">
+            <span class="seed-row translate-row" data-target="caption_text">
+              <select class="translate-to" aria-label="Translate caption to"></select>
+              <button class="translate-btn" type="button">Translate</button>
+            </span>
           </div>
           <div class="field-row">
             <div class="field">
@@ -447,5 +455,6 @@
 
   <script src="app.js"></script>
   <script src="compose.js"></script>
+  <script src="translate.js"></script>
 </body>
 </html>

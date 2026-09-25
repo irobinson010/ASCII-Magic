@@ -16,6 +16,7 @@ import json
 import math
 import os
 import random
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -23,7 +24,7 @@ from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -905,6 +906,95 @@ def _compose(images: list[UploadFile], scene_json: str) -> dict[str, Any]:
     }
 
 
+# ---- translation ----
+
+MAX_TRANSLATE_CHARS = 500
+
+
+def _downloads_allowed() -> bool:
+    """Model downloads (~100+ MB each) are off unless the operator opts in;
+    `ascii-magic web` opts in automatically when bound to localhost."""
+    return os.environ.get("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "").strip().lower() in ("1", "true", "yes")
+
+
+_available_cache: dict[str, Any] = {}
+
+
+def _available_models() -> list:
+    """Downloadable models from the Argos index, cached for an hour; empty if
+    the index can't be reached (the GUI then just shows installed ones)."""
+    from . import translate as tr
+
+    now = time.time()
+    if _available_cache.get("at", 0) > now - 3600:
+        return _available_cache["list"]
+    try:
+        lst = [list(x) for x in tr.available()]
+    except Exception:
+        lst = []
+    _available_cache.update(at=now, list=lst)
+    return lst
+
+
+@app.get("/api/translate/languages")
+def translate_languages() -> dict[str, Any]:
+    from . import translate as tr
+
+    can_install = _downloads_allowed()
+    return {
+        "engine": tr.engine_available(),
+        "installed": [list(p) for p in tr.installed()],
+        "can_install": can_install,
+        "available": _available_models() if can_install else [],
+    }
+
+
+def _lang(payload: dict, key: str, default: str) -> str:
+    v = payload.get(key, default)
+    if not isinstance(v, str) or not re.fullmatch(r"[a-z]{2,3}", v):
+        raise HTTPException(status_code=400, detail=f"'{key}' must be a language code like 'ja'")
+    return v
+
+
+@app.post("/api/translate")
+def translate_text(payload: dict = Body(...)) -> dict[str, Any]:
+    from . import translate as tr
+
+    text = payload.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(status_code=400, detail="text must be a non-empty string")
+    if len(text) > MAX_TRANSLATE_CHARS:
+        raise HTTPException(status_code=400, detail=f"text longer than {MAX_TRANSLATE_CHARS} characters")
+    to = _lang(payload, "to", "ja")
+    source = _lang(payload, "from", "en")
+    with _render_slot():
+        try:
+            return {"text": tr.translate(text, to, source), "to": to, "from": source}
+        except tr.TranslationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/translate/install")
+def translate_install(payload: dict = Body(...)) -> dict[str, Any]:
+    from . import translate as tr
+
+    if not _downloads_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail="Model downloads are disabled on this server. Install from a terminal: "
+                   "ascii-magic translate install en ja (or set ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=1).",
+        )
+    source = _lang(payload, "from", "en")
+    to = _lang(payload, "to", "ja")
+    try:
+        tr.install(source, to)
+    except tr.TranslationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=502, detail=f"Model download failed: {e}")
+    return {"installed": [list(p) for p in tr.installed()]}
+
+
 # Mounted last so /api/* wins.
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
@@ -918,6 +1008,10 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
     ap.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
     args = ap.parse_args()
+    # Let the GUI download translation models when only this machine can
+    # reach the server; a server exposed to a network must opt in.
+    if args.host in ("127.0.0.1", "localhost", "::1"):
+        os.environ.setdefault("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "1")
     uvicorn.run(app, host=args.host, port=args.port)
 
 

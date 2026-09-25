@@ -663,6 +663,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--caption-color", default=None, metavar="COLOR",
                     help="Caption color with --color: theme name or #RRGGBB")
     ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
+    from .translate import add_translate_arg
+
+    add_translate_arg(ap, "--caption-translate", "caption_translate", "the caption")
 
     from .ansi import add_depth_arg
     from .overlay import add_overlay_args
@@ -706,6 +709,10 @@ def main():
 
     # Open once: EXIF orientation applied, optional manual rotation, and the
     # same pixels feed both the conversion and the --color pass.
+    if args.caption and args.caption_translate:
+        from .translate import translate_or_exit
+
+        args.caption = translate_or_exit(args.caption, args.caption_translate, prog="image-to-ascii")
     src_img = apply_cell_aspect(rotate_cw(open_oriented(args.input, "RGB"), args.rotate), args.cell_aspect)
 
     if args.mode == "braille":

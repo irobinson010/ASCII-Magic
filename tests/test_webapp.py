@@ -808,3 +808,74 @@ def test_compose_refuses_cross_origin():
     r = client.post("/api/compose", headers={"origin": "http://evil.example"},
                     data={"scene": json.dumps({"layers": [{"type": "text", "text": "x"}]})})
     assert r.status_code == 403
+
+
+# ---- translation (issue #38) ----
+
+@pytest.fixture
+def fake_translate(tmp_path, monkeypatch):
+    from asciimagic import translate as tr
+
+    monkeypatch.setenv("ASCII_MAGIC_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setattr(tr, "_run", lambda src, dst, lines: [f"<{dst}:{ln}>" for ln in lines])
+    monkeypatch.setattr(tr, "engine_available", lambda: True)
+    return tr
+
+
+def test_translate_languages_downloads_off(fake_translate, monkeypatch):
+    monkeypatch.delenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", raising=False)
+    r = client.get("/api/translate/languages")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["engine"] is True and body["can_install"] is False
+    assert body["installed"] == [] and body["available"] == []
+
+
+def test_translate_phrase_needs_no_model(fake_translate):
+    r = client.post("/api/translate", json={"text": "Good night", "to": "ja"})
+    assert r.status_code == 200
+    assert r.json()["text"] == "おやすみなさい"
+
+
+def test_translate_missing_model_is_400(fake_translate):
+    r = client.post("/api/translate", json={"text": "The cat sleeps", "to": "ja"})
+    assert r.status_code == 400
+    assert "translate install en ja" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("payload", [
+    {"text": "", "to": "ja"},
+    {"text": 5, "to": "ja"},
+    {"text": "x" * 501, "to": "ja"},
+    {"text": "hi", "to": "../ja"},
+    {"text": "hi", "to": "ja", "from": "EN"},
+])
+def test_translate_rejects_bad_input(fake_translate, payload):
+    assert client.post("/api/translate", json=payload).status_code == 400
+
+
+def test_translate_install_forbidden_by_default(fake_translate, monkeypatch):
+    monkeypatch.delenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", raising=False)
+    called = []
+    monkeypatch.setattr(fake_translate, "install", lambda *a, **k: called.append(a))
+    r = client.post("/api/translate/install", json={"from": "en", "to": "ja"})
+    assert r.status_code == 403 and not called
+
+
+def test_translate_install_when_allowed(fake_translate, monkeypatch):
+    monkeypatch.setenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "1")
+    called = []
+    monkeypatch.setattr(fake_translate, "install", lambda src, dst, **k: called.append((src, dst)))
+    r = client.post("/api/translate/install", json={"from": "en", "to": "ja"})
+    assert r.status_code == 200 and called == [("en", "ja")]
+
+    def boom(src, dst, **k):
+        raise OSError("network down")
+
+    monkeypatch.setattr(fake_translate, "install", boom)
+    assert client.post("/api/translate/install", json={"to": "ja"}).status_code == 502
+
+
+def test_translate_cross_origin_blocked(fake_translate):
+    r = client.post("/api/translate", json={"text": "hi", "to": "ja"}, headers={"origin": "https://evil.example"})
+    assert r.status_code == 403

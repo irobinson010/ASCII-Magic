@@ -46,6 +46,10 @@ video = [
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
 ]
+translate = [
+    "ctranslate2>=4.0",
+    "sentencepiece>=0.2",
+]
 
 [dependency-groups]
 dev = [
