@@ -244,6 +244,21 @@ Options:
 - `-c, --char` : Character to use for the `banner` style
 - `--log-level` : CLI logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
 
+### Japanese and other non-Latin text
+
+Text in any script works in `text`, captions, and compose text layers:
+
+```bash
+ascii-magic text "こんにちは" -s block -w 100   # big ASCII-art letters
+ascii-magic text "日本語" -s box                 # boxes and banners size to terminal columns
+```
+
+- **Rendered styles** (`block`, `small`, `shadow`) draw the text with a font and convert it. If your font lacks the characters, a Japanese/Chinese/Korean font installed on your system is used automatically (Noto Sans CJK, IPA Gothic, Hiragino, Yu Gothic, Meiryo, MS Gothic, ...). If none is installed you get a warning. Install one (e.g. `sudo apt install fonts-noto-cjk`), or point `ASCII_MAGIC_FALLBACK_FONT` or `--font` at a font file.
+- **`box` and `banner`** measure width in terminal columns, where Japanese characters take two, so borders line up.
+- **`figlet`** fonts only have Latin letters. `--style figlet` explains that instead of printing nothing, and figlet captions and compose layers fall back to `block`.
+
+Translation (e.g. English to Japanese) is planned: see issue #38.
+
 ## Example Workflow
 
 1. Convert image to ASCII (preferred: console script):

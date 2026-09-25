@@ -20,7 +20,7 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--text);
-  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, "Noto Sans Mono CJK JP", "Noto Sans CJK JP", "MS Gothic", "Hiragino Sans", "Yu Gothic", monospace;
 }
 
 header {
