@@ -35,6 +35,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image
 
+from .textwidth import CONT, char_width, ljust as ljust_w, str_width, to_cells
+
 RGB = Tuple[int, int, int]
 Cell = Tuple[str, Optional[RGB]]
 
@@ -236,7 +238,15 @@ class Block:
 
     @property
     def width(self) -> int:
-        return max((len(ln) for ln in self.lines), default=0)
+        """In terminal columns (a CJK character is two)."""
+        return max((str_width(ln) for ln in self.lines), default=0)
+
+    @property
+    def cells(self) -> List[List[str]]:
+        """One entry per column; a wide character is followed by CONT."""
+        w = self.width
+        rows = [to_cells(ln) for ln in self.lines]
+        return [r + [" "] * (w - len(r)) for r in rows]
 
     @property
     def height(self) -> int:
@@ -333,19 +343,19 @@ def render_text_layer(layer: Layer, ref_width: int) -> Block:
     lines = _trim_block(lines)
     if layer.align != "left" and lines:
         # Align lines within the block itself (multi-line text).
-        w = max(len(ln) for ln in lines)
+        w = max(str_width(ln) for ln in lines)
         out = []
         for ln in lines:
             s = ln.rstrip()
-            pad = w - len(s)
+            pad = w - str_width(s)
             if layer.align == "center":
                 s = " " * (pad // 2) + s
             else:
                 s = " " * pad + s
             out.append(s)
         lines = out
-    w = max((len(ln) for ln in lines), default=0)
-    lines = [ln.ljust(w) for ln in lines]
+    w = max((str_width(ln) for ln in lines), default=0)
+    lines = [ljust_w(ln, w) for ln in lines]
     solid = _solid(layer.color)
     return Block(lines=lines, colors=[[solid] * w for _ in lines])
 
@@ -531,7 +541,7 @@ def compose(
         if margin and not layer.opaque:
             for cy, cx in _knockout_cells(b, x0, y0, margin, canvas_w, canvas_h):
                 cells[cy][cx] = (" ", None)
-        for by, line in enumerate(b.lines):
+        for by, line in enumerate(b.cells):
             cy = y0 + by
             if not 0 <= cy < canvas_h:
                 continue
@@ -546,13 +556,15 @@ def compose(
                 color = under[cy][cx] if sample_under else b.colors[by][bx]
                 cells[cy][cx] = (ch, color)
 
+    for row in cells:
+        _repair_wide(row)
     return Composition(cells=cells, background=_solid(scene.canvas.background), placed=placed)
 
 
 def _knockout_cells(b: Block, x0: int, y0: int, margin: int, canvas_w: int, canvas_h: int):
     """Canvas cells within `margin` (Chebyshev distance) of the block's ink."""
     out = set()
-    for by, line in enumerate(b.lines):
+    for by, line in enumerate(b.cells):
         for bx, ch in enumerate(line):
             if ch in _BLANKS:
                 continue
@@ -563,6 +575,20 @@ def _knockout_cells(b: Block, x0: int, y0: int, margin: int, canvas_w: int, canv
                     if 0 <= cx < canvas_w:
                         out.add((cy, cx))
     return out
+
+
+def _repair_wide(row: List[Cell]) -> None:
+    """A later layer (or the canvas edge) can cut a double-width character in
+    half. Keep every row exactly canvas-wide: an orphaned half becomes a
+    space."""
+    n = len(row)
+    for x, (ch, color) in enumerate(row):
+        if ch == CONT:
+            lead = row[x - 1][0] if x else ""
+            if not lead or char_width(lead[0]) != 2:
+                row[x] = (" ", None)
+        elif ch and char_width(ch[0]) == 2 and (x + 1 >= n or row[x + 1][0] != CONT):
+            row[x] = (" ", None)
 
 
 def _check_cells(cols: Optional[int], rows: Optional[int], limit: int, what: str) -> None:

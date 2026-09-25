@@ -242,7 +242,7 @@ def _html_sheet(title: str, cards, colored: bool) -> str:
 <html><head><meta charset="utf-8"><title>tune: {html.escape(title)}</title>
 <style>
   body {{ margin: 0; padding: 16px; background: #0b0f14; color: #d7e2ec;
-         font-family: "Cascadia Mono", "DejaVu Sans Mono", Consolas, monospace; }}
+         font-family: "Cascadia Mono", "DejaVu Sans Mono", Consolas, "Noto Sans Mono CJK JP", "Noto Sans CJK JP", "MS Gothic", "Hiragino Sans", "Yu Gothic", monospace; }}
   h1 {{ font-size: 15px; font-weight: normal; color: #8496a8; }}
   main {{ display: flex; flex-wrap: wrap; gap: 16px; }}
   figure {{ margin: 0; padding: 10px; background: #121821; border: 1px solid #243044; border-radius: 6px; }}

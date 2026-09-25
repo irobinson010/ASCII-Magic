@@ -437,7 +437,7 @@ class MatrixAnimation:
             "    pre {\n"
             "      margin: 0;\n      white-space: pre;\n      overflow: auto;\n"
             "      color: #e0e0e0;\n"  # default text must contrast the black page
-            '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;\n'
+            '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", Consolas, "Noto Sans Mono CJK JP", "Noto Sans CJK JP", "MS Gothic", "Hiragino Sans", "Yu Gothic", monospace;\n'
             f"      font-size: {font_size_px}px;\n      line-height: {font_size_px}px;\n"
             "    }\n"
             f"{css_levels}\n"
