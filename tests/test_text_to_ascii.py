@@ -124,3 +124,25 @@ def test_block_render_is_crisp_not_haloed():
     halo = [c for c in inked if c in "+=-:."]
     assert inked
     assert len(halo) / len(inked) < 0.35
+
+
+def test_log_output_goes_to_stderr_not_stdout(monkeypatch, capsys):
+    import logging
+    import sys
+
+    from asciimagic import text_to_ascii
+
+    # basicConfig is a no-op once the root logger has handlers; start clean.
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [])
+    monkeypatch.setattr(sys, "argv", ["text-to-ascii", "Hi", "--log-level", "INFO"])
+    try:
+        text_to_ascii.main()
+    except SystemExit as e:
+        assert not e.code
+    finally:
+        for h in root.handlers:
+            root.removeHandler(h)
+    out, err = capsys.readouterr()
+    assert "INFO" not in out
+    assert "INFO" in err

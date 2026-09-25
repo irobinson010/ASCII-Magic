@@ -487,3 +487,324 @@ def test_animate_side_caption_warns_and_coerces():
     )
     assert r.status_code == 200
     assert "static renders" in (r.json()["warning"] or "")
+
+
+# ---- untrusted option values: 400 or a safe default, never a 500 ----
+
+@pytest.mark.parametrize(
+    "key,value,extra",
+    [
+        ("caption_style", "nope", {"caption_text": "Hi"}),
+        ("caption_style", 5, {"caption_text": "Hi"}),
+        ("caption_pos", "middle", {"caption_text": "Hi"}),
+        ("caption_align", "up", {"caption_text": "Hi"}),
+        ("quality", "nope", {"mode": "glyph"}),
+        ("ascii_preset", "nope", {"mode": "glyph"}),
+    ],
+)
+def test_render_rejects_unknown_enum_values(key, value, extra):
+    r = _render({"source": "image", "mode": "braille", "cols": 16, **extra, key: value})
+    assert r.status_code == 400
+    assert key in r.json()["detail"]
+
+
+@pytest.mark.parametrize("text", [["hi"], 5, {"a": 1}])
+def test_render_rejects_non_string_text(text):
+    r = _render({"source": "text", "text": text}, image=False)
+    assert r.status_code == 400
+
+
+@pytest.mark.parametrize("key", ["cols", "rotate", "gamma", "threshold"])
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", 1e400])
+def test_render_non_finite_numbers_fall_back(key, value):
+    r = _render({"source": "image", "mode": "braille", "cols": 16, key: value})
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("raw,expected", [("abc", None), ("1.5", 1), (-5, 0), ([1], None)])
+def test_render_matrix_seed_garbage_is_sanitized_and_echoed(raw, expected):
+    r = _render({"source": "image", "mode": "braille", "cols": 16, "matrix": True, "matrix_seed": raw})
+    assert r.status_code == 200
+    seed = r.json()["seed"]
+    assert isinstance(seed, int) and 0 <= seed < 2**31
+    if expected is not None:
+        assert seed == expected
+
+
+@pytest.mark.parametrize("value", ["false", "0", "off", "no", False])
+def test_render_colorize_false_strings(value):
+    r = _render({"source": "image", "mode": "braille", "cols": 16, "colorize": value})
+    assert r.status_code == 200
+    assert "\x1b[38;2;" not in r.json()["ansi"]
+
+
+def test_render_colorize_true_string():
+    r = _render({"source": "image", "mode": "braille", "cols": 16, "threshold": 1, "colorize": "true"})
+    assert "\x1b[38;2;" in r.json()["ansi"]
+
+
+# ---- resource limits ----
+
+def _limited_app(max_bytes):
+    from fastapi import FastAPI, File, UploadFile
+
+    from asciimagic.webapp import BodySizeLimitMiddleware
+
+    inner = FastAPI()
+
+    @inner.post("/up")
+    def up(f: UploadFile = File(...)):
+        return {"n": len(f.file.read())}
+
+    inner.add_middleware(BodySizeLimitMiddleware, max_bytes=max_bytes)
+    return TestClient(inner)
+
+
+def test_body_limit_allows_small_uploads():
+    r = _limited_app(10_000).post("/up", files={"f": ("a.bin", b"x" * 100)})
+    assert r.status_code == 200 and r.json() == {"n": 100}
+
+
+def test_body_limit_rejects_declared_content_length():
+    r = _limited_app(1_000).post("/up", files={"f": ("a.bin", b"x" * 5_000)})
+    assert r.status_code == 413
+
+
+def test_body_limit_rejects_chunked_body_without_content_length():
+    boundary = "b0undary"
+    payload = (
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"f\"; filename=\"a.bin\"\r\n\r\n"
+    ).encode() + b"x" * 5_000 + f"\r\n--{boundary}--\r\n".encode()
+
+    def chunks():
+        for i in range(0, len(payload), 512):
+            yield payload[i:i + 512]
+
+    r = _limited_app(1_000).post(
+        "/up", content=chunks(), headers={"content-type": f"multipart/form-data; boundary={boundary}"}
+    )
+    assert r.status_code == 413
+
+
+def test_render_returns_503_when_all_slots_busy(monkeypatch):
+    import threading
+
+    from asciimagic import webapp
+
+    busy = threading.BoundedSemaphore(1)
+    busy.acquire()
+    monkeypatch.setattr(webapp, "_render_slots", busy)
+    monkeypatch.setattr(webapp, "RENDER_QUEUE_TIMEOUT_S", 0.01)
+    r = _render({"source": "image", "mode": "braille", "cols": 16})
+    assert r.status_code == 503
+    assert r.headers.get("retry-after")
+
+
+def test_render_slot_released_after_error(monkeypatch):
+    import threading
+
+    from asciimagic import webapp
+
+    monkeypatch.setattr(webapp, "_render_slots", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(webapp, "RENDER_QUEUE_TIMEOUT_S", 0.01)
+    assert _render({"source": "image", "mode": "nope"}).status_code == 400
+    assert _render({"source": "image", "mode": "braille", "cols": 16}).status_code == 200
+
+
+def _render_img(options, size):
+    files = {"image": ("t.png", _png_bytes(size=size), "image/png")}
+    return client.post("/api/render", files=files, data={"options": json.dumps(options)})
+
+
+def test_budget_rejects_huge_cell_count():
+    # 1:50 portrait at 500 cols -> ~12,500 braille rows
+    r = _render_img({"source": "image", "mode": "braille", "cols": 500}, size=(20, 1000))
+    assert r.status_code == 400
+    assert "Output too large" in r.json()["detail"]
+
+
+def test_budget_rejects_huge_glyph_pixels():
+    r = _render_img(
+        {"source": "image", "mode": "glyph", "cols": 500, "cell_w": 32, "cell_h": 64}, size=(400, 400)
+    )
+    assert r.status_code == 400
+    assert "glyph-matching pixels" in r.json()["detail"]
+
+
+def test_budget_rejects_exact_size_over_limit():
+    r = _render({"source": "image", "mode": "braille", "cols": 16, "out_rows": 2000, "out_cols": 2000})
+    assert r.status_code == 400
+
+
+def test_budget_rejects_long_animation():
+    r = _render_img(
+        {"source": "image", "mode": "braille", "cols": 240, "matrix": True, "animate": True,
+         "anim_frames": 240},
+        size=(400, 400),
+    )
+    assert r.status_code == 400
+    assert "frames" in r.json()["detail"]
+
+
+def test_budget_allows_gui_defaults_on_portrait_photo():
+    # GUI defaults: 100 cols braille, 60-frame animation; 3:4 portrait photo.
+    r = _render_img(
+        {"source": "image", "mode": "braille", "cols": 100, "matrix": True, "animate": True,
+         "anim_frames": 60},
+        size=(300, 400),
+    )
+    assert r.status_code == 200
+
+
+def _gif_bytes(size, n=4):
+    frames = [Image.new("RGB", size, (i * 40, 60, 90)) for i in range(n)]
+    buf = io.BytesIO()
+    frames[0].save(buf, format="GIF", save_all=True, append_images=frames[1:], duration=100, loop=0)
+    return buf.getvalue()
+
+
+def _render_video(options, data):
+    return client.post(
+        "/api/render",
+        files={"image": ("v.gif", data, "image/gif")},
+        data={"options": json.dumps({"source": "video", **options})},
+    )
+
+
+def test_video_render_ok_with_defaults():
+    r = _render_video({"cols": 40}, _gif_bytes((64, 48)))
+    assert r.status_code == 200
+    assert r.json()["video"]["frames"] == 4
+
+
+def test_video_budget_rejected(monkeypatch):
+    from asciimagic import webapp
+
+    monkeypatch.setattr(webapp, "MAX_ANIM_CELL_FRAMES", 100)
+    r = _render_video({"cols": 40}, _gif_bytes((64, 48)))
+    assert r.status_code == 400
+    assert "characters x frames" in r.json()["detail"]
+
+
+def test_video_oversized_frames_rejected(monkeypatch):
+    from asciimagic import webapp
+
+    monkeypatch.setattr(webapp, "MAX_IMAGE_PIXELS", 1000)
+    r = _render_video({"cols": 40}, _gif_bytes((64, 48)))
+    assert r.status_code == 400
+    assert "pixels" in r.json()["detail"]
+
+
+# ---- cross-origin POSTs ----
+
+@pytest.mark.parametrize("origin,status", [
+    (None, 200),                        # curl/scripts: no Origin header
+    ("http://testserver", 200),         # the GUI itself
+    ("http://evil.example", 403),
+    ("http://testserver.evil.example", 403),
+    ("http://testserver:9999", 403),    # other local dev server, other port
+    ("null", 403),                      # sandboxed iframe / file://
+])
+def test_render_origin_check(origin, status):
+    headers = {"origin": origin} if origin else {}
+    r = client.post(
+        "/api/render",
+        files={"image": ("t.png", _png_bytes(), "image/png")},
+        data={"options": json.dumps({"source": "image", "mode": "braille", "cols": 16})},
+        headers=headers,
+    )
+    assert r.status_code == status
+
+
+def test_get_requests_skip_origin_check():
+    assert client.get("/api/health", headers={"origin": "http://evil.example"}).status_code == 200
+
+
+def test_allowed_origins_allowlist():
+    from fastapi import FastAPI
+
+    from asciimagic.webapp import SameOriginMiddleware
+
+    inner = FastAPI()
+
+    @inner.post("/x")
+    def x():
+        return {}
+
+    inner.add_middleware(SameOriginMiddleware, allowed_origins=["https://ascii.example.com/", ""])
+    c = TestClient(inner)
+    assert c.post("/x", headers={"origin": "https://ascii.example.com"}).status_code == 200
+    assert c.post("/x", headers={"origin": "https://other.example.com"}).status_code == 403
+
+
+# ---- /api/compose ----
+
+def _compose(scene, images=()):
+    files = [("images", (f"p{i}.png", data, "image/png")) for i, data in enumerate(images)]
+    return client.post("/api/compose", files=files or None, data={"scene": json.dumps(scene)})
+
+
+def test_compose_image_and_text():
+    r = _compose(
+        {"canvas": {"cols": 40, "rows": 14, "background": "#000000"},
+         "layers": [{"type": "image", "upload": 0, "cols": 30, "color": "image"},
+                    {"type": "text", "text": "Hi", "style": "box", "at": "bottom-right", "color": "amber"}]},
+        images=[_png_bytes(size=(64, 48))],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["canvas"] == {"cols": 40, "rows": 14}
+    assert [ly["index"] for ly in body["layers"]] == [0, 1]
+    text_box = body["layers"][1]
+    assert (text_box["x"] + text_box["w"], text_box["y"] + text_box["h"]) == (40, 14)
+    assert "\x1b[38;2;255;176;0m" in body["ansi"]
+    assert "│ Hi │" in body["ascii"]
+    assert body["html"].lower().startswith("<!doctype html>")
+    # downloadable scene names the upload so the CLI can re-render it
+    assert body["scene"]["layers"][0]["src"] == "p0.png"
+    assert "upload" not in body["scene"]["layers"][0]
+
+
+def test_compose_same_upload_in_two_layers():
+    r = _compose({"layers": [{"type": "image", "upload": 0, "cols": 20},
+                             {"type": "image", "upload": 0, "cols": 10, "at": "top-left"}]},
+                 images=[_png_bytes()])
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("scene,msg", [
+    ({"layers": []}, "at least one layer"),
+    ({"layers": [{"type": "text", "text": "x", "src": "/etc/passwd"}]}, "not allowed"),
+    ({"layers": [{"type": "text", "text": "x", "font": "/etc/passwd"}]}, "not allowed"),
+    ({"layers": [{"type": "image"}]}, "upload"),
+    ({"layers": [{"type": "image", "upload": 3}]}, "upload"),
+    ({"layers": [{"type": "text", "text": "x", "at": "middle"}]}, "anchor"),
+    ({"layers": [{"type": "text", "text": "x", "colour": "red"}]}, "unknown field"),
+    ({"layers": [{"type": "text", "text": "x" * 501}]}, "longer than"),
+    ({"layers": [{"type": "text", "text": "x"}] * 13}, "At most"),
+    ({"canvas": {"cols": 2000, "rows": 2000}, "layers": [{"type": "text", "text": "x"}]}, "limit"),
+    ("[]", "JSON object"),
+])
+def test_compose_rejects_bad_scenes(scene, msg):
+    r = client.post("/api/compose", data={"scene": scene if isinstance(scene, str) else json.dumps(scene)})
+    assert r.status_code == 400
+    assert msg in r.json()["detail"]
+
+
+def test_compose_image_budget():
+    r = _compose({"layers": [{"type": "image", "upload": 0, "cols": 500, "mode": "glyph"}]},
+                 images=[_png_bytes(size=(100, 400))])
+    assert r.status_code == 400
+    assert "Output too large" in r.json()["detail"]
+
+
+def test_compose_bad_image_upload():
+    r = client.post("/api/compose", files=[("images", ("x.png", b"not an image", "image/png"))],
+                    data={"scene": json.dumps({"layers": [{"type": "image", "upload": 0}]})})
+    assert r.status_code == 400
+
+
+def test_compose_refuses_cross_origin():
+    r = client.post("/api/compose", headers={"origin": "http://evil.example"},
+                    data={"scene": json.dumps({"layers": [{"type": "text", "text": "x"}]})})
+    assert r.status_code == 403

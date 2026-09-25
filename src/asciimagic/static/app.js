@@ -8,7 +8,7 @@ const state = {
   fileStem: "ascii-art",
   imgW: 0,           // natural dimensions of the uploaded image
   imgH: 0,
-  tab: "image",      // image | text | video
+  tab: "image",      // image | text | video | compose
   result: null,      // last /api/render response
   rendering: false,
   queued: false,
@@ -94,6 +94,13 @@ function collectOptions() {
     anim_fps: num("anim_fps"),
     anim_tail: num("anim_tail"),
     anim_reveal: $("anim_reveal").checked,
+    // overlay
+    overlay: $("overlay_preset").value === "custom"
+      ? `${$("overlay_c1").value},${$("overlay_c2").value}`
+      : ($("overlay_preset").value || null),
+    overlay_direction: $("overlay_direction").value,
+    overlay_mode: $("overlay_mode").value,
+    overlay_strength: num("overlay_strength"),
     // caption
     caption_text: $("caption_text").value.trim() || null,
     caption_pos: $("caption_pos").value,
@@ -117,12 +124,14 @@ function setStatus(msg, cls) {
 }
 
 function canRender() {
+  if (state.tab === "compose") return true; // composeRender explains what is missing
   if (state.tab === "text") return $("text").value.trim() !== "";
   if (state.tab === "video") return state.videoFile !== null;
   return state.file !== null;
 }
 
 async function render() {
+  if (state.tab === "compose") return composeRender(); // compose.js
   if (!canRender()) return;
   if (state.rendering) { state.queued = true; return; }
   state.rendering = true;
@@ -138,7 +147,7 @@ async function render() {
 
   try {
     const res = await fetch("/api/render", { method: "POST", body: form });
-    const body = await res.json();
+    const body = await readJson(res);
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
 
     state.result = body;
@@ -178,14 +187,26 @@ function autoRender() {
   debounceTimer = setTimeout(render, 350);
 }
 
+// Error pages from a proxy (or a crash) are not JSON; surface the HTTP
+// status instead of "Unexpected token '<'".
+async function readJson(res) {
+  try {
+    return await res.json();
+  } catch {
+    return { detail: `HTTP ${res.status} ${res.statusText}`.trim() };
+  }
+}
+
 // ---------- downloads ----------
 
 function download(name, content, type) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([content], { type }));
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(a.href);
+  // Revoking synchronously can cancel the download in Firefox.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 $("dl-ans").addEventListener("click", () =>
@@ -213,7 +234,7 @@ $("dl-mp4").addEventListener("click", async () => {
     form.append("options", JSON.stringify(collectOptions()));
     const res = await fetch("/api/render/mp4", { method: "POST", body: form });
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
+      const body = await readJson(res);
       throw new Error(body.detail || `HTTP ${res.status}`);
     }
     download(`${state.fileStem}.mp4`, await res.blob(), "video/mp4");
@@ -221,7 +242,8 @@ $("dl-mp4").addEventListener("click", async () => {
   } catch (err) {
     setStatus(`Error: ${err.message}`, "error");
   } finally {
-    $("dl-mp4").disabled = false;
+    // Only re-enable if the user is still looking at a video render.
+    $("dl-mp4").disabled = !(state.tab === "video" && state.result && state.result.video);
   }
 });
 
@@ -261,7 +283,9 @@ function loadFile(file) {
   const thumb = $("thumb");
   thumb.src = URL.createObjectURL(file);
   thumb.hidden = false;
-  $("drop-hint").innerHTML = `${file.name}<br>(click to change)`;
+  // textContent, not innerHTML: the file name is attacker-choosable
+  // (e.g. "<img src=x onerror=...>.png").
+  $("drop-hint").replaceChildren(file.name, document.createElement("br"), "(click to change)");
 
   const probe = new Image();
   probe.onload = () => {
@@ -276,7 +300,12 @@ function loadFile(file) {
 
 const dz = $("dropzone");
 dz.addEventListener("click", () => $("file").click());
-dz.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") $("file").click(); });
+dz.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault(); // Space would otherwise scroll the page
+    $("file").click();
+  }
+});
 $("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
 dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("drag"); });
 dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
@@ -288,12 +317,13 @@ dz.addEventListener("drop", (e) => {
 
 // ---------- tabs & visibility ----------
 
-const TABS = ["image", "text", "video"];
+const TABS = ["image", "text", "video", "compose"];
 
 function setTab(name) {
   state.tab = name;
   $("ring").hidden = true; // stale box from another source
   $("cap-ring").hidden = true;
+  $("cmp-overlay").hidden = true;
   for (const t of TABS) {
     $(`panel-${t}`).hidden = t !== name;
     $(`tab-${t}`).classList.toggle("active", t === name);
@@ -328,6 +358,8 @@ function syncVisibility() {
   $("anim-knobs").hidden = !$("animate").checked;
   $("custom-color-field").hidden = $("matrix_theme").value !== "custom";
   $("caption-color-field").hidden = $("caption_color_mode").value !== "custom";
+  $("overlay-knobs").hidden = !$("overlay_preset").value;
+  $("overlay-custom-field").hidden = $("overlay_preset").value !== "custom";
 
   // Colorize doesn't apply to video renders (frames colorize themselves);
   // matrix and captions DO — but rain animation doesn't (video is already
@@ -336,6 +368,15 @@ function syncVisibility() {
   for (const id of ["sec-colorize", "sec-html"]) {
     $(id).hidden = isVideo;
   }
+  // Compose layers carry their own color/size/text; the shared sections
+  // (caption, colorize, matrix, HTML) apply to the single-source tabs.
+  const isCompose = state.tab === "compose";
+  for (const id of ["sec-caption", "sec-colorize", "sec-matrix", "sec-html", "sec-overlay"]) {
+    if (isCompose) $(id).hidden = true;
+    else if (id === "sec-caption" || id === "sec-matrix") $(id).hidden = false;
+  }
+  // Video frames are colorized per frame; overlays apply to static renders.
+  $("sec-overlay").hidden = isCompose || isVideo;
   $("animate-row").hidden = isVideo;
   if (isVideo) $("anim-knobs").hidden = true;
 }
@@ -374,7 +415,7 @@ $("reroll").addEventListener("click", (e) => {
   render();
 });
 
-for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale"]) {
+for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale", "overlay_strength"]) {
   $(id).addEventListener("input", () => { $(`${id}-out`).value = $(id).value; });
 }
 
@@ -407,6 +448,8 @@ let capBox = null;
 let dragging = null;
 
 window.addEventListener("message", (ev) => {
+  // Only the preview iframe's measure script may move the resize ring.
+  if (ev.source !== $("preview").contentWindow) return;
   const d = ev.data;
   if (!d || d.am !== "artbox" || dragging) return;
   state.measure = d;
@@ -454,6 +497,12 @@ function captionBox(d) {
 }
 
 function showRing(d) {
+  if (state.tab === "compose") {
+    ring.hidden = true;
+    capRing.hidden = true;
+    composeShowOverlay(d); // compose.js draws per-layer boxes instead
+    return;
+  }
   if (!state.result || !state.art || !state.art.cols || d.w < 4 || state.art.ring === false) {
     // ring === false: side/wrap captions reshape the block in both axes,
     // so pixel->cell math steps aside (the number knobs still work).

@@ -9,10 +9,12 @@ from asciimagic.completion import bash_script, main as completion_main, zsh_scri
 def test_bash_script_contents():
     script = bash_script()
     # umbrella subcommands
-    for cmd in ("colorize", "image", "text", "greet", "web", "video", "completion"):
+    for cmd in ("colorize", "image", "text", "greet", "web", "video", "completion", "compose"):
         assert cmd in script
     # flags harvested from the parsers
-    for flag in ("--matrix-color", "--caption-style", "--dither", "--rotate", "--reveal"):
+    for flag in ("--matrix-color", "--caption-style", "--dither", "--rotate", "--reveal",
+                 "--save-scene", "--outline", "--preset", "--save-preset", "--color-depth",
+                 "--overlay", "--overlay-direction", "--layer-overlay"):
         assert flag in script
     # choice values for enum flags
     assert "glyph braille" in script or "braille glyph" in script

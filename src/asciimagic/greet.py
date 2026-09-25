@@ -255,11 +255,16 @@ def cmd_show(args) -> int:
     if p is None:
         print("No greeting installed.", file=sys.stderr)
         return 1
+    from .ansi import downsample, resolve_depth
+
+    # The greeting runs at every login, often over SSH: match the palette of
+    # whatever terminal is connecting (ASCII_MAGIC_COLOR_DEPTH overrides).
+    depth = resolve_depth(getattr(args, "color_depth", "auto"), to_terminal=True)
     if p.suffix == ".frames":
         frames, fps, loops = read_frames_file(p)
-        play_frames(frames, fps, loops)
+        play_frames([downsample(f, depth) for f in frames], fps, loops)
     else:
-        sys.stdout.write(p.read_text(encoding="utf-8"))
+        sys.stdout.write(downsample(p.read_text(encoding="utf-8"), depth))
     return 0
 
 
@@ -273,12 +278,18 @@ def cmd_status(args) -> int:
 
 
 def cmd_play(args) -> int:
+    from .ansi import downsample, resolve_depth
+
     frames, fps, loops = read_frames_file(Path(args.file))
+    depth = resolve_depth(args.color_depth, to_terminal=True)
+    frames = [downsample(f, depth) for f in frames]
     play_frames(frames, args.fps or fps, args.loops if args.loops is not None else loops)
     return 0
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    from .ansi import add_depth_arg
+
     ap = argparse.ArgumentParser(
         prog="ascii-magic-greet",
         description="Install ASCII art as a shell login greeting.",
@@ -295,9 +306,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_remove)
 
     p = sub.add_parser("show", help="Display the installed greeting (used by the shell hook)")
+    add_depth_arg(p, default="auto")
     p.set_defaults(func=cmd_show)
 
     p = sub.add_parser("preview", help="Alias for show")
+    add_depth_arg(p, default="auto")
     p.set_defaults(func=cmd_show)
 
     p = sub.add_parser("status", help="Report what is installed where")
@@ -308,12 +321,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("file")
     p.add_argument("--fps", type=float, default=None)
     p.add_argument("--loops", type=int, default=None)
+    add_depth_arg(p, default="auto")
     p.set_defaults(func=cmd_play)
 
     return ap
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    from .console import utf8_stdout
+
+    utf8_stdout()
     args = build_arg_parser().parse_args(argv)
     return args.func(args)
 

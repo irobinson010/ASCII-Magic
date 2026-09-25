@@ -244,6 +244,21 @@ Options:
 - `-c, --char` : Character to use for the `banner` style
 - `--log-level` : CLI logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
 
+### Japanese and other non-Latin text
+
+Text in any script works in `text`, captions, and compose text layers:
+
+```bash
+ascii-magic text "こんにちは" -s block -w 100   # big ASCII-art letters
+ascii-magic text "日本語" -s box                 # boxes and banners size to terminal columns
+```
+
+- **Rendered styles** (`block`, `small`, `shadow`) draw the text with a font and convert it. If your font lacks the characters, a Japanese/Chinese/Korean font installed on your system is used automatically (Noto Sans CJK, IPA Gothic, Hiragino, Yu Gothic, Meiryo, MS Gothic, ...). If none is installed you get a warning. Install one (e.g. `sudo apt install fonts-noto-cjk`), or point `ASCII_MAGIC_FALLBACK_FONT` or `--font` at a font file.
+- **`box` and `banner`** measure width in terminal columns, where Japanese characters take two, so borders line up.
+- **`figlet`** fonts only have Latin letters. `--style figlet` explains that instead of printing nothing, and figlet captions and compose layers fall back to `block`.
+
+Translation (e.g. English to Japanese) is planned: see issue #38.
+
 ## Example Workflow
 
 1. Convert image to ASCII (preferred: console script):
@@ -283,6 +298,85 @@ There are also lower-level in-memory helpers if you do not want the context obje
 - `asciimagic.image_to_ascii.image_to_text_glyph_from_image(...)`
 - `asciimagic.image_to_ascii.image_to_braille_from_image(...)`
 - `asciimagic.colorize_ascii.colorize_ascii_text(...)`
+
+## Getting the best look: tune, presets, and your terminal
+
+Which settings look best depends on the picture and on your terminal. Instead of guessing flags, let `tune` show you:
+
+```bash
+ascii-magic tune photo.png                    # ~12 numbered variants, each labeled with its exact flags
+ascii-magic tune photo.png --color -o sheet.html   # the same, side by side in a browser
+ascii-magic tune photo.png --pick 4 --save-preset my-photos
+ascii-magic image other.png --preset my-photos     # the same look on any picture
+```
+
+**Presets** save a look once and reuse it exactly. Add `--save-preset NAME` to any `image`, `colorize`, `video`, or `text` run to save every non-default flag (never the input or output file). `--preset NAME` brings them back, and flags you pass alongside still win (`--preset my-photos -c 60`). Built-ins:
+
+| Preset (image) | For |
+|---|---|
+| `photo` | Photos on a light background: braille, dithered, contrast-stretched |
+| `photo-dark-terminal` | Photos shown in a dark terminal: bright areas become ink |
+| `line-art` | Cartoons, logos, line art: glyph matching at best quality |
+| `ssh-safe` | Plain printable ASCII and 256 colors: displays correctly on any server (also for `colorize` and `video`) |
+
+`ascii-magic presets` lists them; `presets show image NAME` and `presets delete image NAME` do what they say. Saved presets live in `~/.config/ascii-magic/presets.json`.
+
+**Colors over SSH and older terminals.** Output uses 24-bit color by default. Terminals that can't show it (common over SSH, the Linux console, older macOS Terminal, tmux without truecolor) show wrong colors or garbage. `--color-depth 256` or `--color-depth 16` converts the output; `--color-depth auto` detects the terminal (files stay 24-bit). The login greeting always uses `auto`, so a greeting installed on a server adapts to whoever logs in. `ASCII_MAGIC_COLOR_DEPTH=256` forces a depth everywhere.
+
+**Squashed or stretched output?** Terminal fonts differ in how tall a character is compared to its width. Run `ascii-magic tune --aspect-chart`, see which box looks square, and pass that number as `--cell-aspect` (or save it in a preset).
+
+## Color overlays (gradients and tints)
+
+Lay a gradient or a solid color over any art: plain text, image conversions, colorized art, or a whole composition.
+
+```bash
+ascii-magic text HELLO -s figlet --overlay sunset                  # gradient text
+ascii-magic text HELLO -s block --overlay "#00e5ff,#ff2d55" --overlay-direction diagonal
+ascii-magic image cat.png --color --overlay ocean --overlay-mode multiply
+ascii-magic compose --image cat.png --text HI --style figlet --at top --layer-overlay fire
+```
+
+| Option | Values |
+|---|---|
+| `--overlay` | A palette (`rainbow`, `sunset`, `ocean`, `fire`, `forest`, `neon`, `matrix`, `mono`), one color (theme or `#RRGGBB`), or comma-separated colors for a gradient |
+| `--overlay-direction` | `horizontal` (default), `vertical`, `diagonal`, `diagonal-up`, `radial` |
+| `--overlay-mode` | `tint` (default: replaces colors), `multiply` (darkens: keeps the image's shading), `screen` (lightens), `overlay` (adds contrast) |
+| `--overlay-strength` | `0`–`1`: how much of the overlay to mix in (default 1) |
+
+Works on `text`, `image`, `colorize` (static output), and `compose`. In `compose`, `--overlay` covers the whole canvas and `--layer-overlay` (plus `--layer-overlay-direction/-mode/-strength`) just one layer. The canvas overlay applies last, so at full strength it replaces layer colors; lower its strength to let them show through. `.html` outputs keep the colors, and `--color-depth` still applies. The web GUI has a **Color overlay** section, and overlay fields on the Compose canvas and on each layer.
+
+## Compose images and text (`ascii-magic compose`)
+
+Stack any number of images and text blocks on one canvas and place each one exactly. Start a layer with `--image PATH` or `--text TEXT`; the options after it apply to that layer. Later layers paint over earlier ones.
+
+```bash
+# A photo with a figlet title across the top and a boxed label bottom-right
+ascii-magic compose --canvas 100x40 --background "#000000" \
+  --image cat.png --cols 90 --color image \
+  --text "HELLO" --style figlet --at top --dy 1 --color amber \
+  --text "est. 2026" --style box --at bottom-right --dx -2 --dy -1 --color cyan \
+  -o card.ans
+
+# Save the setup, then re-render it exactly (or edit the JSON by hand)
+ascii-magic compose ... --save-scene card.json
+ascii-magic compose card.json -o card.html
+```
+
+| Layer option | What it does |
+|---|---|
+| `--at ANCHOR` | `top-left`, `top`, `top-right`, `left`, `center` (default), `right`, `bottom-left`, `bottom`, `bottom-right` |
+| `--dx N` / `--dy N` | Nudge after anchoring (negative = left/up) |
+| `--x N` / `--y N` | Exact column/row of the layer's top-left corner (overrides `--at`) |
+| `--cols N` / `--rows N` | Exact size in characters; set one and the other follows the aspect ratio. Text without either scales to `--scale` (default 0.5) of the canvas width |
+| `--color C` | `image` (an image samples its own picture; text samples the picture beneath it), a theme (`green`, `amber`, `cyan`, `crimson`, `violet`, `white`), or `#RRGGBB` |
+| `--outline N` | Clear N cells around the layer's ink so it reads over busy art (default 1 for text, 0 for images) |
+| `--opaque` | Blank characters cover what's beneath (a solid box) |
+| image: `--mode --dither --invert --autocontrast --gamma --threshold --quality --rotate` | Same meaning as `ascii-magic image` |
+| text: `--style --align --font` | Same styles as `ascii-magic text` |
+
+Canvas: `--canvas COLSxROWS` (default: just big enough for every layer) and `--background COLOR`. Output is ANSI to stdout, or `.txt` / `.ans` / `.html` by `-o` extension.
+
+In the web GUI, the **Compose** tab does the same with the mouse: add image and text layers, drag a layer's box in the preview to move it, drag its corner to resize (hold **Shift** to keep the aspect ratio), and use the arrow keys to nudge the selected layer one character (**Shift** for five). **Download scene .json** saves a scene file the CLI can render; put the images next to it.
 
 ## Video to ASCII (`ascii-magic video`)
 
@@ -347,6 +441,19 @@ ascii-magic-web            # http://127.0.0.1:8000
 **Resize like GIMP**: the rendered art gets drag handles — pull the right edge for width, the bottom edge to stretch/squish the height, or the corner for a free resize (hold **Shift** to keep aspect). A live `cols × rows` readout follows the drag; double-click the ring to reset the height to auto. Works on images, text, and video (video applies on the next Render).
 
 The **Profile** switch in the header applies sensible defaults per target: *Terminal* (SSH greetings, `.ans` output) or *Web page* (larger canvas, filled spaces, `.html` output).
+
+### Server limits
+
+The server is safe to expose on a LAN or behind a reverse proxy: request bodies over ~102 MB get a 413 before anything touches disk, cross-site browser POSTs get a 403, and each render is checked against a work budget up front (a 400 names the knob to lower). The defaults keep one request to roughly 10 seconds of CPU. Tune them with environment variables:
+
+| Variable | Default | Limits |
+|---|---|---|
+| `ASCII_MAGIC_MAX_CONCURRENT` | `min(4, cores)` | Renders running at once; extra requests wait up to 15 s, then get a 503 |
+| `ASCII_MAGIC_MAX_CELLS` | `250000` | Output characters (cols × rows) |
+| `ASCII_MAGIC_MAX_GLYPH_PIXELS` | `16000000` | Glyph mode: characters × cell width × cell height |
+| `ASCII_MAGIC_MAX_ANIM_CELL_FRAMES` | `1000000` | Animations and video: characters × frames |
+| `ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES` | `5000` | Video frames decoded per upload (sampling skips frames but still decodes them) |
+| `ASCII_MAGIC_ALLOWED_ORIGINS` | *(none)* | Extra allowed `Origin`s, comma-separated, for a proxy that rewrites `Host` |
 
 ## Docker
 

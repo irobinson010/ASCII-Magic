@@ -7,7 +7,7 @@ import logging
 import time
 import dataclasses
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 from PIL import Image, ImageFilter
 import random
 
@@ -120,6 +120,8 @@ class Options:
     color_top: bool = False
 
     rotate: int = 0  # CLI-only: clockwise rotation of the reference image
+    color_depth: str = "truecolor"  # CLI-only: truecolor | 256 | 16 | auto (ANSI sinks)
+    overlay: Optional[Any] = None   # CLI-only: overlay.Overlay applied to static output
 
     debug: bool = False
     log_path: Optional[str] = None
@@ -169,6 +171,9 @@ def scale_grid(lines, target_h, target_w):
     """Nearest-neighbor scale of a rectangular character grid."""
     src_h = len(lines)
     src_w = max(len(l) for l in lines) if lines else 0
+    if src_w == 0:
+        # Nothing to sample: an all-blank source scales to an all-blank grid.
+        return [" " * target_w for _ in range(target_h)]
     padded = [l.ljust(src_w) for l in lines]
 
     out = []
@@ -183,6 +188,17 @@ def scale_grid(lines, target_h, target_w):
 
 
 _OUT_EXTS = (".ans", ".html", ".gif", ".frames")
+
+
+def positive_float(value: str) -> float:
+    """argparse type: a finite float > 0 (e.g. --fps; 0 would divide by zero)."""
+    try:
+        f = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid number: {value!r}")
+    if not (0 < f < float("inf")):
+        raise argparse.ArgumentTypeError(f"must be a positive number, got {value}")
+    return f
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -266,20 +282,38 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--animate", action="store_true",
                    help="Matrix rain animation (implies --matrix)")
     g.add_argument("--frames", type=int, default=60, metavar="N", help="Frames per loop")
-    g.add_argument("--fps", type=float, default=12.0, metavar="F")
+    g.add_argument("--fps", type=positive_float, default=12.0, metavar="F")
     g.add_argument("--tail", type=float, default=6.0, metavar="F", help="Drop tail fade length")
     g.add_argument("--loops", type=int, default=3, metavar="N",
                    help="Terminal playback repeats (0 = until Ctrl-C)")
     g.add_argument("--reveal", action="store_true",
                    help="Rain uncovers the colorized art, which persists beneath it")
 
+    from .ansi import add_depth_arg
+    from .overlay import add_overlay_args
+
+    add_depth_arg(ap)
+    add_overlay_args(ap)
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--log", dest="log_path", default=None, metavar="FILE")
     return ap
 
 
+def _overlay_from(ns):
+    from .overlay import from_args
+
+    try:
+        return from_args(ns)
+    except ValueError as e:
+        raise SystemExit(f"colorize-ascii: error: {e}")
+
+
 def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
-    ns = build_arg_parser().parse_args(argv[1:])
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    parser = build_arg_parser()
+    add_preset_args(parser)
+    ns = parse_with_presets(parser, argv[1:], "colorize")
 
     out_path = ns.out
     if out_path is not None and out_path != "-":
@@ -297,6 +331,8 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
         debug=ns.debug,
         log_path=ns.log_path,
         rotate=ns.rotate,
+        color_depth=ns.color_depth,
+        overlay=_overlay_from(ns),
         animate=ns.animate,
         anim_frames=ns.frames,
         anim_fps=ns.fps,
@@ -378,6 +414,9 @@ def scale_art_block(art_lines: Sequence[str], target_art_h: int, opt: SizeOption
 
     src_h = len(art_lines)
     src_w = max(len(ln) for ln in art_lines)
+    if src_w == 0:
+        # Only empty lines: no aspect to preserve, nothing to resample.
+        return list(art_lines[:target_art_h])
     art_rect = [ln.ljust(src_w) for ln in art_lines]
 
     # EXACT size mode (wins over max-* constraints)
@@ -472,6 +511,8 @@ def matrix_field(lines, img, m: MatrixOptions):
     h = len(lines)
     w = max(len(ln) for ln in lines)
     grid = [ln.ljust(w) for ln in lines]
+    if w == 0:
+        return grid, [[] for _ in range(h)]
 
     # Resize once for sampling
     img = img.resize((w, h), Image.Resampling.LANCZOS).convert("RGB")
@@ -654,6 +695,8 @@ def colorize_lines_ansi(lines, img, color_spaces=False):
     h = len(lines)
     w = max(len(ln) for ln in lines)
     grid = [ln.ljust(w) for ln in lines]
+    if w == 0:
+        return ["" for _ in lines]
 
     img = img.resize((w, h), Image.Resampling.LANCZOS)
     px = img.load()
@@ -691,6 +734,8 @@ def colorize_lines_html(lines, img, color_spaces=False, fill_spaces=False):
     h = len(lines)
     w = max(len(ln) for ln in lines)
     grid = [ln.ljust(w) for ln in lines]
+    if w == 0:
+        return ["" for _ in lines]
 
     img = img.resize((w, h), Image.Resampling.LANCZOS)
     px = img.load()
@@ -751,7 +796,7 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
         "      white-space: pre;\n"
         "      overflow: auto;\n"
         "      color: #e0e0e0;\n"  # default text must contrast the black page
-        '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", "Fira Code", Consolas, monospace;\n'
+        '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", "Fira Code", Consolas, "Noto Sans Mono CJK JP", "Noto Sans CJK JP", "MS Gothic", "Hiragino Sans", "Yu Gothic", monospace;\n'
         "      font-variant-ligatures: none;\n"
         f"      font-size: {font_size_px}px;\n"
         f"      line-height: {line_height_px}px;\n"
@@ -1068,7 +1113,12 @@ def colorize_ascii_text(
 # -----------------------------
 
 def main():
+    from .console import utf8_stdout
+
+    utf8_stdout()
     img_path, ascii_path, out_path, opt = parse_args(sys.argv)
+    if out_path == "-":
+        out_path = None  # '-' means stdout
 
     t0 = time.perf_counter()
     setup_logging(opt.debug, opt.log_path)
@@ -1120,8 +1170,11 @@ def main():
             "\n".join(header + scaled_art), base_img, m=opt.matrix, a=anim_opt,
             caption=opt.caption,
         )
+        from .ansi import downsample, resolve_depth
+
+        depth = resolve_depth(opt.color_depth, to_terminal=out_path is None)
         if out_path is None:
-            animation.play(loops=opt.anim_loops)
+            animation.play(loops=opt.anim_loops, color_depth=depth)
         elif ext == ".gif":
             with open(out_path, "wb") as out:
                 out.write(animation.to_gif_bytes())
@@ -1133,7 +1186,8 @@ def main():
             from pathlib import Path
 
             write_frames_file(
-                Path(out_path), animation.frames_ansi(), fps=opt.anim_fps, loops=opt.anim_loops
+                Path(out_path), [downsample(f, depth) for f in animation.frames_ansi()],
+                fps=opt.anim_fps, loops=opt.anim_loops,
             )
         else:
             raise SystemExit("--animate output must be .gif, .html, .frames, or omitted for terminal playback")
@@ -1141,7 +1195,31 @@ def main():
         return
 
     LOG.debug("Writing %s output to %s", opt.out_format, out_path)
-    if opt.out_format == "ansi":
+    if opt.overlay is not None:
+        # Overlays recolor ANSI cells; HTML is produced from the result.
+        from .overlay import ansi_to_html, apply_to_ansi
+
+        cap_lines = []
+        if opt.caption.text:
+            width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
+            cap_lines = _build_caption_lines(opt.caption, width)
+        text = apply_to_ansi(opt.overlay, "\n".join(render_ansi(
+            header, scaled_art, base_img, opt.color_top, opt.matrix,
+            cap=opt.caption, cap_lines=cap_lines,
+        )) + "\n")
+        if opt.out_format == "html":
+            title = os.path.basename(out_path) if out_path else "ASCII Art"
+            text = ansi_to_html(text, title=title, font_size_px=opt.html.font_size_px)
+        else:
+            from .ansi import downsample, resolve_depth
+
+            text = downsample(text, resolve_depth(opt.color_depth, to_terminal=out_path is None))
+        if out_path:
+            with open(out_path, "w", encoding="utf-8") as out:
+                out.write(text)
+        else:
+            sys.stdout.write(text)
+    elif opt.out_format == "ansi":
         cap_lines = []
         if opt.caption.text:
             width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
@@ -1150,7 +1228,10 @@ def main():
             header, scaled_art, base_img, opt.color_top, opt.matrix,
             cap=opt.caption, cap_lines=cap_lines,
         )
+        from .ansi import downsample, resolve_depth
+
         text = "\n".join(out_lines) + "\n"
+        text = downsample(text, resolve_depth(opt.color_depth, to_terminal=out_path is None))
         if out_path:
             with open(out_path, "w", encoding="utf-8") as out:
                 out.write(text)

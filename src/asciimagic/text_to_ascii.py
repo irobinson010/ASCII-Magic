@@ -4,7 +4,9 @@
 import argparse
 import os, sys
 import logging
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont
+
+from .textwidth import fit, scale_lines, str_width
 
 
 # =============================
@@ -47,6 +49,117 @@ def load_font(font_path: str | None, font_size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
+# Fonts that cover Japanese (and usually Chinese/Korean), most preferred
+# first. Only checked if the requested font can't draw the text.
+_CJK_FONT_CANDIDATES = (
+    # Linux
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansJP-Regular.ttf",
+    "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
+    "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    # macOS
+    "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/Library/Fonts/Arial Unicode.ttf",
+    # Windows
+    "C:\\Windows\\Fonts\\YuGothM.ttc",
+    "C:\\Windows\\Fonts\\meiryo.ttc",
+    "C:\\Windows\\Fonts\\msgothic.ttc",
+    "C:\\Windows\\Fonts\\msyh.ttc",
+    "C:\\Windows\\Fonts\\malgun.ttf",
+)
+
+
+def _glyph_bytes(font, ch: str) -> bytes:
+    img = Image.new("L", (font.size * 2 + 4, font.size * 2 + 4), 0)
+    ImageDraw.Draw(img).text((2, 2), ch, font=font, fill=255)
+    return img.tobytes()
+
+
+def missing_glyphs(font, text: str) -> str:
+    """Characters in `text` that `font` would draw as the "missing glyph"
+    box (compared against a code point no font defines)."""
+    if not isinstance(font, ImageFont.FreeTypeFont):
+        return "".join(sorted({ch for ch in text if ord(ch) > 126}))
+    notdef = _glyph_bytes(font, "\U0010fffd")
+    out = []
+    for ch in dict.fromkeys(text):
+        if ch.isspace() or ord(ch) < 32:
+            continue
+        if _glyph_bytes(font, ch) == notdef:
+            out.append(ch)
+    return "".join(out)
+
+
+def _fc_list_fonts(text: str) -> list[str]:
+    """Fonts fontconfig says cover the text's script (Linux/BSD), if available."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("fc-list"):
+        return []
+    try:
+        proc = subprocess.run(
+            ["fc-list", f":charset={ord(text[0]):x}", "file"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    paths = [ln.split(":")[0].strip() for ln in proc.stdout.splitlines() if ln.strip()]
+    return [p for p in paths if p.lower().endswith((".ttf", ".ttc", ".otf"))]
+
+
+def find_fallback_font(text: str, font_size: int):
+    """A font that can draw every character of `text`, or None.
+
+    ASCII_MAGIC_FALLBACK_FONT (a font path) is tried first, then well-known
+    CJK fonts, then whatever fontconfig reports.
+    """
+    need = "".join(ch for ch in dict.fromkeys(text) if not ch.isspace())
+    if not need:
+        return None
+    env = os.environ.get("ASCII_MAGIC_FALLBACK_FONT")
+    candidates = ([env] if env else []) + list(_CJK_FONT_CANDIDATES)
+    wide = [ch for ch in need if ord(ch) > 126]
+    if wide:
+        candidates += _fc_list_fonts(wide[0])
+    seen = set()
+    for path in candidates:
+        if not path or path in seen or not os.path.exists(path):
+            continue
+        seen.add(path)
+        try:
+            font = ImageFont.truetype(path, font_size)
+        except OSError:
+            continue
+        if not missing_glyphs(font, need):
+            return font
+    return None
+
+
+def load_font_for(text: str, font_path: str | None, font_size: int):
+    """load_font, switching to a fallback font when the chosen one lacks
+    characters in `text` (e.g. Japanese with the default Latin font)."""
+    logger = logging.getLogger(__name__)
+    font = load_font(font_path, font_size)
+    missing = missing_glyphs(font, text)
+    if not missing:
+        return font
+    fallback = find_fallback_font(text, font_size)
+    if fallback is not None:
+        logger.debug("Font lacks %r; using fallback %s", missing, getattr(fallback, "path", "?"))
+        return fallback
+    logger.warning(
+        "No installed font can draw %r; they will render as boxes. Install a CJK font "
+        "(e.g. Noto Sans CJK) or pass --font / set ASCII_MAGIC_FALLBACK_FONT.", missing,
+    )
+    return font
+
+
 # =============================
 # Text Rendering
 # =============================
@@ -71,7 +184,7 @@ def render_text_to_image(
     """Render text to an image."""
     logger = logging.getLogger(__name__)
     logger.debug("Rendering text to image; font_size=%d padding=%d", font_size, padding)
-    font = load_font(font_path, font_size)
+    font = load_font_for(text, font_path, font_size)
 
     # Rough text measurement to size temporary canvas
     rough_w, rough_h = measure_text(text, font)
@@ -214,7 +327,7 @@ def text_to_ascii_art(
 def text_to_box(text: str, width: int = 80) -> str:
     """Draw text in a simple box."""
     lines = text.split("\n")
-    max_len = max(len(line) for line in lines) if lines else 0
+    max_len = max(str_width(line) for line in lines) if lines else 0
 
     # content width is space for text inside the box
     content_width = max(1, min(max_len, max(1, width - 4)))
@@ -225,13 +338,12 @@ def text_to_box(text: str, width: int = 80) -> str:
 
     for line in lines:
         # truncate long lines to fit the requested width
-        if len(line) > content_width:
+        # Widths are terminal columns: CJK characters take two.
+        if str_width(line) > content_width:
             logging.getLogger(__name__).debug(
-                "Truncating line from %d to %d characters", len(line), content_width
+                "Truncating line from %d to %d columns", str_width(line), content_width
             )
-            content = line[:content_width]
-        else:
-            content = line.ljust(content_width)
+        content = fit(line, content_width)
         result.append("│ " + content + " │")
 
     result.append("└" + "─" * (box_width - 2) + "┘")
@@ -241,14 +353,29 @@ def text_to_box(text: str, width: int = 80) -> str:
 
 def text_to_banner(text: str, char: str = "#") -> str:
     """Create a simple text banner."""
-    border = char * (len(text) + 4)
+    border = char * (str_width(text) + 4)
     return f"{border}\n{char} {text} {char}\n{border}"
+
+
+def figlet_missing(text: str, font: str = "standard") -> str:
+    """Characters the figlet font has no letterform for. pyfiglet silently
+    drops them, so e.g. all-Japanese text renders as nothing at all."""
+    import pyfiglet
+
+    chars = pyfiglet.Figlet(font=font).Font.chars
+    return "".join(ch for ch in dict.fromkeys(text) if not ch.isspace() and ord(ch) not in chars)
 
 
 def text_to_figlet(text: str, width: int = 80, font: str = "standard") -> str:
     """Classic figlet outline lettering (the traditional terminal-banner look)."""
     import pyfiglet
 
+    missing = figlet_missing(text, font)
+    if missing:
+        raise ValueError(
+            f"figlet fonts have no letters for {missing!r} (figlet covers Latin text only); "
+            "use --style block, small, or shadow instead"
+        )
     return pyfiglet.figlet_format(text, font=font, width=max(20, int(width)))
 
 
@@ -320,6 +447,12 @@ def caption_lines(
     # grid transform starts from the closest natural rendering.
     eff_scale = (cols / width) if cols else scale
 
+    if style == "figlet" and figlet_missing(text):
+        # Figlet fonts are Latin-only; render non-Latin captions as block
+        # letters rather than silently dropping them.
+        logging.getLogger(__name__).info("figlet can't draw %r; using block style", text)
+        style = "block"
+
     if style == "box":
         block = text_to_box(text, width=cols or width)
     elif style == "banner":
@@ -339,28 +472,24 @@ def caption_lines(
 
     if lines and (cols or rows):
         # Exact free transform to cols x rows (missing dim keeps aspect).
-        from .colorize_ascii import scale_grid
-
-        nat_w = max(len(ln) for ln in lines)
+        nat_w = max(str_width(ln) for ln in lines)
         nat_h = len(lines)
         tc = cols or max(2, min(width, round(nat_w * (rows / nat_h))))
         tr = rows or max(1, round(nat_h * (tc / nat_w)))
         if (tc, tr) != (nat_w, nat_h):
-            lines = [ln.rstrip() for ln in scale_grid([ln.ljust(nat_w) for ln in lines], tr, tc)]
+            lines = [ln.rstrip() for ln in scale_lines(lines, tr, tc)]
     elif style == "figlet" and lines:
         # Emergency shrink only: even the smallest ladder font can overflow
         # very narrow art. Sizing up is handled by the font ladder itself.
-        nat_w = max(len(ln) for ln in lines)
+        nat_w = max(str_width(ln) for ln in lines)
         if nat_w > width:
-            from .colorize_ascii import scale_grid
-
             factor = width / nat_w
             new_h = max(1, round(len(lines) * factor))
-            lines = [ln.rstrip() for ln in scale_grid([ln.ljust(nat_w) for ln in lines], new_h, width)]
+            lines = [ln.rstrip() for ln in scale_lines(lines, new_h, width)]
 
     # Align the block as a UNIT: rows in multi-row letterforms have different
     # ink widths, so per-line centering shears the letters apart.
-    block_w = max((len(ln) for ln in lines), default=0)
+    block_w = max((str_width(ln) for ln in lines), default=0)
     if align == "right":
         pad_left = max(0, width - block_w)
     elif align == "center":
@@ -369,8 +498,7 @@ def caption_lines(
         pad_left = 0
     out = []
     for ln in lines:
-        ln = (" " * pad_left + ln)[:width]
-        out.append(ln.ljust(width))
+        out.append(fit(" " * pad_left + ln, width))
     return out
 
 
@@ -438,7 +566,7 @@ def compose_caption(
     side), the four corners (top-left ... bottom-right), and "wrap" (the
     text flows clockwise as a 1-char marquee frame around the art)."""
     art_lines = art.splitlines()
-    width = max((len(ln) for ln in art_lines), default=1)
+    width = max((str_width(ln) for ln in art_lines), default=1)
     height = len(art_lines)
 
     if position in ("top-left", "top-right", "bottom-left", "bottom-right"):
@@ -473,8 +601,9 @@ def compose_caption(
             out.append(c + spacer + a if position == "left" else a + spacer + c)
         return "\n".join(out)
 
-    cap = caption_lines(text, width, style=style, scale=scale, align=align,
-                        font_path=font_path, cols=cols, rows=rows)
+    cap = caption_lines(
+        text, width, style=style, scale=scale, align=align, font_path=font_path, cols=cols, rows=rows
+    )
     spacer = [""] * max(0, int(gap))
     if position == "top":
         combined = cap + spacer + art_lines
@@ -539,6 +668,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="#",
         help="Character to use for banner style",
     )
+    from .ansi import add_depth_arg
+    from .overlay import add_overlay_args
+
+    add_overlay_args(parser)
+    add_depth_arg(parser)
     parser.add_argument(
         "--log-level",
         default="WARNING",
@@ -551,15 +685,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main():
     """Main entry point for text-to-ASCII CLI."""
+    from .console import utf8_stdout
+
+    utf8_stdout()
     parser = build_arg_parser()
-    args = parser.parse_args()
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    add_preset_args(parser)
+    args = parse_with_presets(parser, None, "text")
 
     # Configure logging early so other functions can emit messages
     numeric_level = getattr(logging, args.log_level.upper(), None)
     if not isinstance(numeric_level, int):
         numeric_level = logging.WARNING
+    # stderr: stdout carries the art, so log lines must not mix into it.
     logging.basicConfig(
-        stream=sys.stdout, level=numeric_level, format="%(levelname)s: %(message)s"
+        stream=sys.stderr, level=numeric_level, format="%(levelname)s: %(message)s"
     )
 
     # If no args, show help and exit 0
@@ -594,6 +735,11 @@ def main():
             font_size=args.font_size,
             font_path=args.font,
         )
+
+    if args.overlay:
+        from .overlay import finish_output
+
+        output = finish_output(output + "\n", args, args.output, to_terminal=not args.output).rstrip("\n")
 
     # Output
     if args.output:

@@ -138,6 +138,8 @@ class MatrixAnimation:
         art_chars: Optional[List[str]] = None,            # padded source art grid
         art_rgb: Optional[np.ndarray] = None,             # (H,W,3) uint8 image colors
     ):
+        if not (0 < fps < float("inf")):
+            raise ValueError(f"fps must be a positive number, got {fps}")
         self.frames = frames  # per frame: (glyph idx int16, intensity uint8, head bool)
         self.chars = chars
         self.fps = fps
@@ -218,33 +220,13 @@ class MatrixAnimation:
             out.append("\n".join(lines) + f"{ESC}[0m")
         return out
 
-    def play(self, loops: Optional[int] = None, out=None) -> None:
+    def play(self, loops: Optional[int] = None, out=None, color_depth: str = "truecolor") -> None:
         """Terminal playback. loops=0 plays until Ctrl-C."""
-        out = out or sys.stdout
-        frames = self.frames_ansi()
-        delay = 1.0 / max(self.fps, 0.1)
-        loops = 3 if loops is None else loops
-        try:
-            out.write(f"{ESC}[2J{ESC}[?25l")
-            n = 0
-            while loops == 0 or n < loops:
-                for f in frames:
-                    out.write(f"{ESC}[H" + f)
-                    out.flush()
-                    time.sleep(delay)
-                n += 1
-        except (KeyboardInterrupt, BrokenPipeError):
-            pass
-        finally:
-            try:
-                out.write(f"{ESC}[0m{ESC}[?25h\n")
-                out.flush()
-            except BrokenPipeError:
-                # Stop the interpreter-shutdown flush from complaining too.
-                if out is sys.stdout:
-                    fd = os.open(os.devnull, os.O_WRONLY)
-                    os.dup2(fd, sys.stdout.fileno())
-                    os.close(fd)
+        from .ansi import downsample
+        from .greet import play_frames
+
+        frames = [downsample(f, color_depth) for f in self.frames_ansi()]
+        play_frames(frames, self.fps, 3 if loops is None else loops, out=out)
 
     # ---- GIF ----
 
@@ -456,7 +438,7 @@ class MatrixAnimation:
             "    pre {\n"
             "      margin: 0;\n      white-space: pre;\n      overflow: auto;\n"
             "      color: #e0e0e0;\n"  # default text must contrast the black page
-            '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;\n'
+            '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", Consolas, "Noto Sans Mono CJK JP", "Noto Sans CJK JP", "MS Gothic", "Hiragino Sans", "Yu Gothic", monospace;\n'
             f"      font-size: {font_size_px}px;\n      line-height: {font_size_px}px;\n"
             "    }\n"
             f"{css_levels}\n"

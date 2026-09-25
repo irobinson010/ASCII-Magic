@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -133,3 +134,41 @@ def test_floyd_steinberg_density_tracks_input():
     dots = _floyd_steinberg_dots(ink, threshold=0.5)
     density = dots.mean()
     assert 0.2 < density < 0.4  # ~30% of dots set for 0.3 ink
+
+
+# ---- transparency ----
+
+def _transparent_with_box(tmp_path, mode):
+    im = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    im.paste((0, 0, 0, 255), (16, 16, 48, 48))
+    p = tmp_path / f"t_{mode}.png"
+    if mode == "P":
+        # Both entries store black; only index 0 is flagged transparent.
+        pal = Image.new("P", im.size, 0)
+        pal.putpalette([0, 0, 0, 0, 0, 0])
+        pal.paste(1, (16, 16, 48, 48))
+        pal.save(p, transparency=0)
+    else:
+        im.convert(mode).save(p)
+    return p
+
+
+@pytest.mark.parametrize("mode", ["RGBA", "LA", "P"])
+def test_open_oriented_flattens_transparency_onto_white(tmp_path, mode):
+    from asciimagic.image_to_ascii import open_oriented
+
+    img = open_oriented(_transparent_with_box(tmp_path, mode), "L")
+    assert img.getpixel((0, 0)) == 255   # transparent corner -> paper
+    assert img.getpixel((32, 32)) == 0   # opaque black box stays ink
+
+
+def test_transparent_background_renders_blank(tmp_path):
+    from asciimagic.image_to_ascii import image_to_braille
+
+    art = image_to_braille(
+        str(_transparent_with_box(tmp_path, "RGBA")), cols=8,
+        autocontrast=False, gamma=1.0, invert=False, threshold=0.5, dither=False,
+    )
+    lines = art.splitlines()
+    assert set(lines[0]) <= {"⠀", " "}   # top edge: transparent -> blank
+    assert "⣿" in art                    # box interior is ink

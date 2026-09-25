@@ -13,8 +13,12 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
+import os
 import random
+import threading
 import time
+from contextlib import contextmanager
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Optional
@@ -23,20 +27,178 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from .image_to_ascii import rotate_cw
+from .image_to_ascii import flatten_alpha, rotate_cw
 
 from . import colorize_ascii as colorize_mod
 from .pipeline import AsciiPipelineContext, animate as pipeline_animate, colorize, image_to_ascii, text_to_ascii
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="ASCII Magic")
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except ValueError:
+        return default
+
 
 # Hard server-side limits — the GUI enforces friendlier ones client-side,
 # but nothing stops a hand-crafted request, and the Docker CMD binds 0.0.0.0.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_VIDEO_UPLOAD_BYTES = 100 * 1024 * 1024
+# Whole request body (largest upload + multipart framing + options JSON).
+# Enforced while the body streams in, before anything is spooled to disk.
+MAX_REQUEST_BYTES = MAX_VIDEO_UPLOAD_BYTES + 2 * 1024 * 1024
+
+# Work budgets. Render time scales with output characters (and, for glyph
+# matching, the pixels per cell; for animations, the frame count). Measured
+# at roughly 11 us per character-frame for animations, so the defaults keep
+# a single request to ~10 s on one core. Override via environment.
+MAX_CELLS = _env_int("ASCII_MAGIC_MAX_CELLS", 250_000)
+MAX_GLYPH_PIXELS = _env_int("ASCII_MAGIC_MAX_GLYPH_PIXELS", 16_000_000)
+MAX_ANIM_CELL_FRAMES = _env_int("ASCII_MAGIC_MAX_ANIM_CELL_FRAMES", 1_000_000)
+# Sampling skips frames but still decodes them; bounds a long, high-fps clip.
+MAX_DECODED_VIDEO_FRAMES = _env_int("ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES", 5_000)
+
+# Renders are CPU-bound; running more at once than there are cores only makes
+# every one of them slower, and an unbounded pile-up ties up every worker
+# thread. Excess requests wait briefly for a slot, then get a 503.
+MAX_CONCURRENT_RENDERS = _env_int("ASCII_MAGIC_MAX_CONCURRENT", min(4, os.cpu_count() or 1))
+RENDER_QUEUE_TIMEOUT_S = 15.0
+_render_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RENDERS)
+
+
+@contextmanager
+def _render_slot():
+    if not _render_slots.acquire(timeout=RENDER_QUEUE_TIMEOUT_S):
+        raise HTTPException(
+            status_code=503,
+            detail="Server busy; try again in a few seconds.",
+            headers={"Retry-After": "5"},
+        )
+    try:
+        yield
+    finally:
+        _render_slots.release()
+
+
+def _too_large() -> HTTPException:
+    return HTTPException(
+        status_code=413, detail=f"Request larger than {MAX_REQUEST_BYTES // (1024 * 1024)} MB."
+    )
+
+
+class BodySizeLimitMiddleware:
+    """Reject oversized request bodies while they stream in.
+
+    Starlette spools multipart files to disk with no size cap before the
+    handler runs, so a per-file check in the handler comes too late: a
+    multi-GB POST fills the disk first. A declared Content-Length over the
+    limit is refused up front; chunked bodies are counted as they arrive.
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        for name, value in scope.get("headers", ()):
+            if name == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    declared = -1
+                if declared > self.max_bytes or declared < 0:
+                    status = 413 if declared > self.max_bytes else 400
+                    detail = _too_large().detail if status == 413 else "Bad Content-Length."
+                    await _send_json(send, status, detail, [(b"connection", b"close")])
+                    return
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    # Raised inside the route's body parsing, so FastAPI's
+                    # exception handling turns it into a normal 413 response.
+                    raise _too_large()
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+
+async def _send_json(send, status: int, detail: str, extra_headers=()) -> None:
+    body = json.dumps({"detail": detail}).encode()
+    await send({
+        "type": "http.response.start",
+        "status": status,
+        "headers": [(b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()), *extra_headers],
+    })
+    await send({"type": "http.response.body", "body": body})
+
+
+class SameOriginMiddleware:
+    """Refuse state-changing requests that a browser sent from another site.
+
+    A multipart POST is a CORS "simple request": any page the user visits
+    can fire one at http://127.0.0.1:8000/api/render without a preflight,
+    and make the server burn CPU on the attacker's behalf. Browsers always
+    attach an Origin header to cross-origin POSTs, so a present Origin must
+    match the Host the request was sent to (or be listed in
+    ASCII_MAGIC_ALLOWED_ORIGINS, comma-separated, for reverse-proxy setups).
+    Requests without Origin (curl, scripts) are not browser-driven and pass.
+    """
+
+    SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+    def __init__(self, app, allowed_origins=()):
+        self.app = app
+        self.allowed = {o.strip().rstrip("/").lower() for o in allowed_origins if o.strip()}
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] in self.SAFE_METHODS:
+            await self.app(scope, receive, send)
+            return
+        headers = {k: v for k, v in scope.get("headers", ())}
+        origin = headers.get(b"origin")
+        if origin is not None:
+            origin_s = origin.decode("latin-1").strip().rstrip("/").lower()
+            host = headers.get(b"host", b"").decode("latin-1").strip().lower()
+            netloc = origin_s.split("://", 1)[-1]
+            if origin_s not in self.allowed and (origin_s == "null" or netloc != host):
+                await _send_json(send, 403, "Cross-origin request refused.")
+                return
+        await self.app(scope, receive, send)
+
+
+app = FastAPI(title="ASCII Magic")
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
+app.add_middleware(
+    SameOriginMiddleware,
+    allowed_origins=os.environ.get("ASCII_MAGIC_ALLOWED_ORIGINS", "").split(","),
+)
+
+
+def _check_budget(value: int, limit: int, what: str, hint: str) -> None:
+    if value > limit:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Output too large: {what} would be {value:,} (limit {limit:,}). {hint}",
+        )
+
+
+def _estimated_rows(img_w: int, img_h: int, cols: int, cell_w: int, cell_h: int) -> int:
+    """Rows the image converters produce for `cols` (their aspect formula)."""
+    return max(1, int((img_h / max(1, img_w)) * cols * (cell_w / cell_h)))
 VIDEO_SUFFIXES = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".gif")
 
 
@@ -47,7 +209,7 @@ def _ival(o: dict[str, Any], key: str, default, lo: int, hi: int):
         return default
     try:
         n = int(float(v))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: "inf"
         return default
     return max(lo, min(hi, n))
 
@@ -60,14 +222,50 @@ def _fval(o: dict[str, Any], key: str, default, lo: float, hi: float):
         n = float(v)
     except (TypeError, ValueError):
         return default
+    if not math.isfinite(n):
+        return default
     return max(lo, min(hi, n))
+
+
+_FALSY_STRINGS = {"", "0", "false", "off", "no"}
+
+
+def _bool(o: dict[str, Any], key: str, default: bool = False) -> bool:
+    """Bool from untrusted JSON; the string "false" must not read as True."""
+    v = o.get(key, default)
+    if isinstance(v, str):
+        return v.strip().lower() not in _FALSY_STRINGS
+    return bool(v)
+
+
+def _choice(o: dict[str, Any], key: str, default: str, allowed: tuple[str, ...]) -> str:
+    """Enum option from untrusted JSON; unknown values are a 400, not a 500
+    deep in the renderer (or a silent fallback)."""
+    v = o.get(key)
+    if v in (None, ""):
+        return default
+    if v not in allowed:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid {key}: {v!r} (expected one of {', '.join(allowed)})"
+        )
+    return v
+
+
+CAPTION_STYLES = ("block", "small", "shadow", "box", "banner", "figlet")
+CAPTION_POSITIONS = (
+    "top", "bottom", "left", "right", "wrap",
+    "top-left", "top-right", "bottom-left", "bottom-right",
+)
+CAPTION_ALIGNS = ("left", "center", "right")
+QUALITIES = ("fast", "balanced", "best")
+ASCII_PRESETS = ("dense", "printable")
 
 
 def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
     opt = colorize_mod.Options()
     opt.out_format = out_format
     opt.keep_top = _ival(o, "keep_top", 0, 0, 5000)
-    opt.color_top = bool(o.get("color_top"))
+    opt.color_top = _bool(o, "color_top")
 
     size = opt.size
     for src_key, attr in (
@@ -79,30 +277,32 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
         v = _ival(o, src_key, None, 1, 2000)
         if v:
             setattr(size, attr, v)
+    if size.rows and size.cols:
+        _check_budget(size.rows * size.cols, MAX_CELLS, "characters", "Lower the exact rows/cols.")
 
     h = opt.html
     h.font_size_px = _ival(o, "html_font_size", 12, 4, 64)
     h.line_height_px = _ival(o, "html_line_height", None, 4, 96)
-    h.fill_spaces = bool(o.get("html_fill_spaces"))
+    h.fill_spaces = _bool(o, "html_fill_spaces")
 
     if o.get("caption_text"):
         c = opt.caption
         c.text = str(o["caption_text"])[:500]
-        c.position = o.get("caption_pos", "bottom")
-        c.style = o.get("caption_style", "block")
+        c.position = _choice(o, "caption_pos", "bottom", CAPTION_POSITIONS)
+        c.style = _choice(o, "caption_style", "block", CAPTION_STYLES)
         c.scale = _fval(o, "caption_scale", 0.6, 0.05, 1.0)
         c.cols = _ival(o, "caption_cols", None, 2, 500)
         c.rows = _ival(o, "caption_rows", None, 1, 200)
         c.gap = _ival(o, "caption_gap", 1, 0, 50)
         c.color = o.get("caption_color") or None
-        c.align = o.get("caption_align", "center")
+        c.align = _choice(o, "caption_align", "center", CAPTION_ALIGNS)
 
     m = opt.matrix
-    m.enabled = bool(o.get("matrix"))
+    m.enabled = _bool(o, "matrix")
     if m.enabled:
         if o.get("matrix_color"):
             m.tint = colorize_mod.parse_matrix_color(o["matrix_color"])
-        m.top = bool(o.get("matrix_top"))
+        m.top = _bool(o, "matrix_top")
         m.seed = _ival(o, "matrix_seed", None, 0, 2**31 - 1)
         m.gamma = _fval(o, "matrix_gamma", m.gamma, 0.1, 10.0)
         m.fg_min = _ival(o, "matrix_fg_min", m.fg_min, 0, 255)
@@ -111,13 +311,67 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
         m.bg_max = _ival(o, "matrix_bg_max", m.bg_max, 0, 255)
         if o.get("matrix_chars"):
             m.chars = str(o["matrix_chars"])[:500]
-        m.fill_spaces = bool(o.get("matrix_fill_spaces"))
-        m.use_mask = bool(o.get("matrix_mask"))
+        m.fill_spaces = _bool(o, "matrix_fill_spaces")
+        m.use_mask = _bool(o, "matrix_mask")
         m.mask_boost = _fval(o, "matrix_mask_boost", m.mask_boost, 0.0, 1.0)
         m.mask_density_floor = _fval(o, "matrix_mask_density_floor", m.mask_density_floor, 0.0, 1.0)
         m.bg_dim = _fval(o, "matrix_bg_dim", m.bg_dim, 0.0, 1.0)
         m.bg_density = _fval(o, "matrix_bg_density", m.bg_density, 0.0, 1.0)
     return opt
+
+
+OVERLAY_DIRECTIONS = ("horizontal", "vertical", "diagonal", "diagonal-up", "radial")
+OVERLAY_MODES = ("tint", "multiply", "screen", "overlay")
+
+
+def _overlay_from_options(o: dict[str, Any]):
+    spec = o.get("overlay")
+    if not spec:
+        return None
+    if not isinstance(spec, str) or len(spec) > 200:
+        raise HTTPException(status_code=400, detail="overlay must be a short string")
+    from .overlay import Overlay
+
+    try:
+        return Overlay.parse(
+            spec,
+            _choice(o, "overlay_direction", "horizontal", OVERLAY_DIRECTIONS),
+            _choice(o, "overlay_mode", "tint", OVERLAY_MODES),
+            _fval(o, "overlay_strength", 1.0, 0.0, 1.0),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _decode_image_upload(upload: UploadFile) -> Image.Image:
+    """Read an uploaded image under the size/pixel caps: EXIF orientation
+    applied, transparency composited, RGB. Errors are HTTP 4xx."""
+    chunks = []
+    total = 0
+    while True:
+        chunk = upload.file.read(1 << 20)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Image larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+            )
+        chunks.append(chunk)
+    try:
+        img = Image.open(io.BytesIO(b"".join(chunks)))
+        if img.width * img.height > MAX_IMAGE_PIXELS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image exceeds {MAX_IMAGE_PIXELS:,} pixels.",
+            )
+        # Honor EXIF orientation (browsers show the thumbnail rotated;
+        # without this the render comes out sideways).
+        img = ImageOps.exif_transpose(img)
+        return flatten_alpha(img).convert("RGB")  # full decode happens here
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(status_code=400, detail="Could not decode the uploaded image.")
 
 
 def _plain_html(ascii_text: str, o: dict[str, Any]) -> str:
@@ -171,11 +425,12 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
     try:
         tmp.write(b"".join(chunks))
         tmp.close()
+        from .video import VideoTooLarge, video_to_ascii
+
         try:
-            from .video import video_to_ascii
 
             built = _build_options(o, "ansi")
-            matrix = built.matrix if o.get("matrix") else None
+            matrix = built.matrix if _bool(o, "matrix") else None
             caption = built.caption if o.get("caption_text") else None
             mode = o.get("video_mode") if o.get("video_mode") in ("braille", "glyph") else "braille"
             v = video_to_ascii(
@@ -184,17 +439,23 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
                 sample_fps=_fval(o, "video_fps", 8.0, 1.0, 30.0),
                 max_frames=_ival(o, "video_max_frames", 60, 1, 120),
                 rows=_ival(o, "video_rows", None, 1, 500),
-                dither=bool(o.get("dither", True)),
+                dither=_bool(o, "dither", True),
                 threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
                 gamma=_fval(o, "gamma", 1.0, 0.05, 10.0),
-                autocontrast=bool(o.get("autocontrast")),
-                invert=bool(o.get("invert")),
+                autocontrast=_bool(o, "autocontrast"),
+                invert=_bool(o, "invert"),
                 mode=mode,
                 quality=o.get("quality") if o.get("quality") in ("fast", "balanced", "best") else "balanced",
                 matrix=matrix,
                 caption=caption,
+                max_pixels=MAX_IMAGE_PIXELS,
+                max_decoded=MAX_DECODED_VIDEO_FRAMES,
+                max_cell_frames=MAX_ANIM_CELL_FRAMES,
+                untrusted=True,
             )
-        except (RuntimeError, ValueError, OSError) as e:
+        except VideoTooLarge as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except (RuntimeError, ValueError, OSError, Image.DecompressionBombError) as e:
             raise HTTPException(status_code=400, detail=f"Could not read the video: {e}")
     except Exception:
         os_mod.unlink(tmp.name)
@@ -255,6 +516,11 @@ def render_mp4(
 ):
     """Encode-on-demand mp4 (with the source's audio). The GUI calls this
     only when the user clicks the .mp4 download, so previews stay fast."""
+    with _render_slot():
+        return _render_mp4(image, options)
+
+
+def _render_mp4(image: Optional[UploadFile], options: str):
     import os as os_mod
     import tempfile
 
@@ -268,17 +534,20 @@ def render_mp4(
         raise HTTPException(status_code=400, detail=f"Bad options JSON: {e}")
 
     v, src_path = _video_from_upload(image, o)
-    out = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-    out.close()
+    out_path = None
     try:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as out:
+            out_path = out.name
         try:
-            v.write_mp4(out.name, audio_source=src_path)
+            v.write_mp4(out_path, audio_source=src_path, untrusted_source=True)
         except (RuntimeError, OSError) as e:
             raise HTTPException(status_code=400, detail=f"Could not encode mp4: {e}")
-        data = open(out.name, "rb").read()
+        with open(out_path, "rb") as f:
+            data = f.read()
     finally:
         os_mod.unlink(src_path)
-        os_mod.unlink(out.name)
+        if out_path:
+            os_mod.unlink(out_path)
 
     return Response(
         content=data,
@@ -294,6 +563,11 @@ def render(
     image: Optional[UploadFile] = File(None),
     options: str = Form("{}"),
 ) -> dict[str, Any]:
+    with _render_slot():
+        return _render(image, options)
+
+
+def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
     try:
         o: dict[str, Any] = json.loads(options)
         if not isinstance(o, dict):
@@ -320,38 +594,14 @@ def render(
         return _render_video(image, o, t0)
 
     if image is not None:
-        chunks = []
-        total = 0
-        while True:
-            chunk = image.file.read(1 << 20)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Image larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
-                )
-            chunks.append(chunk)
-        raw = b"".join(chunks)
-        try:
-            img = Image.open(io.BytesIO(raw))
-            if img.width * img.height > MAX_IMAGE_PIXELS:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Image exceeds {MAX_IMAGE_PIXELS:,} pixels.",
-                )
-            # Honor EXIF orientation (browsers show the thumbnail rotated;
-            # without this the render comes out sideways) + manual rotation.
-            img = ImageOps.exif_transpose(img)
-            img = rotate_cw(img, _ival(o, "rotate", 0, 0, 270))
-            ctx.source_image = img.convert("RGB")  # full decode happens here
-        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
-            raise HTTPException(status_code=400, detail="Could not decode the uploaded image.")
+        ctx.source_image = rotate_cw(_decode_image_upload(image), _ival(o, "rotate", 0, 0, 270))
 
     source = o.get("source", "image")
     if source == "text":
-        text = (o.get("text") or "").strip("\n")
+        text = o.get("text") or ""
+        if not isinstance(text, str):
+            raise HTTPException(status_code=400, detail="text must be a string.")
+        text = text.strip("\n")
         if not text:
             raise HTTPException(status_code=400, detail="No text provided.")
         try:
@@ -368,22 +618,34 @@ def render(
     elif source == "image":
         if ctx.source_image is None:
             raise HTTPException(status_code=400, detail="No image uploaded.")
+        mode = o.get("mode", "braille")
+        cols = _ival(o, "cols", 120, 1, 500)
+        cell_w = _ival(o, "cell_w", 8, 1, 32)
+        cell_h = _ival(o, "cell_h", 16, 1, 64)
+        cw, ch = (cell_w, cell_h) if mode == "glyph" else (2, 4)  # braille: 2x4 dots
+        cells = cols * _estimated_rows(*ctx.source_image.size, cols, cw, ch)
+        _check_budget(cells, MAX_CELLS, "characters", "Lower the column count.")
+        if mode == "glyph":
+            _check_budget(
+                cells * cell_w * cell_h, MAX_GLYPH_PIXELS, "glyph-matching pixels",
+                "Lower the column count or the cell size.",
+            )
         try:
             image_to_ascii(
                 ctx,
-                mode=o.get("mode", "braille"),
-                cols=_ival(o, "cols", 120, 1, 500),
-                cell_w=_ival(o, "cell_w", 8, 1, 64),
-                cell_h=_ival(o, "cell_h", 16, 1, 128),
-                quality=o.get("quality", "balanced"),
-                topk=_ival(o, "topk", 24, 1, 500),
-                ascii_preset=o.get("ascii_preset", "dense"),
+                mode=mode,
+                cols=cols,
+                cell_w=cell_w,
+                cell_h=cell_h,
+                quality=_choice(o, "quality", "balanced", QUALITIES),
+                topk=_ival(o, "topk", 24, 1, 200),
+                ascii_preset=_choice(o, "ascii_preset", "dense", ASCII_PRESETS),
                 unicode_mode=o.get("unicode_mode", "off"),
-                autocontrast=bool(o.get("autocontrast")),
+                autocontrast=_bool(o, "autocontrast"),
                 gamma=_fval(o, "gamma", 1.0, 0.05, 10.0),
-                invert=bool(o.get("invert")),
+                invert=_bool(o, "invert"),
                 threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
-                dither=bool(o.get("dither")),
+                dither=_bool(o, "dither"),
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -392,8 +654,8 @@ def render(
 
     ascii_text = ctx.ascii_text or ""
     seed: Optional[int] = None
-    do_colorize = o.get("colorize", True)
-    do_animate = bool(o.get("animate"))
+    do_colorize = _bool(o, "colorize", True)
+    do_animate = _bool(o, "animate")
     if do_animate:
         o = {**o, "matrix": True}
 
@@ -405,11 +667,11 @@ def render(
         ascii_display = compose_caption(
             ascii_text,
             str(o["caption_text"])[:500],
-            position=o.get("caption_pos", "bottom"),
-            style=o.get("caption_style", "block"),
+            position=_choice(o, "caption_pos", "bottom", CAPTION_POSITIONS),
+            style=_choice(o, "caption_style", "block", CAPTION_STYLES),
             scale=_fval(o, "caption_scale", 0.6, 0.05, 1.0),
             gap=_ival(o, "caption_gap", 1, 0, 50),
-            align=o.get("caption_align", "center"),
+            align=_choice(o, "caption_align", "center", CAPTION_ALIGNS),
         )
 
     # Colorizing/animating needs a reference image; box/banner text styles
@@ -421,12 +683,12 @@ def render(
 
     # ANSI, HTML, and animation are rendered separately, so a random matrix
     # seed would diverge between them — pin one and echo it back.
-    if o.get("matrix") and (do_colorize or do_animate):
-        if o.get("matrix_seed") in (None, ""):
+    if _bool(o, "matrix") and (do_colorize or do_animate):
+        # Same parse as _build_options, so the echoed seed is the one used.
+        seed = _ival(o, "matrix_seed", None, 0, 2**31 - 1)
+        if seed is None:
             seed = random.randrange(2**31)
-            o = {**o, "matrix_seed": seed}
-        else:
-            seed = int(o["matrix_seed"])
+        o = {**o, "matrix_seed": seed}
 
     if do_colorize:
         ansi = colorize(ctx, opt=_build_options(o, "ansi"))
@@ -443,6 +705,14 @@ def render(
         ansi = ascii_display + "\n"
         html_doc = _plain_html(ascii_display, o)
 
+    overlay = _overlay_from_options(o)
+    if overlay is not None and not do_animate:
+        from .overlay import ansi_to_html, apply_to_ansi
+
+        ansi = apply_to_ansi(overlay, ansi)
+        html_doc = ansi_to_html(ansi, font_size_px=_ival(o, "html_font_size", 12, 4, 64))
+        warning = None  # "returning plain ASCII" no longer holds: the overlay colored it
+
     gif_b64: Optional[str] = None
     if do_animate:
         from .animate import AnimationOptions
@@ -451,7 +721,13 @@ def render(
             frames=_ival(o, "anim_frames", 60, 1, 240),
             fps=_fval(o, "anim_fps", 12.0, 1.0, 30.0),
             tail=_fval(o, "anim_tail", 6.0, 0.5, 40.0),
-            reveal=bool(o.get("anim_reveal")),
+            reveal=_bool(o, "anim_reveal"),
+        )
+        art = (ctx.ascii_text or "").splitlines()
+        _check_budget(
+            len(art) * max((len(ln) for ln in art), default=0) * anim_opt.frames,
+            MAX_ANIM_CELL_FRAMES, "characters x frames",
+            "Lower the column count or the number of frames.",
         )
         built = _build_options(o, "ansi")
         animation = pipeline_animate(ctx, matrix=built.matrix, anim=anim_opt, caption=built.caption)
@@ -509,6 +785,122 @@ def render(
         "gif_b64": gif_b64,
         "seed": seed,
         "warning": warning,
+        "elapsed_ms": round((time.perf_counter() - t0) * 1000),
+    }
+
+
+MAX_COMPOSE_LAYERS = 12
+MAX_COMPOSE_TEXT = 500
+
+
+@app.post("/api/compose")
+def compose_endpoint(
+    images: list[UploadFile] = File(default=[]),
+    scene: str = Form(...),
+) -> dict[str, Any]:
+    """Render a composition. Image layers reference uploads by position:
+    ``{"type": "image", "upload": 0}`` uses the first file in `images`."""
+    with _render_slot():
+        return _compose(images, scene)
+
+
+def _compose(images: list[UploadFile], scene_json: str) -> dict[str, Any]:
+    from .compose import Scene, compose
+
+    t0 = time.perf_counter()
+    try:
+        raw = json.loads(scene_json)
+        if not isinstance(raw, dict):
+            raise ValueError("scene must be a JSON object")
+        layers_raw = raw.get("layers") or []
+        if not isinstance(layers_raw, list):
+            raise ValueError("'layers' must be a list")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Bad scene JSON: {e}")
+    if not layers_raw:
+        raise HTTPException(status_code=400, detail="Add at least one layer.")
+    if len(layers_raw) > MAX_COMPOSE_LAYERS:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_COMPOSE_LAYERS} layers.")
+    if len(images) > MAX_COMPOSE_LAYERS:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_COMPOSE_LAYERS} images.")
+
+    # Uploads replace file paths: a web scene must never make the server read
+    # its own filesystem (src) or load an arbitrary font file (font).
+    uploads: dict[int, int] = {}
+    cleaned = []
+    for i, layer in enumerate(layers_raw):
+        if not isinstance(layer, dict):
+            raise HTTPException(status_code=400, detail=f"layers[{i}] must be an object")
+        layer = dict(layer)
+        for key in ("src", "font"):
+            if layer.get(key):
+                raise HTTPException(status_code=400, detail=f"layers[{i}]: '{key}' is not allowed on the web")
+            layer.pop(key, None)
+        if layer.get("type") == "image":
+            idx = layer.pop("upload", None)
+            if not isinstance(idx, int) or not 0 <= idx < len(images):
+                raise HTTPException(status_code=400, detail=f"layers[{i}]: missing or invalid 'upload'")
+            uploads[i] = idx
+        else:
+            layer.pop("upload", None)
+            text = layer.get("text")
+            if isinstance(text, str) and len(text) > MAX_COMPOSE_TEXT:
+                raise HTTPException(status_code=400, detail=f"layers[{i}]: text longer than {MAX_COMPOSE_TEXT} chars")
+        cleaned.append(layer)
+    try:
+        sc = Scene.from_dict({"canvas": raw.get("canvas") or {}, "layers": cleaned})
+        for layer in sc.layers:
+            layer.validate()
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    decoded: dict[int, Image.Image] = {}
+    cache: dict[int, Image.Image] = {}
+    cells_total = 0
+    glyph_pixels = 0
+    for i, idx in uploads.items():
+        if idx not in cache:
+            cache[idx] = _decode_image_upload(images[idx])
+        img = cache[idx]
+        decoded[i] = img
+        layer = sc.layers[i]
+        cw, ch = (8, 16) if layer.mode == "glyph" else (2, 4)
+        w, h = (img.height, img.width) if layer.rotate in (90, 270) else img.size
+        if layer.cols is None and layer.rows is not None:
+            cols = max(1, round(layer.rows * w * ch / (h * cw)))
+        else:
+            cols = layer.cols or 80
+        rows = layer.rows or _estimated_rows(w, h, cols, cw, ch)
+        cells_total += cols * rows
+        if layer.mode == "glyph":
+            glyph_pixels += cols * rows * cw * ch
+    _check_budget(cells_total, MAX_CELLS, "characters across image layers", "Make the image layers smaller.")
+    _check_budget(glyph_pixels, MAX_GLYPH_PIXELS, "glyph-matching pixels",
+                  "Use braille mode or make the glyph layers smaller.")
+
+    try:
+        comp = compose(sc, images=decoded, max_cells=MAX_CELLS)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # A scene the CLI can re-render: uploads become file names to place
+    # next to the JSON.
+    saved = sc.to_dict()
+    for i, idx in uploads.items():
+        name = Path(images[idx].filename or f"image{idx}.png").name
+        saved["layers"][i]["src"] = name
+
+    return {
+        "ascii": comp.to_text(),
+        "ansi": comp.to_ansi(),
+        "html": comp.to_html(),
+        "gif_b64": None,
+        "scene": saved,
+        "canvas": {"cols": comp.cols, "rows": comp.rows},
+        "layers": [
+            {"index": p.index, "label": p.label, "x": p.x, "y": p.y, "w": p.w, "h": p.h}
+            for p in comp.placed
+        ],
         "elapsed_ms": round((time.perf_counter() - t0) * 1000),
     }
 

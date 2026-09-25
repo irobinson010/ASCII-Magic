@@ -65,7 +65,24 @@ def open_oriented(path_or_file, mode: str = "RGB") -> Image.Image:
     it, PIL does not — without this, portrait photos render sideways.
     """
     img = ImageOps.exif_transpose(Image.open(path_or_file))
-    return img.convert(mode)
+    return flatten_alpha(img).convert(mode)
+
+
+def flatten_alpha(img: Image.Image, background=(255, 255, 255)) -> Image.Image:
+    """Composite any transparency onto a solid background.
+
+    A bare convert("RGB") drops alpha and exposes whatever color the
+    transparent pixels happen to store (usually black), which reads as solid
+    ink. White is the "paper" color here: light pixels map to blank cells.
+    """
+    has_alpha = img.mode in ("RGBA", "LA", "PA", "RGBa", "La") or (
+        img.mode in ("P", "L", "RGB") and "transparency" in img.info
+    )
+    if not has_alpha:
+        return img
+    rgba = img.convert("RGBA")
+    base = Image.new("RGBA", rgba.size, (*background, 255))
+    return Image.alpha_composite(base, rgba).convert("RGB")
 
 
 _CW_TRANSPOSE = {
@@ -73,6 +90,35 @@ _CW_TRANSPOSE = {
     180: Image.Transpose.ROTATE_180,
     270: Image.Transpose.ROTATE_90,
 }
+
+
+# The converters assume a character cell half as wide as it is tall.
+DEFAULT_CELL_ASPECT = 0.5
+
+
+def _cell_aspect(value: str) -> float:
+    import argparse
+
+    try:
+        f = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid number: {value!r}")
+    if not 0.2 <= f <= 1.2:
+        raise argparse.ArgumentTypeError(f"cell aspect must be between 0.2 and 1.2, got {value}")
+    return f
+
+
+def apply_cell_aspect(img: Image.Image, aspect: float) -> Image.Image:
+    """Compensate for terminals whose cells are not 1:2 (width:height).
+
+    Each output row covers a fixed slice of image height computed for 0.5;
+    scaling the height by aspect/0.5 makes circles come out round on a
+    terminal whose cells are `aspect` wide per unit of height.
+    """
+    if abs(aspect - DEFAULT_CELL_ASPECT) < 1e-9:
+        return img
+    w, h = img.size
+    return img.resize((w, max(1, round(h * aspect / DEFAULT_CELL_ASPECT))), Image.Resampling.LANCZOS)
 
 
 def rotate_cw(img: Image.Image, degrees: int) -> Image.Image:
@@ -618,6 +664,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="Caption color with --color: theme name or #RRGGBB")
     ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
 
+    from .ansi import add_depth_arg
+    from .overlay import add_overlay_args
+
+    add_depth_arg(ap)
+    add_overlay_args(ap)
+    ap.add_argument("--cell-aspect", type=_cell_aspect, default=DEFAULT_CELL_ASPECT, metavar="W/H",
+                    help="Your terminal's character cell width/height (default 0.5). Raise it if "
+                    "output looks squashed, lower it if stretched; `ascii-magic tune "
+                    "--aspect-chart` shows which value fits")
     ap.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
                     help="Rotate clockwise before conversion (EXIF orientation is "
                     "applied automatically)")
@@ -626,7 +681,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main():
-    args = build_arg_parser().parse_args()
+    from .console import utf8_stdout
+
+    utf8_stdout()
+    from .presets import add_preset_args, parse_args as parse_with_presets
+
+    parser = build_arg_parser()
+    add_preset_args(parser)
+    args = parse_with_presets(parser, None, "image")
     if args.charset_file:
         with open(args.charset_file, "r", encoding="utf-8") as f:
             charset = "".join(ch for ch in f.read())
@@ -644,7 +706,7 @@ def main():
 
     # Open once: EXIF orientation applied, optional manual rotation, and the
     # same pixels feed both the conversion and the --color pass.
-    src_img = rotate_cw(open_oriented(args.input, "RGB"), args.rotate)
+    src_img = apply_cell_aspect(rotate_cw(open_oriented(args.input, "RGB"), args.rotate), args.cell_aspect)
 
     if args.mode == "braille":
         art = image_to_braille_from_image(
@@ -681,6 +743,8 @@ def main():
             ascii_text=art,
         )
         fmt = "html" if (args.output or "").lower().endswith(".html") else "ansi"
+        if args.overlay:
+            fmt = "ansi"  # overlaid as ANSI cells; finish_output makes the HTML
         opt = Options(out_format=fmt)
         if args.caption:
             opt.caption = CaptionOptions(
@@ -688,11 +752,17 @@ def main():
                 position=args.caption_pos,
                 style=args.caption_style,
                 scale=args.caption_scale,
+                cols=args.caption_cols,
+                rows=args.caption_rows,
                 gap=args.caption_gap,
                 color=args.caption_color,
                 align=args.caption_align,
             )
         art = colorize(ctx, opt=opt).rstrip("\n")
+        if fmt == "ansi" and not args.overlay:
+            from .ansi import downsample, resolve_depth
+
+            art = downsample(art, resolve_depth(args.color_depth, to_terminal=not args.output))
     elif args.caption:
         from .text_to_ascii import compose_caption
 
@@ -707,6 +777,11 @@ def main():
             gap=args.caption_gap,
             align=args.caption_align,
         )
+
+    if args.overlay:
+        from .overlay import finish_output
+
+        art = finish_output(art + "\n", args, args.output, to_terminal=not args.output).rstrip("\n")
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
