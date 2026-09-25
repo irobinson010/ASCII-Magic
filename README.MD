@@ -5,6 +5,7 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 ## Features
 
 - **Image to ASCII conversion** - Convert PNG images directly to ASCII art using high-quality glyph matching
+- **Animated text** - Wave like a flag, spin, flip in every direction, stretch, bounce, typewriter, rainbow, and more, as terminal playback, GIF, HTML, or a login greeting
 - **Free offline translation** - English to Japanese (and ~100 languages) for text, captions, and compose layers, in the CLI and web GUI
 - **ASCII colorization** - Add colors to existing ASCII text by mapping image pixels to characters
 - **Flexible output formats** - Generate ANSI, HTML, or braille output
@@ -280,6 +281,34 @@ Models are stored in `~/.local/share/ascii-magic/models` (Windows: `%LOCALAPPDAT
 
 In the **web GUI**, the Text box, the Caption box, and each Compose text layer have a language picker and a **Translate** button. When the server runs on localhost, languages not yet installed show "(download)" and download on first use. On any other bind (e.g. Docker), downloads are off unless you set `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=1`; otherwise install models from the CLI.
 
+## Animated text (`--animate`)
+
+Make text move: wave like a flag, spin, flip in any direction, stretch, bounce, and more. Every animation loops seamlessly.
+
+```bash
+ascii-magic text "HELLO" --animate wave                 # plays in the terminal (Ctrl-C stops)
+ascii-magic text "HELLO" --animate spin -o spin.gif     # animated GIF
+ascii-magic text "HELLO" --animate flip-up,rainbow -o flip.html   # self-playing web page
+ascii-magic text "Welcome" --animate bounce -o hi.frames          # animated login greeting:
+ascii-magic-greet install hi.frames                               #   plays when you ssh in
+ascii-magic text "Good night" --translate ja --animate wave -w 140 -s solid
+```
+
+| Group | Effects |
+|---|---|
+| Motion | `wave` (flag on a pole), `ripple`, `twist` (ribbon), `swing` (hanging sign), `bounce`, `shake`, `glitch`, `scroll` (marquee) |
+| Turn and flip | `spin` (3D, in perspective), `rotate` (wheel), `flip-left`, `flip-right`, `flip-up`, `flip-down`, `flip-diagonal`, `flip-antidiagonal` |
+| Size | `stretch` (sideways), `stretch-v`, `squash` (jelly), `zoom`, `pulse` (heartbeat) |
+| Reveal | `typewriter`, `fade` |
+| Color | `rainbow` (colors cycle through the text; combine with any motion) |
+
+- **Combine** effects with commas: `wave,rainbow`, `spin,bounce`, `flip-up,stretch`.
+- **Knobs:** `--frames` (per loop, default 36), `--fps` (15), `--loops` (terminal plays, 0 = forever), `--amount` (strength, 0.1-3), and `--mirror-back` (spins and flips show the back mirrored, like a real card; by default the text reads correctly from both sides).
+- **Styles:** `-s block`, `small`, or `solid` (Unicode shade blocks, which look best in motion). `--overlay` colors every frame with a palette or gradient.
+- **Sizing:** the text is sized so its motion never runs off the canvas. A spinning or bouncing word therefore renders smaller than a still one at the same `-w`, so raise `-w` for more detail. Full-width Japanese needs about 20 columns per character to stay legible.
+
+In the **web GUI**, the Text tab has an **Animate** picker (plus "Combine with", Rainbow colors, Frames, FPS, and Amount). The preview plays live; download `.gif`, `.html`, or `.frames`.
+
 ## Example Workflow
 
 1. Convert image to ASCII (preferred: console script):
@@ -475,6 +504,7 @@ The server is safe to expose on a LAN or behind a reverse proxy: request bodies 
 | `ASCII_MAGIC_MAX_ANIM_CELL_FRAMES` | `1000000` | Animations and video: characters × frames |
 | `ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES` | `5000` | Video frames decoded per upload (sampling skips frames but still decodes them) |
 | `ASCII_MAGIC_ALLOWED_ORIGINS` | *(none)* | Extra allowed `Origin`s, comma-separated, for a proxy that rewrites `Host` |
+| `ASCII_MAGIC_MAX_TEXT_ANIM_PIXELS` | `40000000` | Animated text: canvas pixels × frames (about 70 ns each) |
 | `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD` | on for localhost, else off | Let the GUI download translation models (~100+ MB each) |
 
 ## Docker

@@ -59,6 +59,8 @@ MAX_REQUEST_BYTES = MAX_VIDEO_UPLOAD_BYTES + 2 * 1024 * 1024
 MAX_CELLS = _env_int("ASCII_MAGIC_MAX_CELLS", 250_000)
 MAX_GLYPH_PIXELS = _env_int("ASCII_MAGIC_MAX_GLYPH_PIXELS", 16_000_000)
 MAX_ANIM_CELL_FRAMES = _env_int("ASCII_MAGIC_MAX_ANIM_CELL_FRAMES", 1_000_000)
+# Animated text samples every mask pixel of every frame (~70 ns each).
+MAX_TEXT_ANIM_PIXELS = _env_int("ASCII_MAGIC_MAX_TEXT_ANIM_PIXELS", 40_000_000)
 # Sampling skips frames but still decodes them; bounds a long, high-fps clip.
 MAX_DECODED_VIDEO_FRAMES = _env_int("ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES", 5_000)
 
@@ -598,6 +600,8 @@ def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
         ctx.source_image = rotate_cw(_decode_image_upload(image), _ival(o, "rotate", 0, 0, 270))
 
     source = o.get("source", "image")
+    if source == "text" and o.get("text_animate"):
+        return _render_text_anim(o, t0)
     if source == "text":
         text = o.get("text") or ""
         if not isinstance(text, str):
@@ -785,6 +789,66 @@ def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
         "html": html_doc,
         "gif_b64": gif_b64,
         "seed": seed,
+        "warning": warning,
+        "elapsed_ms": round((time.perf_counter() - t0) * 1000),
+    }
+
+
+def _render_text_anim(o: dict[str, Any], t0: float) -> dict[str, Any]:
+    """Animated text (wave, spin, flip, ...): an HTML player, GIF, and .frames."""
+    from .greet import FRAME_SEP
+    from .textanim import STYLES, TextAnimation, TextAnimOptions, parse_effects
+
+    text = o.get("text") or ""
+    if not isinstance(text, str) or not text.strip("\n").strip():
+        raise HTTPException(status_code=400, detail="No text provided.")
+    spec = o.get("text_animate")
+    if not isinstance(spec, str):
+        raise HTTPException(status_code=400, detail="text_animate must be a string like 'wave' or 'spin,rainbow'.")
+    try:
+        effects = parse_effects(spec)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    warning = None
+    style = o.get("text_style", "block")
+    if style not in STYLES:
+        warning = f"Animations use the block, small, or solid styles; {style!r} rendered as block."
+        style = "block"
+    color = _overlay_from_options(o)
+    if color is None and "rainbow" in effects:
+        color = "rainbow"
+    opt = TextAnimOptions(
+        effects=effects,
+        cols=_ival(o, "text_width", 80, 4, 400),
+        frames=_ival(o, "anim_frames", 36, 2, 120),
+        fps=_fval(o, "anim_fps", 15.0, 1.0, 30.0),
+        style=style,
+        amount=_fval(o, "anim_amount", 1.0, 0.1, 3.0),
+        color=color,
+        mirror_back=_bool(o, "anim_mirror"),
+        max_pixels=MAX_TEXT_ANIM_PIXELS,
+    )
+    # (the caller already holds a render slot)
+    try:
+        anim = TextAnimation(text.strip("\n")[:200], opt)
+    except ValueError as e:  # includes TooLarge (over the pixel budget)
+        raise HTTPException(status_code=400, detail=str(e))
+    cols, rows = anim.size
+    _check_budget(cols * rows * opt.frames, MAX_ANIM_CELL_FRAMES, "characters x frames",
+                  "Lower the width or the number of frames.")
+    ansi_frames = anim.frames_ansi()
+    gif_b64 = base64.b64encode(anim.to_gif_bytes()).decode("ascii")
+    html_doc = anim.to_html(title=text[:60], font_size_px=_ival(o, "html_font_size", 12, 4, 64))
+    return {
+        "ascii": anim.frames_text()[0],
+        "art": {"cols": cols, "rows": rows, "cap_lines": 0, "cap_gap": 0, "cap_pos": "bottom",
+                "cap_style": None, "ring": False},
+        "ansi": ansi_frames[0],
+        "html": html_doc,
+        "gif_b64": gif_b64,
+        "frames_text": json.dumps({"fps": opt.fps, "loops": 2}) + "\n" + FRAME_SEP.join(ansi_frames),
+        "text_anim": {"frames": len(ansi_frames), "fps": opt.fps, "cols": cols, "rows": rows},
+        "seed": None,
         "warning": warning,
         "elapsed_ms": round((time.perf_counter() - t0) * 1000),
     }
