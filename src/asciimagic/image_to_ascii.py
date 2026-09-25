@@ -665,8 +665,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
 
     from .ansi import add_depth_arg
+    from .overlay import add_overlay_args
 
     add_depth_arg(ap)
+    add_overlay_args(ap)
     ap.add_argument("--cell-aspect", type=_cell_aspect, default=DEFAULT_CELL_ASPECT, metavar="W/H",
                     help="Your terminal's character cell width/height (default 0.5). Raise it if "
                     "output looks squashed, lower it if stretched; `ascii-magic tune "
@@ -741,6 +743,8 @@ def main():
             ascii_text=art,
         )
         fmt = "html" if (args.output or "").lower().endswith(".html") else "ansi"
+        if args.overlay:
+            fmt = "ansi"  # overlaid as ANSI cells; finish_output makes the HTML
         opt = Options(out_format=fmt)
         if args.caption:
             opt.caption = CaptionOptions(
@@ -755,7 +759,7 @@ def main():
                 align=args.caption_align,
             )
         art = colorize(ctx, opt=opt).rstrip("\n")
-        if fmt == "ansi":
+        if fmt == "ansi" and not args.overlay:
             from .ansi import downsample, resolve_depth
 
             art = downsample(art, resolve_depth(args.color_depth, to_terminal=not args.output))
@@ -773,6 +777,11 @@ def main():
             gap=args.caption_gap,
             align=args.caption_align,
         )
+
+    if args.overlay:
+        from .overlay import finish_output
+
+        art = finish_output(art + "\n", args, args.output, to_terminal=not args.output).rstrip("\n")
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

@@ -94,6 +94,13 @@ function collectOptions() {
     anim_fps: num("anim_fps"),
     anim_tail: num("anim_tail"),
     anim_reveal: $("anim_reveal").checked,
+    // overlay
+    overlay: $("overlay_preset").value === "custom"
+      ? `${$("overlay_c1").value},${$("overlay_c2").value}`
+      : ($("overlay_preset").value || null),
+    overlay_direction: $("overlay_direction").value,
+    overlay_mode: $("overlay_mode").value,
+    overlay_strength: num("overlay_strength"),
     // caption
     caption_text: $("caption_text").value.trim() || null,
     caption_pos: $("caption_pos").value,
@@ -351,6 +358,8 @@ function syncVisibility() {
   $("anim-knobs").hidden = !$("animate").checked;
   $("custom-color-field").hidden = $("matrix_theme").value !== "custom";
   $("caption-color-field").hidden = $("caption_color_mode").value !== "custom";
+  $("overlay-knobs").hidden = !$("overlay_preset").value;
+  $("overlay-custom-field").hidden = $("overlay_preset").value !== "custom";
 
   // Colorize doesn't apply to video renders (frames colorize themselves);
   // matrix and captions DO — but rain animation doesn't (video is already
@@ -362,10 +371,12 @@ function syncVisibility() {
   // Compose layers carry their own color/size/text; the shared sections
   // (caption, colorize, matrix, HTML) apply to the single-source tabs.
   const isCompose = state.tab === "compose";
-  for (const id of ["sec-caption", "sec-colorize", "sec-matrix", "sec-html"]) {
+  for (const id of ["sec-caption", "sec-colorize", "sec-matrix", "sec-html", "sec-overlay"]) {
     if (isCompose) $(id).hidden = true;
     else if (id === "sec-caption" || id === "sec-matrix") $(id).hidden = false;
   }
+  // Video frames are colorized per frame; overlays apply to static renders.
+  $("sec-overlay").hidden = isCompose || isVideo;
   $("animate-row").hidden = isVideo;
   if (isVideo) $("anim-knobs").hidden = true;
 }
@@ -404,7 +415,7 @@ $("reroll").addEventListener("click", (e) => {
   render();
 });
 
-for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale"]) {
+for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale", "overlay_strength"]) {
   $(id).addEventListener("input", () => { $(`${id}-out`).value = $(id).value; });
 }
 

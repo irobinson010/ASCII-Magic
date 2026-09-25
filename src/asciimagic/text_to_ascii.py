@@ -571,6 +571,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="#",
         help="Character to use for banner style",
     )
+    from .ansi import add_depth_arg
+    from .overlay import add_overlay_args
+
+    add_overlay_args(parser)
+    add_depth_arg(parser)
     parser.add_argument(
         "--log-level",
         default="WARNING",
@@ -633,6 +638,11 @@ def main():
             font_size=args.font_size,
             font_path=args.font,
         )
+
+    if args.overlay:
+        from .overlay import finish_output
+
+        output = finish_output(output + "\n", args, args.output, to_terminal=not args.output).rstrip("\n")
 
     # Output
     if args.output:
