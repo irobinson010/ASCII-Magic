@@ -325,6 +325,26 @@ ascii-magic image other.png --preset my-photos     # the same look on any pictur
 
 **Squashed or stretched output?** Terminal fonts differ in how tall a character is compared to its width. Run `ascii-magic tune --aspect-chart`, see which box looks square, and pass that number as `--cell-aspect` (or save it in a preset).
 
+## Color overlays (gradients and tints)
+
+Lay a gradient or a solid color over any art: plain text, image conversions, colorized art, or a whole composition.
+
+```bash
+ascii-magic text HELLO -s figlet --overlay sunset                  # gradient text
+ascii-magic text HELLO -s block --overlay "#00e5ff,#ff2d55" --overlay-direction diagonal
+ascii-magic image cat.png --color --overlay ocean --overlay-mode multiply
+ascii-magic compose --image cat.png --text HI --style figlet --at top --layer-overlay fire
+```
+
+| Option | Values |
+|---|---|
+| `--overlay` | A palette (`rainbow`, `sunset`, `ocean`, `fire`, `forest`, `neon`, `matrix`, `mono`), one color (theme or `#RRGGBB`), or comma-separated colors for a gradient |
+| `--overlay-direction` | `horizontal` (default), `vertical`, `diagonal`, `diagonal-up`, `radial` |
+| `--overlay-mode` | `tint` (default: replaces colors), `multiply` (darkens: keeps the image's shading), `screen` (lightens), `overlay` (adds contrast) |
+| `--overlay-strength` | `0`–`1`: how much of the overlay to mix in (default 1) |
+
+Works on `text`, `image`, `colorize` (static output), and `compose`. In `compose`, `--overlay` covers the whole canvas and `--layer-overlay` (plus `--layer-overlay-direction/-mode/-strength`) just one layer. The canvas overlay applies last, so at full strength it replaces layer colors; lower its strength to let them show through. `.html` outputs keep the colors, and `--color-depth` still applies. The web GUI has a **Color overlay** section, and overlay fields on the Compose canvas and on each layer.
+
 ## Compose images and text (`ascii-magic compose`)
 
 Stack any number of images and text blocks on one canvas and place each one exactly. Start a layer with `--image PATH` or `--text TEXT`; the options after it apply to that layer. Later layers paint over earlier ones.

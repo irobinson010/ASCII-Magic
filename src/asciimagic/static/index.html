@@ -184,6 +184,16 @@
             <input type="color" id="cmp_bg" value="#000000" aria-label="Background color">
           </span>
         </div>
+        <div class="field-row">
+          <div class="field"><label for="cmp_overlay">Canvas overlay</label>
+            <select id="cmp_overlay"><option value="">None</option><option value="rainbow">Rainbow</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="fire">Fire</option><option value="forest">Forest</option><option value="neon">Neon</option><option value="matrix">Matrix</option><option value="mono">Mono</option></select></div>
+          <div class="field"><label for="cmp_overlay_direction">Direction</label>
+            <select id="cmp_overlay_direction">
+              <option value="horizontal">Horizontal</option><option value="vertical">Vertical</option>
+              <option value="diagonal">Diagonal</option><option value="diagonal-up">Diagonal up</option>
+              <option value="radial">Radial</option>
+            </select></div>
+        </div>
         <div class="field">
           <label>Layers <small>(bottom &rarr; top)</small></label>
           <ul id="cmp_layers" class="layer-list" aria-label="Layers"></ul>
@@ -278,6 +288,48 @@
               <div class="field"><label for="out_cols">Exact cols</label><input type="number" id="out_cols" min="1" placeholder="–"></div>
             </div>
           </details>
+        </div>
+      </section>
+
+      <section id="sec-overlay">
+        <div class="field">
+          <label for="overlay_preset"><strong>Color overlay</strong></label>
+          <select id="overlay_preset">
+            <option value="">None</option>
+              <option value="rainbow">Rainbow</option>
+              <option value="sunset">Sunset</option>
+              <option value="ocean">Ocean</option>
+              <option value="fire">Fire</option>
+              <option value="forest">Forest</option>
+              <option value="neon">Neon</option>
+              <option value="matrix">Matrix</option>
+              <option value="mono">Mono</option>
+            <option value="custom">Custom gradient</option>
+          </select>
+        </div>
+        <div id="overlay-knobs" hidden>
+          <div class="field" id="overlay-custom-field" hidden>
+            <label>From / to</label>
+            <span class="seed-row">
+              <input type="color" id="overlay_c1" value="#00e5ff" aria-label="Gradient start color">
+              <input type="color" id="overlay_c2" value="#ff2d55" aria-label="Gradient end color">
+            </span>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="overlay_direction">Direction</label>
+              <select id="overlay_direction">
+                <option value="horizontal">Horizontal</option><option value="vertical">Vertical</option>
+                <option value="diagonal">Diagonal</option><option value="diagonal-up">Diagonal up</option>
+                <option value="radial">Radial</option>
+              </select></div>
+            <div class="field"><label for="overlay_mode">Blend</label>
+              <select id="overlay_mode">
+                <option value="tint">Tint</option><option value="multiply">Multiply</option>
+                <option value="screen">Screen</option><option value="overlay">Overlay</option>
+              </select></div>
+          </div>
+          <div class="field"><label for="overlay_strength">Strength <output id="overlay_strength-out">1</output></label>
+            <input type="range" id="overlay_strength" min="0" max="1" step="0.05" value="1"></div>
         </div>
       </section>
 
