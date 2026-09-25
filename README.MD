@@ -244,6 +244,21 @@ Options:
 - `-c, --char` : Character to use for the `banner` style
 - `--log-level` : CLI logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
 
+### Japanese and other non-Latin text
+
+Text in any script works in `text`, captions, and compose text layers:
+
+```bash
+ascii-magic text "こんにちは" -s block -w 100   # big ASCII-art letters
+ascii-magic text "日本語" -s box                 # boxes and banners size to terminal columns
+```
+
+- **Rendered styles** (`block`, `small`, `shadow`) draw the text with a font and convert it. If your font lacks the characters, a Japanese/Chinese/Korean font installed on your system is used automatically (Noto Sans CJK, IPA Gothic, Hiragino, Yu Gothic, Meiryo, MS Gothic, ...). If none is installed you get a warning. Install one (e.g. `sudo apt install fonts-noto-cjk`), or point `ASCII_MAGIC_FALLBACK_FONT` or `--font` at a font file.
+- **`box` and `banner`** measure width in terminal columns, where Japanese characters take two, so borders line up.
+- **`figlet`** fonts only have Latin letters. `--style figlet` explains that instead of printing nothing, and figlet captions and compose layers fall back to `block`.
+
+Translation (e.g. English to Japanese) is planned: see issue #38.
+
 ## Example Workflow
 
 1. Convert image to ASCII (preferred: console script):
@@ -309,6 +324,26 @@ ascii-magic image other.png --preset my-photos     # the same look on any pictur
 **Colors over SSH and older terminals.** Output uses 24-bit color by default. Terminals that can't show it (common over SSH, the Linux console, older macOS Terminal, tmux without truecolor) show wrong colors or garbage. `--color-depth 256` or `--color-depth 16` converts the output; `--color-depth auto` detects the terminal (files stay 24-bit). The login greeting always uses `auto`, so a greeting installed on a server adapts to whoever logs in. `ASCII_MAGIC_COLOR_DEPTH=256` forces a depth everywhere.
 
 **Squashed or stretched output?** Terminal fonts differ in how tall a character is compared to its width. Run `ascii-magic tune --aspect-chart`, see which box looks square, and pass that number as `--cell-aspect` (or save it in a preset).
+
+## Color overlays (gradients and tints)
+
+Lay a gradient or a solid color over any art: plain text, image conversions, colorized art, or a whole composition.
+
+```bash
+ascii-magic text HELLO -s figlet --overlay sunset                  # gradient text
+ascii-magic text HELLO -s block --overlay "#00e5ff,#ff2d55" --overlay-direction diagonal
+ascii-magic image cat.png --color --overlay ocean --overlay-mode multiply
+ascii-magic compose --image cat.png --text HI --style figlet --at top --layer-overlay fire
+```
+
+| Option | Values |
+|---|---|
+| `--overlay` | A palette (`rainbow`, `sunset`, `ocean`, `fire`, `forest`, `neon`, `matrix`, `mono`), one color (theme or `#RRGGBB`), or comma-separated colors for a gradient |
+| `--overlay-direction` | `horizontal` (default), `vertical`, `diagonal`, `diagonal-up`, `radial` |
+| `--overlay-mode` | `tint` (default: replaces colors), `multiply` (darkens: keeps the image's shading), `screen` (lightens), `overlay` (adds contrast) |
+| `--overlay-strength` | `0`–`1`: how much of the overlay to mix in (default 1) |
+
+Works on `text`, `image`, `colorize` (static output), and `compose`. In `compose`, `--overlay` covers the whole canvas and `--layer-overlay` (plus `--layer-overlay-direction/-mode/-strength`) just one layer. The canvas overlay applies last, so at full strength it replaces layer colors; lower its strength to let them show through. `.html` outputs keep the colors, and `--color-depth` still applies. The web GUI has a **Color overlay** section, and overlay fields on the Compose canvas and on each layer.
 
 ## Compose images and text (`ascii-magic compose`)
 

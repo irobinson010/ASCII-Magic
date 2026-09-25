@@ -10,6 +10,9 @@ const ANCHORS = [
   "bottom-left", "bottom", "bottom-right",
 ];
 const THEMES = ["green", "amber", "cyan", "crimson", "violet", "white"];
+const PALETTES = ["rainbow", "sunset", "ocean", "fire", "forest", "neon", "matrix", "mono"];
+const DIRECTIONS = ["horizontal", "vertical", "diagonal", "diagonal-up", "radial"];
+const BLENDS = ["tint", "multiply", "screen", "overlay"];
 
 const cmp = {
   layers: [],      // {type, file?, fileName?, ...layer fields}
@@ -57,6 +60,10 @@ function sceneForServer() {
   if (num("cmp_cols")) canvas.cols = num("cmp_cols");
   if (num("cmp_rows")) canvas.rows = num("cmp_rows");
   if ($("cmp_bg_mode").value === "custom") canvas.background = $("cmp_bg").value;
+  if ($("cmp_overlay").value) {
+    canvas.overlay = $("cmp_overlay").value;
+    canvas.overlay_direction = $("cmp_overlay_direction").value;
+  }
   return { scene: { canvas, layers }, files };
 }
 
@@ -192,6 +199,10 @@ const COMMON_FIELDS = [
   ["outline", "Outline", "int", { placeholder: "auto", min: 0, max: 10,
     title: "Clear this many cells around the ink so it reads over busy art (auto: 1 for text, 0 for images)" }],
   ["opaque", "Opaque box", "check"],
+  ["overlay", "Overlay", "overlay"],
+  ["overlay_direction", "Overlay direction", "select", { options: DIRECTIONS }],
+  ["overlay_mode", "Overlay blend", "select", { options: BLENDS }],
+  ["overlay_strength", "Overlay strength", "range", { min: 0, max: 1, step: 0.05, fallback: 1 }],
 ];
 const TEXT_FIELDS = [
   ["text", "Text", "area"],
@@ -264,6 +275,8 @@ function field(layer, [key, label, kind, extra]) {
     input.addEventListener("input", () => { out.textContent = input.value; set(Number(input.value)); });
   } else if (kind === "color") {
     return colorField(layer, wrap, lab, id, set);
+  } else if (kind === "overlay") {
+    return overlayField(layer, wrap, id, set);
   } else {
     input = document.createElement("input");
     input.type = "number";
@@ -308,6 +321,36 @@ function colorField(layer, wrap, lab, id, set) {
   return wrap;
 }
 
+// Palette list plus "Custom": comma-separated colors typed by the user.
+function overlayField(layer, wrap, id, set) {
+  const row = document.createElement("span");
+  row.className = "seed-row";
+  const sel = document.createElement("select");
+  sel.id = id;
+  for (const [v, t] of [["", "None"], ...PALETTES.map((p) => [p, p]), ["custom", "Custom"]]) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = t;
+    sel.append(o);
+  }
+  const custom = document.createElement("input");
+  custom.type = "text";
+  custom.placeholder = "#ff0000,#0000ff";
+  custom.setAttribute("aria-label", "Custom overlay colors");
+  const cur = layer.overlay || "";
+  if (!cur || PALETTES.includes(cur)) sel.value = cur;
+  else { sel.value = "custom"; custom.value = cur; }
+  custom.hidden = sel.value !== "custom";
+  sel.addEventListener("change", () => {
+    custom.hidden = sel.value !== "custom";
+    set(sel.value === "custom" ? custom.value.trim() || null : sel.value || null);
+  });
+  custom.addEventListener("change", () => set(custom.value.trim() || null));
+  row.append(sel, custom);
+  wrap.append(row);
+  return wrap;
+}
+
 function buildEditor() {
   const ed = $("cmp_editor");
   ed.replaceChildren();
@@ -334,7 +377,7 @@ function buildEditor() {
 
 // ---------- canvas controls & scene download ----------
 
-for (const id of ["cmp_cols", "cmp_rows", "cmp_bg_mode", "cmp_bg"]) {
+for (const id of ["cmp_cols", "cmp_rows", "cmp_bg_mode", "cmp_bg", "cmp_overlay", "cmp_overlay_direction"]) {
   $(id).addEventListener("change", () => { $("cmp_bg").hidden = $("cmp_bg_mode").value !== "custom"; autoRender(); });
 }
 $("cmp_bg").hidden = true;

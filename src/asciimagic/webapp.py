@@ -317,6 +317,29 @@ def _build_options(o: dict[str, Any], out_format: str) -> colorize_mod.Options:
     return opt
 
 
+OVERLAY_DIRECTIONS = ("horizontal", "vertical", "diagonal", "diagonal-up", "radial")
+OVERLAY_MODES = ("tint", "multiply", "screen", "overlay")
+
+
+def _overlay_from_options(o: dict[str, Any]):
+    spec = o.get("overlay")
+    if not spec:
+        return None
+    if not isinstance(spec, str) or len(spec) > 200:
+        raise HTTPException(status_code=400, detail="overlay must be a short string")
+    from .overlay import Overlay
+
+    try:
+        return Overlay.parse(
+            spec,
+            _choice(o, "overlay_direction", "horizontal", OVERLAY_DIRECTIONS),
+            _choice(o, "overlay_mode", "tint", OVERLAY_MODES),
+            _fval(o, "overlay_strength", 1.0, 0.0, 1.0),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 def _decode_image_upload(upload: UploadFile) -> Image.Image:
     """Read an uploaded image under the size/pixel caps: EXIF orientation
     applied, transparency composited, RGB. Errors are HTTP 4xx."""
@@ -673,6 +696,14 @@ def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
             ascii_display = "\n".join(colorize_mod.scale_art_block(lines, target_h, size))
         ansi = ascii_display + "\n"
         html_doc = _plain_html(ascii_display, o)
+
+    overlay = _overlay_from_options(o)
+    if overlay is not None and not do_animate:
+        from .overlay import ansi_to_html, apply_to_ansi
+
+        ansi = apply_to_ansi(overlay, ansi)
+        html_doc = ansi_to_html(ansi, font_size_px=_ival(o, "html_font_size", 12, 4, 64))
+        warning = None  # "returning plain ASCII" no longer holds: the overlay colored it
 
     gif_b64: Optional[str] = None
     if do_animate:

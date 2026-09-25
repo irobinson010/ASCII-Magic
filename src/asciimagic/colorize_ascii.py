@@ -6,7 +6,7 @@ import html
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 from PIL import Image, ImageFilter
 import random
 
@@ -120,6 +120,7 @@ class Options:
 
     rotate: int = 0  # CLI-only: clockwise rotation of the reference image
     color_depth: str = "truecolor"  # CLI-only: truecolor | 256 | 16 | auto (ANSI sinks)
+    overlay: Optional[Any] = None   # CLI-only: overlay.Overlay applied to static output
 
     debug: bool = False
     log_path: Optional[str] = None
@@ -288,11 +289,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Rain uncovers the colorized art, which persists beneath it")
 
     from .ansi import add_depth_arg
+    from .overlay import add_overlay_args
 
     add_depth_arg(ap)
+    add_overlay_args(ap)
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--log", dest="log_path", default=None, metavar="FILE")
     return ap
+
+
+def _overlay_from(ns):
+    from .overlay import from_args
+
+    try:
+        return from_args(ns)
+    except ValueError as e:
+        raise SystemExit(f"colorize-ascii: error: {e}")
 
 
 def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
@@ -319,6 +331,7 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
         log_path=ns.log_path,
         rotate=ns.rotate,
         color_depth=ns.color_depth,
+        overlay=_overlay_from(ns),
         animate=ns.animate,
         anim_frames=ns.frames,
         anim_fps=ns.fps,
@@ -782,7 +795,7 @@ def wrap_html(pre_lines, title="ASCII Art", font_size_px=12, line_height_px=None
         "      white-space: pre;\n"
         "      overflow: auto;\n"
         "      color: #e0e0e0;\n"  # default text must contrast the black page
-        '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", "Fira Code", Consolas, monospace;\n'
+        '      font-family: "Hack", "JetBrains Mono", "Cascadia Mono", "Fira Code", Consolas, "Noto Sans Mono CJK JP", "Noto Sans CJK JP", "MS Gothic", "Hiragino Sans", "Yu Gothic", monospace;\n'
         "      font-variant-ligatures: none;\n"
         f"      font-size: {font_size_px}px;\n"
         f"      line-height: {line_height_px}px;\n"
@@ -1060,7 +1073,31 @@ def main():
         return
 
     LOG.debug("Writing %s output to %s", opt.out_format, out_path)
-    if opt.out_format == "ansi":
+    if opt.overlay is not None:
+        # Overlays recolor ANSI cells; HTML is produced from the result.
+        from .overlay import ansi_to_html, apply_to_ansi
+
+        cap_lines = []
+        if opt.caption.text:
+            width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])
+            cap_lines = _build_caption_lines(opt.caption, width)
+        text = apply_to_ansi(opt.overlay, "\n".join(render_ansi(
+            header, scaled_art, base_img, opt.color_top, opt.matrix,
+            cap=opt.caption, cap_lines=cap_lines,
+        )) + "\n")
+        if opt.out_format == "html":
+            title = os.path.basename(out_path) if out_path else "ASCII Art"
+            text = ansi_to_html(text, title=title, font_size_px=opt.html.font_size_px)
+        else:
+            from .ansi import downsample, resolve_depth
+
+            text = downsample(text, resolve_depth(opt.color_depth, to_terminal=out_path is None))
+        if out_path:
+            with open(out_path, "w", encoding="utf-8") as out:
+                out.write(text)
+        else:
+            sys.stdout.write(text)
+    elif opt.out_format == "ansi":
         cap_lines = []
         if opt.caption.text:
             width = max([len(ln) for ln in scaled_art] + [len(ln) for ln in header] + [1])

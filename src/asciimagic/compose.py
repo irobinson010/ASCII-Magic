@@ -35,6 +35,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image
 
+from .textwidth import CONT, char_width, ljust as ljust_w, str_width, to_cells
+
 RGB = Tuple[int, int, int]
 Cell = Tuple[str, Optional[RGB]]
 
@@ -76,6 +78,12 @@ class Layer:
     # None = auto: 1 for text, 0 for images.
     outline: Optional[int] = None
 
+    # Color overlay across this layer (see asciimagic.overlay)
+    overlay: Optional[str] = None
+    overlay_direction: str = "horizontal"
+    overlay_mode: str = "tint"
+    overlay_strength: float = 1.0
+
     # image layers
     src: Optional[str] = None
     mode: str = "braille"
@@ -102,6 +110,7 @@ class Layer:
             v = getattr(self, dim)
             if v is not None and v < 1:
                 raise ValueError(f"{dim} must be >= 1, got {v}")
+        self.overlay_obj()  # raises ValueError for a bad spec
         if self.outline is not None and not (0 <= self.outline <= 10):
             raise ValueError(f"outline must be 0..10, got {self.outline}")
         if not (0 < self.scale <= 1):
@@ -123,6 +132,13 @@ class Layer:
             if self.align not in ALIGNS:
                 raise ValueError(f"unknown align {self.align!r}")
 
+    def overlay_obj(self):
+        if not self.overlay:
+            return None
+        from .overlay import Overlay
+
+        return Overlay.parse(self.overlay, self.overlay_direction, self.overlay_mode, self.overlay_strength)
+
     @property
     def effective_outline(self) -> int:
         if self.outline is not None:
@@ -142,6 +158,18 @@ class Canvas:
     cols: Optional[int] = None         # None: fit the layers
     rows: Optional[int] = None
     background: Optional[str] = None   # theme or #RRGGBB; ANSI/HTML only
+    # Color overlay across the whole canvas, applied after every layer
+    overlay: Optional[str] = None
+    overlay_direction: str = "horizontal"
+    overlay_mode: str = "tint"
+    overlay_strength: float = 1.0
+
+    def overlay_obj(self):
+        if not self.overlay:
+            return None
+        from .overlay import Overlay
+
+        return Overlay.parse(self.overlay, self.overlay_direction, self.overlay_mode, self.overlay_strength)
 
 
 @dataclass
@@ -236,7 +264,15 @@ class Block:
 
     @property
     def width(self) -> int:
-        return max((len(ln) for ln in self.lines), default=0)
+        """In terminal columns (a CJK character is two)."""
+        return max((str_width(ln) for ln in self.lines), default=0)
+
+    @property
+    def cells(self) -> List[List[str]]:
+        """One entry per column; a wide character is followed by CONT."""
+        w = self.width
+        rows = [to_cells(ln) for ln in self.lines]
+        return [r + [" "] * (w - len(r)) for r in rows]
 
     @property
     def height(self) -> int:
@@ -333,19 +369,19 @@ def render_text_layer(layer: Layer, ref_width: int) -> Block:
     lines = _trim_block(lines)
     if layer.align != "left" and lines:
         # Align lines within the block itself (multi-line text).
-        w = max(len(ln) for ln in lines)
+        w = max(str_width(ln) for ln in lines)
         out = []
         for ln in lines:
             s = ln.rstrip()
-            pad = w - len(s)
+            pad = w - str_width(s)
             if layer.align == "center":
                 s = " " * (pad // 2) + s
             else:
                 s = " " * pad + s
             out.append(s)
         lines = out
-    w = max((len(ln) for ln in lines), default=0)
-    lines = [ln.ljust(w) for ln in lines]
+    w = max((str_width(ln) for ln in lines), default=0)
+    lines = [ljust_w(ln, w) for ln in lines]
     solid = _solid(layer.color)
     return Block(lines=lines, colors=[[solid] * w for _ in lines])
 
@@ -483,6 +519,7 @@ def compose(
     images = images or {}
     for layer in scene.layers:
         layer.validate()
+    canvas_overlay = scene.canvas.overlay_obj()
     if max_cells is not None:
         _check_cells(scene.canvas.cols, scene.canvas.rows, max_cells, "canvas")
         for layer in scene.layers:
@@ -527,11 +564,12 @@ def compose(
         y0 = (layer.y if layer.y is not None else ay) + layer.dy
         placed.append(Placed(i, layer.label(i), x0, y0, b.width, b.height))
         sample_under = layer.type == "text" and layer.color == "image"
+        layer_overlay = layer.overlay_obj()
         margin = layer.effective_outline
         if margin and not layer.opaque:
             for cy, cx in _knockout_cells(b, x0, y0, margin, canvas_w, canvas_h):
                 cells[cy][cx] = (" ", None)
-        for by, line in enumerate(b.lines):
+        for by, line in enumerate(b.cells):
             cy = y0 + by
             if not 0 <= cy < canvas_h:
                 continue
@@ -544,15 +582,30 @@ def compose(
                 if ch in _BLANKS and not layer.opaque:
                     continue
                 color = under[cy][cx] if sample_under else b.colors[by][bx]
+                if layer_overlay is not None and ch not in _BLANKS:
+                    t = layer_overlay.position(bx, by, b.width, b.height)
+                    color = layer_overlay.blend(color, layer_overlay.color_at(t))
                 cells[cy][cx] = (ch, color)
 
+    for row in cells:
+        _repair_wide(row)
+    if canvas_overlay is not None:
+        fg = [[c for _, c in row] for row in cells]
+        vis = [[ch not in _BLANKS and ch != CONT for ch, _ in row] for row in cells]
+        canvas_overlay.apply_grid(fg, vis)
+        for y, row in enumerate(cells):
+            for x, (ch, _) in enumerate(row):
+                if vis[y][x]:
+                    row[x] = (ch, fg[y][x])
+                elif ch == CONT and x:
+                    row[x] = (ch, row[x - 1][1])
     return Composition(cells=cells, background=_solid(scene.canvas.background), placed=placed)
 
 
 def _knockout_cells(b: Block, x0: int, y0: int, margin: int, canvas_w: int, canvas_h: int):
     """Canvas cells within `margin` (Chebyshev distance) of the block's ink."""
     out = set()
-    for by, line in enumerate(b.lines):
+    for by, line in enumerate(b.cells):
         for bx, ch in enumerate(line):
             if ch in _BLANKS:
                 continue
@@ -563,6 +616,20 @@ def _knockout_cells(b: Block, x0: int, y0: int, margin: int, canvas_w: int, canv
                     if 0 <= cx < canvas_w:
                         out.add((cy, cx))
     return out
+
+
+def _repair_wide(row: List[Cell]) -> None:
+    """A later layer (or the canvas edge) can cut a double-width character in
+    half. Keep every row exactly canvas-wide: an orphaned half becomes a
+    space."""
+    n = len(row)
+    for x, (ch, color) in enumerate(row):
+        if ch == CONT:
+            lead = row[x - 1][0] if x else ""
+            if not lead or char_width(lead[0]) != 2:
+                row[x] = (" ", None)
+        elif ch and char_width(ch[0]) == 2 and (x + 1 >= n or row[x + 1][0] != CONT):
+            row[x] = (" ", None)
 
 
 def _check_cells(cols: Optional[int], rows: Optional[int], limit: int, what: str) -> None:
@@ -630,6 +697,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     from .ansi import add_depth_arg
 
     add_depth_arg(ap)
+    from .overlay import add_overlay_args
+
+    add_overlay_args(ap)  # canvas-wide overlay
     ap.add_argument("--save-scene", default=None, metavar="FILE",
                     help="Write the scene (file + command-line layers) as JSON to reuse later")
 
@@ -654,6 +724,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="'image' (sample the picture), a theme (green, amber, cyan, crimson, violet, white), or #RRGGBB")
     o.add_argument("--opaque", action=_LayerOpt, nargs=0, const=True,
                    help="Blank characters cover what is beneath (a solid box)")
+    o.add_argument("--layer-overlay", action=_LayerOpt, default=argparse.SUPPRESS, dest="overlay", metavar="COLORS",
+                   help="Overlay on this layer only: palette, color, or comma-separated gradient")
+    o.add_argument("--layer-overlay-direction", action=_LayerOpt, default=argparse.SUPPRESS, dest="overlay_direction",
+                   choices=("horizontal", "vertical", "diagonal", "diagonal-up", "radial"))
+    o.add_argument("--layer-overlay-mode", action=_LayerOpt, default=argparse.SUPPRESS, dest="overlay_mode",
+                   choices=("tint", "multiply", "screen", "overlay"))
+    o.add_argument("--layer-overlay-strength", action=_LayerOpt, default=argparse.SUPPRESS, dest="overlay_strength", type=float)
     o.add_argument("--outline", action=_LayerOpt, type=int,
                    help="Clear N cells around the layer's ink so it reads over busy art "
                         "(default: 1 for text, 0 for images)")
@@ -688,6 +765,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         scene.canvas.cols, scene.canvas.rows = args.canvas
     if args.background:
         scene.canvas.background = args.background
+    if args.overlay:
+        scene.canvas.overlay = args.overlay
+        scene.canvas.overlay_direction = args.overlay_direction
+        scene.canvas.overlay_mode = args.overlay_mode
+        scene.canvas.overlay_strength = args.overlay_strength
     if not scene.layers:
         ap.error("nothing to compose: give a scene file or at least one --image/--text")
 
