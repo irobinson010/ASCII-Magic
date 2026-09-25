@@ -5,6 +5,7 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 ## Features
 
 - **Image to ASCII conversion** - Convert PNG images directly to ASCII art using high-quality glyph matching
+- **Free offline translation** - English to Japanese (and ~100 languages) for text, captions, and compose layers, in the CLI and web GUI
 - **ASCII colorization** - Add colors to existing ASCII text by mapping image pixels to characters
 - **Flexible output formats** - Generate ANSI, HTML, or braille output
 - **Multiple quality modes** - Choose between fast, balanced, or best-quality character matching
@@ -257,7 +258,27 @@ ascii-magic text "日本語" -s box                 # boxes and banners size to 
 - **`box` and `banner`** measure width in terminal columns, where Japanese characters take two, so borders line up.
 - **`figlet`** fonts only have Latin letters. `--style figlet` explains that instead of printing nothing, and figlet captions and compose layers fall back to `block`.
 
-Translation (e.g. English to Japanese) is planned: see issue #38.
+Tip: rendered styles give each character only a few columns, so keep Japanese short (a word or phrase) or raise `-w`; for a sentence, `box` or `banner` stays readable at any width.
+
+### Translation (English to Japanese and more)
+
+Free and offline: [Argos Translate](https://github.com/argosopentech/argos-translate)'s open models run locally through CTranslate2. There's no API key and no per-use cost, and your text never leaves the machine. Install the extra, then download a language pair once (en→ja is ~120 MB):
+
+```bash
+pip install "ascii-magic-tools[translate]"
+ascii-magic translate install en ja
+ascii-magic translate "The cat is sleeping on the sofa." --to ja   # 猫はソファーで寝ています。
+ascii-magic text "Good night" --translate ja -s box                # おやすみなさい in a box
+ascii-magic image cat.png --caption "Welcome home" --caption-translate ja
+ascii-magic compose scene.json        # text layers accept "translate": "ja"
+ascii-magic translate list --available   # every published pair (~100 languages)
+```
+
+Models are stored in `~/.local/share/ascii-magic/models` (Windows: `%LOCALAPPDATA%\ascii-magic\models`; override with `ASCII_MAGIC_MODELS_DIR`). Pairs without a direct model pivot through English when both halves are installed.
+
+**Proofread the result.** Machine translation handles sentences well but guesses badly on one- or two-word phrases, which is what captions usually are. For example, the raw model turns "Hi" into ヒアリング ("hearing"). A built-in phrasebook covers common short Japanese phrases (hello, good night, thank you, happy birthday, ...), and the web GUI puts the translation back in the text box so you can edit it before rendering.
+
+In the **web GUI**, the Text box, the Caption box, and each Compose text layer have a language picker and a **Translate** button. When the server runs on localhost, languages not yet installed show "(download)" and download on first use. On any other bind (e.g. Docker), downloads are off unless you set `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=1`; otherwise install models from the CLI.
 
 ## Example Workflow
 
@@ -454,10 +475,11 @@ The server is safe to expose on a LAN or behind a reverse proxy: request bodies 
 | `ASCII_MAGIC_MAX_ANIM_CELL_FRAMES` | `1000000` | Animations and video: characters × frames |
 | `ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES` | `5000` | Video frames decoded per upload (sampling skips frames but still decodes them) |
 | `ASCII_MAGIC_ALLOWED_ORIGINS` | *(none)* | Extra allowed `Origin`s, comma-separated, for a proxy that rewrites `Host` |
+| `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD` | on for localhost, else off | Let the GUI download translation models (~100+ MB each) |
 
 ## Docker
 
-One image covers both the web GUI and one-shot CLI runs (it bundles DejaVu Sans Mono, so glyph matching works out of the box):
+One image covers both the web GUI and one-shot CLI runs (it bundles DejaVu Sans Mono, so glyph matching works out of the box, and IPA Gothic for Japanese text):
 
 ```bash
 docker build -t ascii-magic .
@@ -469,6 +491,11 @@ docker run --rm -p 8000:8000 ascii-magic
 docker run --rm -v "$(pwd):/data" ascii-magic image photo.png -o art.txt
 docker run --rm -v "$(pwd):/data" ascii-magic colorize photo.png art.txt output.ans
 docker run --rm -v "$(pwd):/data" ascii-magic text "Hello" -s block
+
+# Translation: keep models in a named volume, install once, then use from the GUI
+docker run --rm -v am-models:/home/app/.local/share/ascii-magic ascii-magic translate install en ja
+docker run --rm -p 8000:8000 -v am-models:/home/app/.local/share/ascii-magic ascii-magic
+# (or let the GUI download them: add -e ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=1)
 ```
 
 ## Tips

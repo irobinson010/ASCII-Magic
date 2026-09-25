@@ -28,6 +28,7 @@ import argparse
 import dataclasses
 import html
 import json
+import re
 import os
 import sys
 from dataclasses import dataclass, field
@@ -97,6 +98,7 @@ class Layer:
 
     # text layers
     text: Optional[str] = None
+    translate: Optional[str] = None    # translate the text from English to this language first
     style: str = "block"
     align: str = "left"
     font: Optional[str] = None
@@ -131,6 +133,8 @@ class Layer:
                 raise ValueError(f"unknown text style {self.style!r}; expected one of {', '.join(TEXT_STYLES)}")
             if self.align not in ALIGNS:
                 raise ValueError(f"unknown align {self.align!r}")
+            if self.translate is not None and not re.fullmatch(r"[a-z]{2,3}", self.translate):
+                raise ValueError(f"translate must be a language code like 'ja', got {self.translate!r}")
 
     def overlay_obj(self):
         if not self.overlay:
@@ -536,6 +540,10 @@ def compose(
     ref_width = scene.canvas.cols or (max(image_widths) if image_widths else 80)
     for i, layer in enumerate(scene.layers):
         if layer.type == "text":
+            if layer.translate:
+                from .translate import translate as _translate
+
+                layer = dataclasses.replace(layer, text=_translate(layer.text, layer.translate))
             blocks[i] = render_text_layer(layer, ref_width)
 
     # Canvas: explicit, or large enough for every layer.
@@ -745,6 +753,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     o.add_argument("--style", action=_LayerOpt, choices=TEXT_STYLES, help="Text style (default: block)")
     o.add_argument("--align", action=_LayerOpt, choices=ALIGNS, help="Text: align lines within the block")
     o.add_argument("--font", action=_LayerOpt, help="Text: .ttf font for block/small/shadow styles")
+    o.add_argument("--translate", action=_LayerOpt, default=argparse.SUPPRESS, metavar="LANG",
+                   help="Text: translate from English to LANG before rendering (needs the model installed)")
     ap.set_defaults(layers=None)
     return ap
 
@@ -778,7 +788,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         comp = compose(scene)
-    except (ValueError, OSError) as e:
+    except (ValueError, OSError, RuntimeError) as e:  # RuntimeError: TranslationError
         print(f"ascii-magic compose: error: {e}", file=sys.stderr)
         return 2
 

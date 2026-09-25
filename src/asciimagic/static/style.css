@@ -160,6 +160,8 @@ button.primary:hover { background: var(--accent); color: #06130b; }
 .seed-row { display: flex; gap: 0.3rem; }
 .seed-row input { flex: 1; }
 .seed-row button { padding: 0.2rem 0.5rem; }
+.translate-row { margin-top: 0.3rem; }
+.translate-row select { flex: 1; min-width: 0; }
 
 #preview-pane {
   flex: 1;

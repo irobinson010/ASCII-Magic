@@ -76,6 +76,11 @@ def _specs() -> Dict[str, Spec]:
         "compose": _collect(compose_parser()),
         "presets": _collect(presets_parser()),
         "tune": _collect(tune_parser()),
+        "translate": (["--to", "--from", "-h", "--help"], {}, {
+            "install": (["-h", "--help"], {}, {}),
+            "remove": (["-h", "--help"], {}, {}),
+            "list": (["--available", "-h", "--help"], {}, {}),
+        }),
         "web": (["--host", "--port", "-h", "--help"], {}, {}),
         "completion": (["-h", "--help"], {"shell": ["bash", "zsh"]}, {}),
     }

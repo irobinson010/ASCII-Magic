@@ -673,6 +673,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     add_overlay_args(parser)
     add_depth_arg(parser)
+    from .translate import add_translate_arg
+
+    add_translate_arg(parser)
+    parser.add_argument("--translate-from", default="en", metavar="LANG",
+                        help="Source language for --translate (default: en)")
     parser.add_argument(
         "--log-level",
         default="WARNING",
@@ -718,6 +723,11 @@ def main():
         print("\033[31mError: [1] no text provided\n\033[0m", file=sys.stderr)
         parser.print_help()
         sys.exit(1)
+
+    if args.translate:
+        from .translate import translate_or_exit
+
+        text = translate_or_exit(text, args.translate, args.translate_from, prog="text-to-ascii")
 
     # Generate ASCII art based on style
     if args.style == "box":
