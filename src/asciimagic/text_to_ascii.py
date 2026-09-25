@@ -261,7 +261,7 @@ def text_to_ascii_art(
     """
     # Basic density-based ASCII renderer.
     # Validate style
-    styles = ("block", "small", "shadow")
+    styles = ("block", "small", "shadow", "solid")
     if style not in styles:
         raise ValueError(f"unknown style: {style}")
 
@@ -300,6 +300,8 @@ def text_to_ascii_art(
         ramp = "@%#*+=-:. "
     elif style == "small":
         ramp = "@#*.- "
+    elif style == "solid":
+        ramp = "█▓▒░ "
     else:  # shadow
         ramp = " .:-=+*#%@"
 
@@ -640,7 +642,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-s",
         "--style",
-        choices=["block", "small", "shadow", "box", "banner", "figlet"],
+        choices=["block", "small", "shadow", "solid", "box", "banner", "figlet"],
         default="block",
         help="ASCII art style",
     )
@@ -676,6 +678,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     from .translate import add_translate_arg
 
     add_translate_arg(parser)
+    from .textanim import add_animate_args
+
+    add_animate_args(parser)
     parser.add_argument("--translate-from", default="en", metavar="LANG",
                         help="Source language for --translate (default: en)")
     parser.add_argument(
@@ -728,6 +733,11 @@ def main():
         from .translate import translate_or_exit
 
         text = translate_or_exit(text, args.translate, args.translate_from, prog="text-to-ascii")
+
+    if args.animate:
+        from .textanim import run_cli
+
+        sys.exit(run_cli(text, args))
 
     # Generate ASCII art based on style
     if args.style == "box":

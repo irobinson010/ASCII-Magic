@@ -28,8 +28,20 @@ function num(id) {
   return Number.isFinite(n) ? n : null;
 }
 
+// "wave", "wave,spin", "wave,rainbow", ... or null for a still render.
+function textAnimSpec() {
+  const a = $("text_anim").value;
+  if (!a) return null;
+  const parts = [a];
+  const b = $("text_anim2").value;
+  if (b && b !== a) parts.push(b);
+  if ($("text_anim_rainbow").checked) parts.push("rainbow");
+  return parts.join(",");
+}
+
 function collectOptions() {
   const source = state.tab;
+  const textAnim = source === "text" && textAnimSpec();
   return {
     source,
     // video source
@@ -43,6 +55,9 @@ function collectOptions() {
     text_width: num("text_width"),
     text_font_size: num("text_font_size"),
     banner_char: $("banner_char").value || "#",
+    text_animate: source === "text" ? textAnimSpec() : null,
+    anim_amount: num("text_anim_amount"),
+    anim_mirror: $("text_anim_mirror").checked,
     // image source (width shared with video via its own input)
     mode: $("mode").value,
     cols: source === "video" ? num("video_cols") : num("cols"),
@@ -90,8 +105,8 @@ function collectOptions() {
     matrix_bg_density: num("matrix_bg_density"),
     // animation (rain animation is an image-mode feature; video is already animated)
     animate: state.tab !== "video" && $("matrix").checked && $("animate").checked,
-    anim_frames: num("anim_frames"),
-    anim_fps: num("anim_fps"),
+    anim_frames: textAnim ? num("text_anim_frames") : num("anim_frames"),
+    anim_fps: textAnim ? num("text_anim_fps") : num("anim_fps"),
     anim_tail: num("anim_tail"),
     anim_reveal: $("anim_reveal").checked,
     // overlay
@@ -166,6 +181,9 @@ async function render() {
     let msg;
     if (body.video) {
       msg = `Rendered ${body.video.frames} video frames @ ${body.video.fps} fps in ${body.elapsed_ms} ms`;
+    } else if (body.text_anim) {
+      const a = body.text_anim;
+      msg = `Animated ${a.cols} × ${a.rows}, ${a.frames} frames @ ${a.fps} fps in ${body.elapsed_ms} ms`;
     } else {
       msg = `Rendered ${body.ascii.split("\n").length} lines in ${body.elapsed_ms} ms`;
     }
@@ -351,6 +369,7 @@ function syncVisibility() {
   const style = $("text_style").value;
   $("text-font-field").hidden = style === "box" || style === "banner";
   $("banner-char-field").hidden = style !== "banner";
+  $("text-anim-knobs").hidden = !$("text_anim").value;
 
   $("color-knobs").hidden = !$("colorize").checked;
   $("matrix-knobs").hidden = !$("matrix").checked;
