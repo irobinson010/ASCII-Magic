@@ -879,3 +879,47 @@ def test_translate_install_when_allowed(fake_translate, monkeypatch):
 def test_translate_cross_origin_blocked(fake_translate):
     r = client.post("/api/translate", json={"text": "hi", "to": "ja"}, headers={"origin": "https://evil.example"})
     assert r.status_code == 403
+
+
+# ---- animated text (issue #41) ----
+
+def _render_opts(**o):
+    return client.post("/api/render", data={"options": json.dumps({"source": "text", "text": "HI", **o})})
+
+
+def test_text_animate_returns_player_gif_and_frames():
+    r = _render_opts(text_animate="spin,rainbow", text_width=30, anim_frames=6)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["text_anim"]["frames"] == 6 and body["text_anim"]["cols"] == 30
+    assert "const FRAMES" in body["html"]
+    assert body["gif_b64"] and body["frames_text"].startswith('{"fps": 15.0, "loops": 2}')
+    assert body["art"]["ring"] is False
+    assert "\x1b[38;2;" in body["ansi"]
+
+
+def test_text_animate_overlay_and_style_fallback():
+    r = _render_opts(text_animate="wave", text_width=30, anim_frames=4, text_style="banner", overlay="sunset")
+    body = r.json()
+    assert r.status_code == 200 and "block" in body["warning"]
+    assert "\x1b[38;2;" in body["ansi"]
+
+
+@pytest.mark.parametrize("opts,detail", [
+    ({"text_animate": "moonwalk"}, "unknown animation"),
+    ({"text_animate": 5}, "text_animate"),
+    ({"text_animate": "spin", "text_width": 400, "anim_frames": 120}, "too large"),
+])
+def test_text_animate_rejects(opts, detail):
+    r = _render_opts(**opts)
+    assert r.status_code == 400 and detail in r.json()["detail"]
+
+
+def test_text_animate_empty_text():
+    r = client.post("/api/render", data={"options": json.dumps({"source": "text", "text": " ", "text_animate": "wave"})})
+    assert r.status_code == 400
+
+
+def test_text_solid_style_static():
+    r = _render_opts(text_style="solid", text_width=30)
+    assert r.status_code == 200 and "█" in r.json()["ascii"]

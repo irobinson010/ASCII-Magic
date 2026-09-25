@@ -137,6 +137,7 @@
             <option value="block">Block</option>
             <option value="small">Small</option>
             <option value="shadow">Shadow</option>
+            <option value="solid">Solid blocks</option>
             <option value="box">Box</option>
             <option value="banner">Banner</option>
             <option value="figlet">Figlet</option>
@@ -148,6 +149,90 @@
           <div class="field" id="banner-char-field" hidden><label for="banner_char">Char</label><input type="text" id="banner_char" value="#" maxlength="1"></div>
         </div>
         <p class="hint">Box and banner styles are plain text — upload an image on the Image tab if you want them colorized.</p>
+        <div class="field">
+          <label for="text_anim">Animate</label>
+          <select id="text_anim">
+              <option value="">None</option>
+              <optgroup label="Motion">
+                <option value="wave">Wave (flag)</option>
+                <option value="ripple">Ripple</option>
+                <option value="twist">Twist (ribbon)</option>
+                <option value="swing">Swing</option>
+                <option value="bounce">Bounce</option>
+                <option value="shake">Shake</option>
+                <option value="glitch">Glitch</option>
+                <option value="scroll">Scroll (marquee)</option>
+              </optgroup>
+              <optgroup label="Turn and flip">
+                <option value="spin">Spin (3D)</option>
+                <option value="rotate">Rotate (wheel)</option>
+                <option value="flip-left">Flip left</option>
+                <option value="flip-right">Flip right</option>
+                <option value="flip-up">Flip up</option>
+                <option value="flip-down">Flip down</option>
+                <option value="flip-diagonal">Flip diagonal</option>
+                <option value="flip-antidiagonal">Flip other diagonal</option>
+              </optgroup>
+              <optgroup label="Size">
+                <option value="stretch">Stretch sideways</option>
+                <option value="stretch-v">Stretch vertically</option>
+                <option value="squash">Squash (jelly)</option>
+                <option value="zoom">Zoom</option>
+                <option value="pulse">Pulse (heartbeat)</option>
+              </optgroup>
+              <optgroup label="Reveal">
+                <option value="typewriter">Typewriter</option>
+                <option value="fade">Fade</option>
+              </optgroup>
+          </select>
+        </div>
+        <div id="text-anim-knobs" hidden>
+          <div class="field">
+            <label for="text_anim2">Combine with</label>
+            <select id="text_anim2">
+              <option value="">None</option>
+              <optgroup label="Motion">
+                <option value="wave">Wave (flag)</option>
+                <option value="ripple">Ripple</option>
+                <option value="twist">Twist (ribbon)</option>
+                <option value="swing">Swing</option>
+                <option value="bounce">Bounce</option>
+                <option value="shake">Shake</option>
+                <option value="glitch">Glitch</option>
+                <option value="scroll">Scroll (marquee)</option>
+              </optgroup>
+              <optgroup label="Turn and flip">
+                <option value="spin">Spin (3D)</option>
+                <option value="rotate">Rotate (wheel)</option>
+                <option value="flip-left">Flip left</option>
+                <option value="flip-right">Flip right</option>
+                <option value="flip-up">Flip up</option>
+                <option value="flip-down">Flip down</option>
+                <option value="flip-diagonal">Flip diagonal</option>
+                <option value="flip-antidiagonal">Flip other diagonal</option>
+              </optgroup>
+              <optgroup label="Size">
+                <option value="stretch">Stretch sideways</option>
+                <option value="stretch-v">Stretch vertically</option>
+                <option value="squash">Squash (jelly)</option>
+                <option value="zoom">Zoom</option>
+                <option value="pulse">Pulse (heartbeat)</option>
+              </optgroup>
+              <optgroup label="Reveal">
+                <option value="typewriter">Typewriter</option>
+                <option value="fade">Fade</option>
+              </optgroup>
+            </select>
+          </div>
+          <label class="check"><input type="checkbox" id="text_anim_rainbow"> Rainbow colors (cycling)</label>
+          <div class="field-row">
+            <div class="field"><label for="text_anim_frames">Frames</label><input type="number" id="text_anim_frames" value="36" min="2" max="120"></div>
+            <div class="field"><label for="text_anim_fps">FPS</label><input type="number" id="text_anim_fps" value="15" min="1" max="30"></div>
+            <div class="field"><label for="text_anim_amount">Amount</label><input type="number" id="text_anim_amount" value="1" min="0.1" max="3" step="0.1"></div>
+          </div>
+          <label class="check"><input type="checkbox" id="text_anim_mirror"> Spins and flips show the back mirrored</label>
+          <p class="hint">Uses the Block, Small, or Solid style. Download .gif, .html (animated page), or .frames (for <code>ascii-magic-greet</code> and <code>ascii-magic-greet play</code>). The Color overlay below tints it.</p>
+        </div>
       </section>
 
       <section id="panel-video" hidden>
