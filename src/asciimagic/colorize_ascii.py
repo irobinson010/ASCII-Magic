@@ -273,6 +273,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Caption color: theme name, #RRGGBB, 'image' (nearby strip), or "
                         "'image-full' (whole picture stretched over the text)")
     g.add_argument("--caption-align", choices=["left", "center", "right"], default="center")
+    from .translate import add_translate_arg
+
+    add_translate_arg(g, "--caption-translate", "caption_translate", "the caption")
 
     ap.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
                     help="Rotate the reference image clockwise (EXIF orientation "
@@ -297,6 +300,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--log", dest="log_path", default=None, metavar="FILE")
     return ap
+
+
+def _caption_text(ns):
+    if ns.caption and ns.caption_translate:
+        from .translate import translate_or_exit
+
+        return translate_or_exit(ns.caption, ns.caption_translate, prog="colorize-ascii")
+    return ns.caption
 
 
 def _overlay_from(ns):
@@ -346,7 +357,7 @@ def parse_args(argv) -> Tuple[str, str, Optional[str], Options]:
             fill_spaces=ns.html_fill_spaces,
         ),
         caption=CaptionOptions(
-            text=ns.caption,
+            text=_caption_text(ns),
             position=ns.caption_pos,
             style=ns.caption_style,
             scale=ns.caption_scale,

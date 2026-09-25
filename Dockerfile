@@ -1,8 +1,9 @@
 FROM python:3.12-slim
 
-# DejaVu Sans Mono is the glyph renderer's preferred fallback font
+# DejaVu Sans Mono is the glyph renderer's preferred fallback font;
+# IPA Gothic draws Japanese text (and translations) in rendered styles.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-ipafont-gothic \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home app
 
@@ -20,7 +21,10 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Volume-mount target for one-shot CLI runs:
 #   docker run --rm -v "$(pwd):/data" ascii-magic image photo.png -o art.txt
-RUN mkdir /data && chown app:app /data
+# Translation models live under the app user's data dir; pre-create it so a
+# named volume mounted there inherits app ownership.
+RUN mkdir /data /home/app/.local /home/app/.local/share /home/app/.local/share/ascii-magic \
+    && chown app:app /data /home/app/.local /home/app/.local/share /home/app/.local/share/ascii-magic
 WORKDIR /data
 USER app
 

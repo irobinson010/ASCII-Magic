@@ -206,6 +206,7 @@ const COMMON_FIELDS = [
 ];
 const TEXT_FIELDS = [
   ["text", "Text", "area"],
+  ["_translate", "", "translate"],
   ["style", "Style", "select", { options: ["block", "small", "shadow", "box", "banner", "figlet"] }],
   ["scale", "Auto size (of canvas width)", "range", { min: 0.05, max: 1, step: 0.05 }],
   ["align", "Align lines", "select", { options: ["left", "center", "right"] }],
@@ -277,6 +278,11 @@ function field(layer, [key, label, kind, extra]) {
     return colorField(layer, wrap, lab, id, set);
   } else if (kind === "overlay") {
     return overlayField(layer, wrap, id, set);
+  } else if (kind === "translate") {
+    // translate.js fills the layer's Text box; the edited text is what renders.
+    wrap.replaceChildren();
+    if (window.translateControl) wrap.append(window.translateControl("cmp_f_text"));
+    return wrap;
   } else {
     input = document.createElement("input");
     input.type = "number";
