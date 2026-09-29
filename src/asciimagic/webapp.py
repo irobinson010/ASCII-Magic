@@ -976,9 +976,9 @@ MAX_TRANSLATE_CHARS = 500
 
 
 def _downloads_allowed() -> bool:
-    """Model downloads (~100+ MB each) are off unless the operator opts in;
-    `ascii-magic web` opts in automatically when bound to localhost."""
-    return os.environ.get("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "").strip().lower() in ("1", "true", "yes")
+    """The GUI may download translation models (~100+ MB each) unless the
+    operator turns it off with ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=0."""
+    return os.environ.get("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 _available_cache: dict[str, Any] = {}
@@ -1045,8 +1045,8 @@ def translate_install(payload: dict = Body(...)) -> dict[str, Any]:
     if not _downloads_allowed():
         raise HTTPException(
             status_code=403,
-            detail="Model downloads are disabled on this server. Install from a terminal: "
-                   "ascii-magic translate install en ja (or set ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=1).",
+            detail="Model downloads are turned off on this server (ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=0). "
+                   "Install from a terminal: ascii-magic translate install en ja",
         )
     source = _lang(payload, "from", "en")
     to = _lang(payload, "to", "ja")
@@ -1072,10 +1072,6 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
     ap.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
     args = ap.parse_args()
-    # Let the GUI download translation models when only this machine can
-    # reach the server; a server exposed to a network must opt in.
-    if args.host in ("127.0.0.1", "localhost", "::1"):
-        os.environ.setdefault("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "1")
     uvicorn.run(app, host=args.host, port=args.port)
 
 

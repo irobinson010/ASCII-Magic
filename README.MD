@@ -279,7 +279,7 @@ Models are stored in `~/.local/share/ascii-magic/models` (Windows: `%LOCALAPPDAT
 
 **Proofread the result.** Machine translation handles sentences well but guesses badly on one- or two-word phrases, which is what captions usually are. For example, the raw model turns "Hi" into ヒアリング ("hearing"). A built-in phrasebook covers common short Japanese phrases (hello, good night, thank you, happy birthday, ...), and the web GUI puts the translation back in the text box so you can edit it before rendering.
 
-In the **web GUI**, the Text box, the Caption box, and each Compose text layer have a language picker and a **Translate** button. When the server runs on localhost, languages not yet installed show "(download)" and download on first use. On any other bind (e.g. Docker), downloads are off unless you set `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=1`; otherwise install models from the CLI.
+In the **web GUI**, the Text box, the Caption box, and each Compose text layer have a language picker and a **Translate** button. Languages not yet installed show "(download)" and download the first time you use them (~100+ MB each, once). To stop the GUI from downloading, e.g. on a shared server, set `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=0` and install models from the CLI instead.
 
 ## Animated text (`--animate`)
 
@@ -505,7 +505,7 @@ The server is safe to expose on a LAN or behind a reverse proxy: request bodies 
 | `ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES` | `5000` | Video frames decoded per upload (sampling skips frames but still decodes them) |
 | `ASCII_MAGIC_ALLOWED_ORIGINS` | *(none)* | Extra allowed `Origin`s, comma-separated, for a proxy that rewrites `Host` |
 | `ASCII_MAGIC_MAX_TEXT_ANIM_PIXELS` | `40000000` | Animated text: canvas pixels × frames (about 70 ns each) |
-| `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD` | on for localhost, else off | Let the GUI download translation models (~100+ MB each) |
+| `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD` | on | Let the GUI download translation models (~100+ MB each); `0` turns it off |
 
 ## Docker
 
@@ -522,10 +522,9 @@ docker run --rm -v "$(pwd):/data" ascii-magic image photo.png -o art.txt
 docker run --rm -v "$(pwd):/data" ascii-magic colorize photo.png art.txt output.ans
 docker run --rm -v "$(pwd):/data" ascii-magic text "Hello" -s block
 
-# Translation: keep models in a named volume, install once, then use from the GUI
-docker run --rm -v am-models:/home/app/.local/share/ascii-magic ascii-magic translate install en ja
+# Translation: the GUI downloads languages on first use. Mount a named volume
+# so they survive the container being removed (otherwise they re-download).
 docker run --rm -p 8000:8000 -v am-models:/home/app/.local/share/ascii-magic ascii-magic
-# (or let the GUI download them: add -e ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD=1)
 ```
 
 ## Tips
