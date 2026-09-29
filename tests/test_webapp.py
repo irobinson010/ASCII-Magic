@@ -822,8 +822,18 @@ def fake_translate(tmp_path, monkeypatch):
     return tr
 
 
-def test_translate_languages_downloads_off(fake_translate, monkeypatch):
+def test_translate_languages_downloads_on_by_default(fake_translate, monkeypatch):
+    import asciimagic.webapp as web
+
     monkeypatch.delenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", raising=False)
+    monkeypatch.setattr(web, "_available_models", lambda: [["en", "ja", "English", "Japanese"]])
+    body = client.get("/api/translate/languages").json()
+    assert body["can_install"] is True
+    assert body["available"] == [["en", "ja", "English", "Japanese"]]
+
+
+def test_translate_languages_downloads_off(fake_translate, monkeypatch):
+    monkeypatch.setenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "0")
     r = client.get("/api/translate/languages")
     assert r.status_code == 200
     body = r.json()
@@ -854,16 +864,17 @@ def test_translate_rejects_bad_input(fake_translate, payload):
     assert client.post("/api/translate", json=payload).status_code == 400
 
 
-def test_translate_install_forbidden_by_default(fake_translate, monkeypatch):
-    monkeypatch.delenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", raising=False)
+@pytest.mark.parametrize("value", ["0", "false", "no", "OFF"])
+def test_translate_install_forbidden_when_turned_off(fake_translate, monkeypatch, value):
+    monkeypatch.setenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", value)
     called = []
     monkeypatch.setattr(fake_translate, "install", lambda *a, **k: called.append(a))
     r = client.post("/api/translate/install", json={"from": "en", "to": "ja"})
     assert r.status_code == 403 and not called
 
 
-def test_translate_install_when_allowed(fake_translate, monkeypatch):
-    monkeypatch.setenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "1")
+def test_translate_install_allowed_by_default(fake_translate, monkeypatch):
+    monkeypatch.delenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", raising=False)
     called = []
     monkeypatch.setattr(fake_translate, "install", lambda src, dst, **k: called.append((src, dst)))
     r = client.post("/api/translate/install", json={"from": "en", "to": "ja"})
