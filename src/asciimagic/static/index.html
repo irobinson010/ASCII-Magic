@@ -8,57 +8,103 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#10047;</text></svg>">
 </head>
 <body>
+  <!-- Small icon set, referenced with <use href="#i-..."> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V5m0 0-4 4m4-4 4 4M5 20h14"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></symbol>
+  </svg>
+
   <header>
-    <h1>ASCII<span>✦</span>Magic</h1>
+    <div class="brand">
+      <span class="logo" aria-hidden="true">✦</span>
+      <h1>ASCII Magic</h1>
+      <span class="tagline">Turn images, text, and video into character art</span>
+    </div>
     <div class="header-controls">
-      <label class="profile-label">Profile
-        <select id="profile">
-          <option value="terminal">Terminal</option>
-          <option value="web">Web page</option>
-        </select>
+      <div class="segmented" role="radiogroup" aria-label="Make it for" title="Sets sensible sizes for where the art will be shown">
+        <span class="segmented-label">For</span>
+        <button type="button" role="radio" data-profile="terminal" aria-checked="true">Terminal</button>
+        <button type="button" role="radio" data-profile="web" aria-checked="false">Web page</button>
+      </div>
+      <select id="profile" hidden aria-hidden="true" tabindex="-1">
+        <option value="terminal">Terminal</option>
+        <option value="web">Web page</option>
+      </select>
+      <label class="switch" title="Re-render automatically when a setting changes">
+        <input type="checkbox" id="auto" checked><span class="track"></span> Live
       </label>
-      <label class="check"><input type="checkbox" id="auto" checked> Auto-render</label>
-      <button id="render" class="primary">Render</button>
-      <span class="downloads">
-        <button id="dl-ans" disabled>.ans</button>
-        <button id="dl-html" disabled>.html</button>
-        <button id="dl-txt" disabled>.txt</button>
-        <button id="dl-gif" disabled>.gif</button>
-        <button id="dl-frames" disabled>.frames</button>
-        <button id="dl-mp4" disabled title="Encodes on demand — includes the source audio">.mp4</button>
-      </span>
+      <button id="render" class="primary" title="Render now (Ctrl/⌘ + Enter)">Render</button>
+      <div class="menu">
+        <button id="dl-toggle" class="icon-text" aria-haspopup="true" aria-expanded="false" disabled>
+          <svg class="icon"><use href="#i-download"/></svg> Download
+        </button>
+        <div id="dl-menu" class="menu-pop" role="menu" hidden>
+          <button id="dl-ans" class="menu-item" role="menuitem" disabled>
+            <b>Terminal art</b><span>.ans · colors for <code>cat</code>, SSH greetings</span>
+          </button>
+          <button id="dl-html" class="menu-item" role="menuitem" disabled>
+            <b>Web page</b><span>.html · open in a browser or embed</span>
+          </button>
+          <button id="dl-txt" class="menu-item" role="menuitem" disabled>
+            <b>Plain text</b><span>.txt · no colors, pastes anywhere</span>
+          </button>
+          <button id="dl-gif" class="menu-item" role="menuitem" disabled>
+            <b>Animated GIF</b><span>.gif · share it as an image</span>
+          </button>
+          <button id="dl-frames" class="menu-item" role="menuitem" disabled>
+            <b>Login animation</b><span>.frames · for <code>ascii-magic-greet</code></span>
+          </button>
+          <button id="dl-mp4" class="menu-item" role="menuitem" disabled>
+            <b>Video with sound</b><span>.mp4 · encodes now, keeps the audio</span>
+          </button>
+          <hr>
+          <button id="copy-txt" class="menu-item" role="menuitem" disabled>
+            <b>Copy text</b><span>to the clipboard, without colors</span>
+          </button>
+        </div>
+      </div>
     </div>
   </header>
 
   <main>
     <aside id="controls">
-      <nav class="tabs">
-        <button id="tab-image" class="tab active">Image</button>
-        <button id="tab-text" class="tab">Text</button>
-        <button id="tab-video" class="tab">Video</button>
-        <button id="tab-compose" class="tab">Compose</button>
+      <nav class="tabs" aria-label="Source">
+        <button id="tab-image" class="tab active"><svg class="icon"><use href="#i-image"/></svg>Image</button>
+        <button id="tab-text" class="tab"><svg class="icon"><use href="#i-text"/></svg>Text</button>
+        <button id="tab-video" class="tab"><svg class="icon"><use href="#i-video"/></svg>Video</button>
+        <button id="tab-compose" class="tab"><svg class="icon"><use href="#i-layers"/></svg>Compose</button>
       </nav>
 
-      <section id="panel-image">
-        <div id="dropzone" tabindex="0">
+      <!-- ===== Image ===== -->
+      <section id="panel-image" class="panel">
+        <div id="dropzone" tabindex="0" role="button" aria-label="Choose an image">
           <input type="file" id="file" accept="image/*" hidden>
           <img id="thumb" alt="" hidden>
+          <svg class="icon big" id="drop-icon"><use href="#i-upload"/></svg>
           <p id="drop-hint">Drop an image here<br>or click to browse</p>
         </div>
 
         <div class="field">
-          <label for="mode">Mode</label>
+          <label for="mode">Style</label>
           <select id="mode">
-            <option value="glyph">Glyph matching (best for cartoons/line art)</option>
-            <option value="braille">Braille dots (best for photos; try Invert)</option>
+            <option value="glyph">Characters</option>
+            <option value="braille">Braille dots</option>
           </select>
+          <p class="field-hint" id="mode-hint"></p>
         </div>
         <div class="field-row">
-          <div class="field">
-            <label for="cols">Width (chars)</label>
-            <span class="seed-row">
+          <div class="field grow">
+            <label for="cols">Width <small>characters</small></label>
+            <span class="input-group">
               <input type="number" id="cols" value="100" min="10" max="500">
-              <button id="autosize" title="Fit the preview pane (auto-set on upload)">Fit</button>
+              <button id="autosize" title="Fit the preview pane (done automatically on upload)">Fit</button>
             </span>
           </div>
           <div class="field">
@@ -74,10 +120,10 @@
 
         <div id="braille-knobs">
           <div class="field">
-            <label for="threshold">Dot threshold <output id="threshold-out">0.5</output></label>
+            <label for="threshold" title="Brightness a dot needs to show. Lower = more dots.">Dot threshold <output id="threshold-out">0.5</output></label>
             <input type="range" id="threshold" min="0" max="1" step="0.05" value="0.5">
           </div>
-          <label class="check"><input type="checkbox" id="dither"> Dither (smoother gradients on photos)</label>
+          <label class="check"><input type="checkbox" id="dither"> Dither <small>smoother shading on photos</small></label>
         </div>
 
         <div id="glyph-knobs" hidden>
@@ -86,47 +132,51 @@
             <select id="quality">
               <option value="fast">Fast</option>
               <option value="balanced" selected>Balanced</option>
-              <option value="best">Best</option>
+              <option value="best">Best (slower)</option>
             </select>
           </div>
-          <div class="field">
-            <label for="ascii_preset">Charset</label>
-            <select id="ascii_preset">
-              <option value="dense">Dense ramp</option>
-              <option value="printable">Printable ASCII</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="unicode_mode">Unicode</label>
-            <select id="unicode_mode">
-              <option value="off">Off</option>
-              <option value="blocks">Blocks</option>
-              <option value="big">Big set</option>
-            </select>
-          </div>
-          <div class="field-row">
-            <div class="field"><label for="cell_w">Cell W</label><input type="number" id="cell_w" value="8" min="2" max="32"></div>
-            <div class="field"><label for="cell_h">Cell H</label><input type="number" id="cell_h" value="16" min="4" max="64"></div>
-            <div class="field"><label for="topk">Top-K</label><input type="number" id="topk" value="24" min="1" max="200"></div>
-          </div>
+          <details class="sub">
+            <summary>Advanced character options</summary>
+            <div class="field">
+              <label for="ascii_preset">Characters</label>
+              <select id="ascii_preset">
+                <option value="dense">Dense ramp</option>
+                <option value="printable">All printable ASCII</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="unicode_mode">Unicode</label>
+              <select id="unicode_mode">
+                <option value="off">Off (plain ASCII)</option>
+                <option value="blocks">Block shapes ▀▄█</option>
+                <option value="big">Large set (slower)</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="cell_w" title="Pixels of the image per character, across">Cell W</label><input type="number" id="cell_w" value="8" min="2" max="32"></div>
+              <div class="field"><label for="cell_h" title="Pixels of the image per character, down">Cell H</label><input type="number" id="cell_h" value="16" min="4" max="64"></div>
+              <div class="field"><label for="topk" title="Characters compared per cell. Higher = more accurate, slower.">Top-K</label><input type="number" id="topk" value="24" min="1" max="200"></div>
+            </div>
+          </details>
         </div>
 
-        <details>
-          <summary>Image adjustments — gamma · contrast · invert</summary>
+        <details class="sub">
+          <summary>Adjust the image <small>gamma · contrast · invert</small></summary>
           <div class="field">
-            <label for="gamma">Gamma <output id="gamma-out">1.0</output></label>
+            <label for="gamma" title="Below 1 lightens midtones, above 1 darkens them">Gamma <output id="gamma-out">1.0</output></label>
             <input type="range" id="gamma" min="0.2" max="3" step="0.1" value="1">
           </div>
           <label class="check"><input type="checkbox" id="autocontrast"> Auto-contrast</label>
-          <label class="check"><input type="checkbox" id="invert"> Invert</label>
+          <label class="check"><input type="checkbox" id="invert"> Invert <small>often better on dark terminals</small></label>
         </details>
       </section>
 
-      <section id="panel-text" hidden>
+      <!-- ===== Text ===== -->
+      <section id="panel-text" class="panel" hidden>
         <div class="field">
           <label for="text">Text</label>
           <textarea id="text" rows="3" placeholder="Hello, world"></textarea>
-          <span class="seed-row translate-row" data-target="text">
+          <span class="input-group translate-row" data-target="text">
             <select class="translate-to" aria-label="Translate to"></select>
             <button class="translate-btn" type="button">Translate</button>
           </span>
@@ -142,260 +192,206 @@
             <option value="banner">Banner</option>
             <option value="figlet">Figlet</option>
           </select>
+          <p class="field-hint" id="text-style-hint" hidden>Box, banner, and figlet are plain characters, so Colorize doesn't apply; use a Color overlay instead.</p>
         </div>
         <div class="field-row">
           <div class="field"><label for="text_width">Width</label><input type="number" id="text_width" value="80" min="10" max="400"></div>
-          <div class="field" id="text-font-field"><label for="text_font_size">Font size</label><input type="number" id="text_font_size" value="24" min="8" max="120"></div>
+          <div class="field" id="text-font-field"><label for="text_font_size" title="Drawing size before conversion; bigger = finer detail">Font size</label><input type="number" id="text_font_size" value="24" min="8" max="120"></div>
           <div class="field" id="banner-char-field" hidden><label for="banner_char">Char</label><input type="text" id="banner_char" value="#" maxlength="1"></div>
         </div>
-        <p class="hint">Box and banner styles are plain text — upload an image on the Image tab if you want them colorized.</p>
-        <div class="field">
-          <label for="text_anim">Animate</label>
-          <select id="text_anim">
-              <option value="">None</option>
-              <optgroup label="Motion">
-                <option value="wave">Wave (flag)</option>
-                <option value="ripple">Ripple</option>
-                <option value="twist">Twist (ribbon)</option>
-                <option value="swing">Swing</option>
-                <option value="bounce">Bounce</option>
-                <option value="shake">Shake</option>
-                <option value="glitch">Glitch</option>
-                <option value="scroll">Scroll (marquee)</option>
-              </optgroup>
-              <optgroup label="Turn and flip">
-                <option value="spin">Spin (3D)</option>
-                <option value="rotate">Rotate (wheel)</option>
-                <option value="flip-left">Flip left</option>
-                <option value="flip-right">Flip right</option>
-                <option value="flip-up">Flip up</option>
-                <option value="flip-down">Flip down</option>
-                <option value="flip-diagonal">Flip diagonal</option>
-                <option value="flip-antidiagonal">Flip other diagonal</option>
-              </optgroup>
-              <optgroup label="Size">
-                <option value="stretch">Stretch sideways</option>
-                <option value="stretch-v">Stretch vertically</option>
-                <option value="squash">Squash (jelly)</option>
-                <option value="zoom">Zoom</option>
-                <option value="pulse">Pulse (heartbeat)</option>
-              </optgroup>
-              <optgroup label="Reveal">
-                <option value="typewriter">Typewriter</option>
-                <option value="fade">Fade</option>
-              </optgroup>
-          </select>
-        </div>
-        <div id="text-anim-knobs" hidden>
+
+        <div class="subcard">
           <div class="field">
-            <label for="text_anim2">Combine with</label>
-            <select id="text_anim2">
-              <option value="">None</option>
-              <optgroup label="Motion">
-                <option value="wave">Wave (flag)</option>
-                <option value="ripple">Ripple</option>
-                <option value="twist">Twist (ribbon)</option>
-                <option value="swing">Swing</option>
-                <option value="bounce">Bounce</option>
-                <option value="shake">Shake</option>
-                <option value="glitch">Glitch</option>
-                <option value="scroll">Scroll (marquee)</option>
-              </optgroup>
-              <optgroup label="Turn and flip">
-                <option value="spin">Spin (3D)</option>
-                <option value="rotate">Rotate (wheel)</option>
-                <option value="flip-left">Flip left</option>
-                <option value="flip-right">Flip right</option>
-                <option value="flip-up">Flip up</option>
-                <option value="flip-down">Flip down</option>
-                <option value="flip-diagonal">Flip diagonal</option>
-                <option value="flip-antidiagonal">Flip other diagonal</option>
-              </optgroup>
-              <optgroup label="Size">
-                <option value="stretch">Stretch sideways</option>
-                <option value="stretch-v">Stretch vertically</option>
-                <option value="squash">Squash (jelly)</option>
-                <option value="zoom">Zoom</option>
-                <option value="pulse">Pulse (heartbeat)</option>
-              </optgroup>
-              <optgroup label="Reveal">
-                <option value="typewriter">Typewriter</option>
-                <option value="fade">Fade</option>
-              </optgroup>
-            </select>
+            <label for="text_anim"><svg class="icon inline"><use href="#i-sparkle"/></svg> Animate</label>
+            <select id="text_anim" data-effects></select>
           </div>
-          <label class="check"><input type="checkbox" id="text_anim_rainbow"> Rainbow colors (cycling)</label>
-          <div class="field-row">
-            <div class="field"><label for="text_anim_frames">Frames</label><input type="number" id="text_anim_frames" value="36" min="2" max="120"></div>
-            <div class="field"><label for="text_anim_fps">FPS</label><input type="number" id="text_anim_fps" value="15" min="1" max="30"></div>
-            <div class="field"><label for="text_anim_amount">Amount</label><input type="number" id="text_anim_amount" value="1" min="0.1" max="3" step="0.1"></div>
+          <div id="text-anim-knobs" hidden>
+            <div class="field">
+              <label for="text_anim2">Combine with</label>
+              <select id="text_anim2" data-effects></select>
+            </div>
+            <label class="check"><input type="checkbox" id="text_anim_rainbow"> Rainbow colors</label>
+            <div class="field-row">
+              <div class="field"><label for="text_anim_frames" title="Frames per loop">Frames</label><input type="number" id="text_anim_frames" value="36" min="2" max="120"></div>
+              <div class="field"><label for="text_anim_fps">FPS</label><input type="number" id="text_anim_fps" value="15" min="1" max="30"></div>
+              <div class="field"><label for="text_anim_amount" title="Strength of the effect, 0.1–3">Amount</label><input type="number" id="text_anim_amount" value="1" min="0.1" max="3" step="0.1"></div>
+            </div>
+            <label class="check"><input type="checkbox" id="text_anim_mirror"> Mirror the back side <small>spins &amp; flips</small></label>
+            <p class="field-hint">Works with Block, Small, and Solid. Download as a GIF, a web page, or a login animation.</p>
           </div>
-          <label class="check"><input type="checkbox" id="text_anim_mirror"> Spins and flips show the back mirrored</label>
-          <p class="hint">Uses the Block, Small, or Solid style. Download .gif, .html (animated page), or .frames (for <code>ascii-magic-greet</code> and <code>ascii-magic-greet play</code>). The Color overlay below tints it.</p>
         </div>
       </section>
 
-      <section id="panel-video" hidden>
+      <!-- ===== Video ===== -->
+      <section id="panel-video" class="panel" hidden>
+        <label class="filepick" for="video_file">
+          <svg class="icon big"><use href="#i-video"/></svg>
+          <span><b>Choose a video</b><br><small>mp4, webm, mov, mkv, avi, gif</small></span>
+        </label>
+        <input type="file" id="video_file" accept="video/*,.gif,.mkv" class="visually-hidden">
+        <p class="field-hint" id="video-name"></p>
         <div class="field">
-          <label for="video_file">Video file (mp4, webm, mov, mkv, avi, gif)</label>
-          <input type="file" id="video_file" accept="video/*,.gif,.mkv">
+          <label for="video_mode">Style</label>
+          <select id="video_mode">
+            <option value="braille">Braille dots (fast, detailed)</option>
+            <option value="glyph">Characters</option>
+          </select>
         </div>
         <div class="field-row">
           <div class="field"><label for="video_cols">Width</label><input type="number" id="video_cols" value="100" min="10" max="240"></div>
-          <div class="field"><label for="video_fps">FPS</label><input type="number" id="video_fps" value="8" min="1" max="30"></div>
-          <div class="field"><label for="video_max_frames">Max frames</label><input type="number" id="video_max_frames" value="60" min="1" max="120"></div>
           <div class="field"><label for="video_rows">Rows</label><input type="number" id="video_rows" min="2" max="500" placeholder="auto"></div>
         </div>
-        <div class="field">
-          <label for="video_mode">Frame mode</label>
-          <select id="video_mode">
-            <option value="braille">Braille dots (fast, detailed)</option>
-            <option value="glyph">Glyph matching (character art)</option>
-          </select>
+        <div class="field-row">
+          <div class="field"><label for="video_fps">FPS</label><input type="number" id="video_fps" value="8" min="1" max="30"></div>
+          <div class="field"><label for="video_max_frames">Max frames</label><input type="number" id="video_max_frames" value="60" min="1" max="120"></div>
         </div>
-        <p class="hint">Videos render server-side and take a few seconds — press <strong>Render</strong> after changing knobs (no live auto-render). Matrix mode below applies per frame; Dither/Invert/Gamma come from the Image tab adjustments. Download as .gif, or .frames for an animated login greeting.</p>
+        <p class="field-hint">Videos take a few seconds, so they render when you press <b>Render</b>. Matrix mode applies per frame; dither, invert, and gamma come from the Image tab.</p>
       </section>
 
-      <section id="panel-compose" hidden>
-        <p class="hint">Stack images and text on one canvas. Drag a box in the preview to move it,
-          its corner to resize; arrow keys nudge the selected layer by one character.</p>
-        <div class="field-row">
-          <div class="field"><label for="cmp_cols">Canvas cols</label><input type="number" id="cmp_cols" min="1" max="500" placeholder="auto"></div>
-          <div class="field"><label for="cmp_rows">Canvas rows</label><input type="number" id="cmp_rows" min="1" max="500" placeholder="auto"></div>
-        </div>
+      <!-- ===== Compose ===== -->
+      <section id="panel-compose" class="panel" hidden>
+        <p class="field-hint">Stack images and text on one canvas. Drag a box in the preview to move it and its corner to resize; arrow keys nudge the selected layer.</p>
         <div class="field">
-          <label for="cmp_bg_mode">Background</label>
-          <span class="seed-row">
-            <select id="cmp_bg_mode">
-              <option value="">None (terminal default)</option>
-              <option value="custom">Color</option>
-            </select>
-            <input type="color" id="cmp_bg" value="#000000" aria-label="Background color">
-          </span>
-        </div>
-        <div class="field-row">
-          <div class="field"><label for="cmp_overlay">Canvas overlay</label>
-            <select id="cmp_overlay"><option value="">None</option><option value="rainbow">Rainbow</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="fire">Fire</option><option value="forest">Forest</option><option value="neon">Neon</option><option value="matrix">Matrix</option><option value="mono">Mono</option></select></div>
-          <div class="field"><label for="cmp_overlay_direction">Direction</label>
-            <select id="cmp_overlay_direction">
-              <option value="horizontal">Horizontal</option><option value="vertical">Vertical</option>
-              <option value="diagonal">Diagonal</option><option value="diagonal-up">Diagonal up</option>
-              <option value="radial">Radial</option>
-            </select></div>
-        </div>
-        <div class="field">
-          <label>Layers <small>(bottom &rarr; top)</small></label>
+          <label>Layers <small>bottom → top</small></label>
           <ul id="cmp_layers" class="layer-list" aria-label="Layers"></ul>
-          <span class="seed-row">
-            <button id="cmp_add_image">+ Image</button>
-            <button id="cmp_add_text">+ Text</button>
+          <span class="input-group">
+            <button id="cmp_add_image"><svg class="icon"><use href="#i-image"/></svg> Add image</button>
+            <button id="cmp_add_text"><svg class="icon"><use href="#i-text"/></svg> Add text</button>
             <input type="file" id="cmp_file" accept="image/*" hidden>
           </span>
         </div>
         <div id="cmp_editor"></div>
-        <button id="cmp_dl_scene" disabled title="Scene file for: ascii-magic compose scene.json (put the images next to it)">Download scene .json</button>
-      </section>
-
-      <section id="sec-caption">
-        <details id="caption-section">
-          <summary><strong>Caption</strong> — text above/below the art</summary>
+        <details class="sub">
+          <summary>Canvas <small>size · background · overlay</small></summary>
+          <div class="field-row">
+            <div class="field"><label for="cmp_cols">Columns</label><input type="number" id="cmp_cols" min="1" max="500" placeholder="auto"></div>
+            <div class="field"><label for="cmp_rows">Rows</label><input type="number" id="cmp_rows" min="1" max="500" placeholder="auto"></div>
+          </div>
           <div class="field">
-            <label for="caption_text">Text</label>
-            <input type="text" id="caption_text" placeholder="e.g. Whiskers 2010–2024">
-            <span class="seed-row translate-row" data-target="caption_text">
-              <select class="translate-to" aria-label="Translate caption to"></select>
-              <button class="translate-btn" type="button">Translate</button>
+            <label for="cmp_bg_mode">Background</label>
+            <span class="input-group">
+              <select id="cmp_bg_mode">
+                <option value="">None (terminal default)</option>
+                <option value="custom">Color</option>
+              </select>
+              <input type="color" id="cmp_bg" value="#000000" aria-label="Background color">
             </span>
           </div>
           <div class="field-row">
-            <div class="field">
-              <label for="caption_pos">Position</label>
-              <select id="caption_pos">
-                <option value="bottom">Bottom</option>
-                <option value="top">Top</option>
-                <option value="left">Left (rotated)</option>
-                <option value="right">Right (rotated)</option>
-                <option value="top-left">Top-left</option>
-                <option value="top-right">Top-right</option>
-                <option value="bottom-left">Bottom-left</option>
-                <option value="bottom-right">Bottom-right</option>
-                <option value="wrap">Wrap (marquee frame)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="caption_style">Style</label>
-              <select id="caption_style">
-                <option value="figlet">Figlet (classic banner)</option>
-                <option value="block">Block letters</option>
-                <option value="small">Small letters</option>
-                <option value="shadow">Shadow letters</option>
-                <option value="box">Box</option>
-                <option value="banner">Banner</option>
-              </select>
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label for="caption_scale">Auto size <output id="caption_scale-out">0.6</output></label>
-              <input type="range" id="caption_scale" min="0.1" max="1" step="0.05" value="0.6">
-            </div>
-            <div class="field"><label for="caption_cols">Width</label><input type="number" id="caption_cols" min="2" max="500" placeholder="auto"></div>
-            <div class="field"><label for="caption_rows">Height</label><input type="number" id="caption_rows" min="1" max="200" placeholder="auto"></div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label for="caption_align">Align</label>
-              <select id="caption_align">
-                <option value="center">Center</option>
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label for="caption_color_mode">Color</label>
-              <select id="caption_color_mode">
-                <option value="">Default</option>
-                <option value="image">Match image (nearby)</option>
-                <option value="image-full">Match image (whole)</option>
-                <option value="custom">Custom…</option>
-              </select>
-            </div>
-            <div class="field" id="caption-color-field" hidden>
-              <label for="caption_custom_color">Custom</label>
-              <input type="color" id="caption_custom_color" value="#ffffff">
-            </div>
+            <div class="field"><label for="cmp_overlay">Overlay</label>
+              <select id="cmp_overlay"><option value="">None</option><option value="rainbow">Rainbow</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="fire">Fire</option><option value="forest">Forest</option><option value="neon">Neon</option><option value="matrix">Matrix</option><option value="mono">Mono</option></select></div>
+            <div class="field"><label for="cmp_overlay_direction">Direction</label>
+              <select id="cmp_overlay_direction">
+                <option value="horizontal">Horizontal</option><option value="vertical">Vertical</option>
+                <option value="diagonal">Diagonal</option><option value="diagonal-up">Diagonal up</option>
+                <option value="radial">Radial</option>
+              </select></div>
           </div>
         </details>
+        <button id="cmp_dl_scene" class="wide" disabled title="Scene file for: ascii-magic compose scene.json (put the images next to it)">Download scene (.json)</button>
       </section>
 
-      <section id="sec-colorize">
-        <label class="check section-toggle"><input type="checkbox" id="colorize" checked> <strong>Colorize</strong></label>
-        <div id="color-knobs">
-          <div class="field-row">
-            <div class="field"><label for="keep_top">Keep top lines</label><input type="number" id="keep_top" value="0" min="0"></div>
-            <div class="field check-field"><label class="check"><input type="checkbox" id="color_top"> Color kept lines</label></div>
-          </div>
-          <details>
-            <summary>Output sizing</summary>
-            <div class="field-row">
-              <div class="field"><label for="max_rows">Max rows</label><input type="number" id="max_rows" min="1" placeholder="–"></div>
-              <div class="field"><label for="max_cols">Max cols</label><input type="number" id="max_cols" min="1" placeholder="–"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="out_rows">Exact rows</label><input type="number" id="out_rows" min="1" placeholder="–"></div>
-              <div class="field"><label for="out_cols">Exact cols</label><input type="number" id="out_cols" min="1" placeholder="–"></div>
+      <!-- ===== Shared sections ===== -->
+      <div class="cards">
+        <section id="sec-caption" class="card">
+          <details id="caption-section" data-remember>
+            <summary class="card-head"><svg class="chev"><use href="#i-chevron"/></svg><span class="card-title">Caption</span><span class="card-state" data-state="caption"></span></summary>
+            <div class="card-body">
+              <div class="field">
+                <label for="caption_text">Text</label>
+                <input type="text" id="caption_text" placeholder="e.g. Whiskers 2010–2024">
+                <span class="input-group translate-row" data-target="caption_text">
+                  <select class="translate-to" aria-label="Translate caption to"></select>
+                  <button class="translate-btn" type="button">Translate</button>
+                </span>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="caption_pos">Position</label>
+                  <select id="caption_pos">
+                    <option value="bottom">Bottom</option>
+                    <option value="top">Top</option>
+                    <option value="left">Left (rotated)</option>
+                    <option value="right">Right (rotated)</option>
+                    <option value="top-left">Top-left</option>
+                    <option value="top-right">Top-right</option>
+                    <option value="bottom-left">Bottom-left</option>
+                    <option value="bottom-right">Bottom-right</option>
+                    <option value="wrap">Wrap around</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="caption_style">Style</label>
+                  <select id="caption_style">
+                    <option value="figlet">Figlet</option>
+                    <option value="block">Block letters</option>
+                    <option value="small">Small letters</option>
+                    <option value="shadow">Shadow letters</option>
+                    <option value="box">Box</option>
+                    <option value="banner">Banner</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="caption_align">Align</label>
+                  <select id="caption_align">
+                    <option value="center">Center</option>
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="caption_color_mode">Color</label>
+                  <select id="caption_color_mode">
+                    <option value="">Default</option>
+                    <option value="image">Match image (nearby)</option>
+                    <option value="image-full">Match image (whole)</option>
+                    <option value="custom">Custom…</option>
+                  </select>
+                </div>
+                <div class="field narrow" id="caption-color-field" hidden>
+                  <label for="caption_custom_color">Pick</label>
+                  <input type="color" id="caption_custom_color" value="#ffffff">
+                </div>
+              </div>
+              <details class="sub">
+                <summary>Caption size</summary>
+                <div class="field">
+                  <label for="caption_scale">Auto size <output id="caption_scale-out">0.6</output></label>
+                  <input type="range" id="caption_scale" min="0.1" max="1" step="0.05" value="0.6">
+                </div>
+                <div class="field-row">
+                  <div class="field"><label for="caption_cols">Width</label><input type="number" id="caption_cols" min="2" max="500" placeholder="auto"></div>
+                  <div class="field"><label for="caption_rows">Height</label><input type="number" id="caption_rows" min="1" max="200" placeholder="auto"></div>
+                </div>
+                <p class="field-hint">Or drag the caption's round handles in the preview.</p>
+              </details>
             </div>
           </details>
-        </div>
-      </section>
+        </section>
 
-      <section id="sec-overlay">
-        <div class="field">
-          <label for="overlay_preset"><strong>Color overlay</strong></label>
-          <select id="overlay_preset">
-            <option value="">None</option>
+        <section id="sec-colorize" class="card">
+          <div class="card-head static">
+            <span class="card-title">Colors from the image</span>
+            <label class="switch" title="Color each character from the picture"><input type="checkbox" id="colorize" checked><span class="track"></span></label>
+          </div>
+          <div id="color-knobs" class="card-body">
+            <details class="sub">
+              <summary>Leave a title uncolored</summary>
+              <div class="field-row">
+                <div class="field"><label for="keep_top" title="Leave this many top lines (e.g. a title) as they are">Top lines to keep</label><input type="number" id="keep_top" value="0" min="0"></div>
+                <div class="field check-field"><label class="check"><input type="checkbox" id="color_top"> Color them anyway</label></div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section id="sec-overlay" class="card">
+          <div class="card-head static">
+            <span class="card-title">Color overlay</span>
+            <select id="overlay_preset" class="compact" aria-label="Color overlay">
+              <option value="">None</option>
               <option value="rainbow">Rainbow</option>
               <option value="sunset">Sunset</option>
               <option value="ocean">Ocean</option>
@@ -404,123 +400,161 @@
               <option value="neon">Neon</option>
               <option value="matrix">Matrix</option>
               <option value="mono">Mono</option>
-            <option value="custom">Custom gradient</option>
-          </select>
-        </div>
-        <div id="overlay-knobs" hidden>
-          <div class="field" id="overlay-custom-field" hidden>
-            <label>From / to</label>
-            <span class="seed-row">
-              <input type="color" id="overlay_c1" value="#00e5ff" aria-label="Gradient start color">
-              <input type="color" id="overlay_c2" value="#ff2d55" aria-label="Gradient end color">
-            </span>
+              <option value="custom">Custom…</option>
+            </select>
           </div>
-          <div class="field-row">
-            <div class="field"><label for="overlay_direction">Direction</label>
-              <select id="overlay_direction">
-                <option value="horizontal">Horizontal</option><option value="vertical">Vertical</option>
-                <option value="diagonal">Diagonal</option><option value="diagonal-up">Diagonal up</option>
-                <option value="radial">Radial</option>
-              </select></div>
-            <div class="field"><label for="overlay_mode">Blend</label>
-              <select id="overlay_mode">
-                <option value="tint">Tint</option><option value="multiply">Multiply</option>
-                <option value="screen">Screen</option><option value="overlay">Overlay</option>
-              </select></div>
-          </div>
-          <div class="field"><label for="overlay_strength">Strength <output id="overlay_strength-out">1</output></label>
-            <input type="range" id="overlay_strength" min="0" max="1" step="0.05" value="1"></div>
-        </div>
-      </section>
-
-      <section id="sec-matrix">
-        <label class="check section-toggle"><input type="checkbox" id="matrix"> <strong>Matrix mode</strong></label>
-        <div id="matrix-knobs" hidden>
-          <div class="field-row">
-            <div class="field seed-field">
-              <label for="matrix_seed">Seed</label>
-              <span class="seed-row">
-                <input type="number" id="matrix_seed" placeholder="random">
-                <button id="reroll" title="New random seed">🎲</button>
+          <div id="overlay-knobs" class="card-body" hidden>
+            <div class="swatch" id="overlay-swatch" aria-hidden="true"></div>
+            <div class="field" id="overlay-custom-field" hidden>
+              <label>From / to</label>
+              <span class="input-group">
+                <input type="color" id="overlay_c1" value="#00e5ff" aria-label="Gradient start color">
+                <input type="color" id="overlay_c2" value="#ff2d55" aria-label="Gradient end color">
               </span>
             </div>
-            <div class="field">
-              <label for="matrix_gamma">Gamma <output id="matrix_gamma-out">2.0</output></label>
-              <input type="range" id="matrix_gamma" min="0.5" max="4" step="0.1" value="2">
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label for="matrix_theme">Color theme</label>
-              <select id="matrix_theme">
-                <option value="green">Green (classic)</option>
-                <option value="amber">Amber</option>
-                <option value="cyan">Cyan</option>
-                <option value="crimson">Crimson</option>
-                <option value="violet">Violet</option>
-                <option value="white">White</option>
-                <option value="custom">Custom…</option>
-              </select>
-            </div>
-            <div class="field" id="custom-color-field" hidden>
-              <label for="matrix_custom_color">Custom</label>
-              <input type="color" id="matrix_custom_color" value="#00ff00">
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label for="matrix_fg_min">FG min</label><input type="number" id="matrix_fg_min" value="20" min="0" max="255"></div>
-            <div class="field"><label for="matrix_fg_max">FG max</label><input type="number" id="matrix_fg_max" value="255" min="0" max="255"></div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label for="matrix_bg_min">BG min</label><input type="number" id="matrix_bg_min" value="0" min="0" max="255"></div>
-            <div class="field"><label for="matrix_bg_max">BG max</label><input type="number" id="matrix_bg_max" value="60" min="0" max="255"></div>
-          </div>
-          <div class="field">
-            <label for="matrix_chars">Glyphs</label>
-            <input type="text" id="matrix_chars" value="01ABCDEFGHIJKLMNOPQRSTUVWXYZ@$%&amp;*+;:,.?/\|[]{}()&lt;&gt;">
-          </div>
-          <label class="check"><input type="checkbox" id="matrix_fill_spaces"> Fill spaces</label>
-          <label class="check"><input type="checkbox" id="matrix_top"> Apply to kept top lines</label>
-          <label class="check"><input type="checkbox" id="matrix_mask"> Use ASCII as subject mask</label>
-          <div id="mask-knobs" hidden>
             <div class="field-row">
-              <div class="field"><label for="matrix_mask_boost">Mask boost</label><input type="number" id="matrix_mask_boost" value="0.30" min="0" max="1" step="0.05"></div>
-              <div class="field"><label for="matrix_mask_density_floor">Density floor</label><input type="number" id="matrix_mask_density_floor" value="0.35" min="0" max="1" step="0.05"></div>
+              <div class="field"><label for="overlay_direction">Direction</label>
+                <select id="overlay_direction">
+                  <option value="horizontal">Horizontal</option><option value="vertical">Vertical</option>
+                  <option value="diagonal">Diagonal</option><option value="diagonal-up">Diagonal up</option>
+                  <option value="radial">Radial</option>
+                </select></div>
+              <div class="field"><label for="overlay_mode" title="Tint replaces colors; multiply darkens; screen lightens">Blend</label>
+                <select id="overlay_mode">
+                  <option value="tint">Tint</option><option value="multiply">Multiply</option>
+                  <option value="screen">Screen</option><option value="overlay">Overlay</option>
+                </select></div>
             </div>
-            <div class="field-row">
-              <div class="field"><label for="matrix_bg_dim">BG dim</label><input type="number" id="matrix_bg_dim" value="0.80" min="0" max="1" step="0.05"></div>
-              <div class="field"><label for="matrix_bg_density">BG density</label><input type="number" id="matrix_bg_density" value="0.75" min="0" max="1" step="0.05"></div>
-            </div>
+            <div class="field"><label for="overlay_strength">Strength <output id="overlay_strength-out">1</output></label>
+              <input type="range" id="overlay_strength" min="0" max="1" step="0.05" value="1"></div>
           </div>
-          <label class="check" id="animate-row"><input type="checkbox" id="animate"> <strong>Animate</strong> (matrix rain)</label>
-          <div id="anim-knobs" hidden>
-            <div class="field-row">
-              <div class="field"><label for="anim_frames">Frames</label><input type="number" id="anim_frames" value="60" min="2" max="240"></div>
-              <div class="field"><label for="anim_fps">FPS</label><input type="number" id="anim_fps" value="12" min="1" max="30"></div>
-              <div class="field"><label for="anim_tail">Tail</label><input type="number" id="anim_tail" value="6" min="1" max="40"></div>
-            </div>
-            <label class="check"><input type="checkbox" id="anim_reveal"> Reveal image under the rain</label>
-            <p class="hint">Animation loops seamlessly (reveal mode ends on the full image). Download as .gif, or .html for a self-playing page.</p>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="sec-html">
-        <details>
-          <summary>HTML output</summary>
-          <div class="field-row">
-            <div class="field"><label for="html_font_size">Font px</label><input type="number" id="html_font_size" value="12" min="4" max="40"></div>
-            <div class="field"><label for="html_line_height">Line px</label><input type="number" id="html_line_height" min="4" max="60" placeholder="=font"></div>
+        <section id="sec-matrix" class="card">
+          <div class="card-head static">
+            <span class="card-title">Matrix mode <small>digital rain</small></span>
+            <label class="switch" title="Recolor as Matrix-style green rain"><input type="checkbox" id="matrix"><span class="track"></span></label>
           </div>
-          <label class="check"><input type="checkbox" id="html_fill_spaces"> Fill spaces (HTML)</label>
-        </details>
-      </section>
+          <div id="matrix-knobs" class="card-body" hidden>
+            <div class="field-row">
+              <div class="field">
+                <label for="matrix_theme">Color</label>
+                <select id="matrix_theme">
+                  <option value="green">Green (classic)</option>
+                  <option value="amber">Amber</option>
+                  <option value="cyan">Cyan</option>
+                  <option value="crimson">Crimson</option>
+                  <option value="violet">Violet</option>
+                  <option value="white">White</option>
+                  <option value="custom">Custom…</option>
+                </select>
+              </div>
+              <div class="field narrow" id="custom-color-field" hidden>
+                <label for="matrix_custom_color">Pick</label>
+                <input type="color" id="matrix_custom_color" value="#00ff00">
+              </div>
+              <div class="field">
+                <label for="matrix_seed" title="Same seed = same pattern">Seed</label>
+                <span class="input-group">
+                  <input type="number" id="matrix_seed" placeholder="random">
+                  <button id="reroll" title="New random pattern">🎲</button>
+                </span>
+              </div>
+            </div>
+            <label class="check" id="animate-row"><input type="checkbox" id="animate"> <b>Animate</b> the rain</label>
+            <div id="anim-knobs" hidden>
+              <div class="field-row">
+                <div class="field"><label for="anim_frames">Frames</label><input type="number" id="anim_frames" value="60" min="2" max="240"></div>
+                <div class="field"><label for="anim_fps">FPS</label><input type="number" id="anim_fps" value="12" min="1" max="30"></div>
+                <div class="field"><label for="anim_tail" title="How long each drop's fading tail is">Tail</label><input type="number" id="anim_tail" value="6" min="1" max="40"></div>
+              </div>
+              <label class="check"><input type="checkbox" id="anim_reveal"> Rain reveals the image</label>
+            </div>
+            <details class="sub">
+              <summary>Advanced rain options</summary>
+              <div class="field">
+                <label for="matrix_gamma">Gamma <output id="matrix_gamma-out">2.0</output></label>
+                <input type="range" id="matrix_gamma" min="0.5" max="4" step="0.1" value="2">
+              </div>
+              <div class="field-row">
+                <div class="field"><label for="matrix_fg_min" title="Dimmest subject character (0–255)">Subject min</label><input type="number" id="matrix_fg_min" value="20" min="0" max="255"></div>
+                <div class="field"><label for="matrix_fg_max">Subject max</label><input type="number" id="matrix_fg_max" value="255" min="0" max="255"></div>
+              </div>
+              <div class="field-row">
+                <div class="field"><label for="matrix_bg_min" title="Dimmest background character (0–255)">Background min</label><input type="number" id="matrix_bg_min" value="0" min="0" max="255"></div>
+                <div class="field"><label for="matrix_bg_max">Background max</label><input type="number" id="matrix_bg_max" value="60" min="0" max="255"></div>
+              </div>
+              <div class="field">
+                <label for="matrix_chars">Rain characters</label>
+                <input type="text" id="matrix_chars" value="01ABCDEFGHIJKLMNOPQRSTUVWXYZ@$%&amp;*+;:,.?/\|[]{}()&lt;&gt;">
+              </div>
+              <label class="check"><input type="checkbox" id="matrix_fill_spaces"> Fill blank space with rain</label>
+              <label class="check"><input type="checkbox" id="matrix_top"> Also rain on kept top lines</label>
+              <label class="check"><input type="checkbox" id="matrix_mask"> Use the art as a subject mask</label>
+              <div id="mask-knobs" hidden>
+                <div class="field-row">
+                  <div class="field"><label for="matrix_mask_boost">Mask boost</label><input type="number" id="matrix_mask_boost" value="0.30" min="0" max="1" step="0.05"></div>
+                  <div class="field"><label for="matrix_mask_density_floor">Density floor</label><input type="number" id="matrix_mask_density_floor" value="0.35" min="0" max="1" step="0.05"></div>
+                </div>
+                <div class="field-row">
+                  <div class="field"><label for="matrix_bg_dim">BG dim</label><input type="number" id="matrix_bg_dim" value="0.80" min="0" max="1" step="0.05"></div>
+                  <div class="field"><label for="matrix_bg_density">BG density</label><input type="number" id="matrix_bg_density" value="0.75" min="0" max="1" step="0.05"></div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section id="sec-html" class="card">
+          <details data-remember>
+            <summary class="card-head"><svg class="chev"><use href="#i-chevron"/></svg><span class="card-title">Output size</span><span class="card-state" data-state="size"></span></summary>
+            <div class="card-body">
+              <p class="field-hint">Drag the square handles around the art in the preview, or set exact numbers.</p>
+              <div class="field-row">
+                <div class="field"><label for="out_cols">Exact width</label><input type="number" id="out_cols" min="1" placeholder="auto"></div>
+                <div class="field"><label for="out_rows">Exact height</label><input type="number" id="out_rows" min="1" placeholder="auto"></div>
+              </div>
+              <div class="field-row">
+                <div class="field"><label for="max_cols">Max width</label><input type="number" id="max_cols" min="1" placeholder="none"></div>
+                <div class="field"><label for="max_rows">Max height</label><input type="number" id="max_rows" min="1" placeholder="none"></div>
+              </div>
+              <details class="sub">
+                <summary>Web page output</summary>
+                <div class="field-row">
+                  <div class="field"><label for="html_font_size">Font px</label><input type="number" id="html_font_size" value="12" min="4" max="40"></div>
+                  <div class="field"><label for="html_line_height">Line px</label><input type="number" id="html_line_height" min="4" max="60" placeholder="= font"></div>
+                </div>
+                <label class="check"><input type="checkbox" id="html_fill_spaces"> Fill spaces <small>solid background</small></label>
+              </details>
+            </div>
+          </details>
+        </section>
+      </div>
     </aside>
 
     <section id="preview-pane">
-      <div id="status">Upload an image or enter text to begin.</div>
+      <div id="statusbar">
+        <div id="status" role="status">Pick a source to begin.</div>
+      </div>
       <div id="preview-wrap">
         <iframe id="preview" sandbox="allow-scripts" title="Preview"></iframe>
+        <div id="empty">
+          <pre class="empty-art" aria-hidden="true">
+    _    ____   ____ ___ ___   __  __             _
+   / \  / ___| / ___|_ _|_ _| |  \/  | __ _  __ _(_) ___
+  / _ \ \___ \| |    | | | |  | |\/| |/ _` |/ _` | |/ __|
+ / ___ \ ___) | |___ | | | |  | |  | | (_| | (_| | | (__
+/_/   \_\____/ \____|___|___| |_|  |_|\__,_|\__, |_|\___|
+                                            |___/</pre>
+          <p class="empty-lead">Turn a picture, some words, or a video into character art.</p>
+          <div class="quick">
+            <button data-quick="image"><svg class="icon big"><use href="#i-image"/></svg><b>Upload an image</b><span>photos, logos, drawings</span></button>
+            <button data-quick="text"><svg class="icon big"><use href="#i-text"/></svg><b>Type some text</b><span>banners, animations</span></button>
+            <button data-quick="video"><svg class="icon big"><use href="#i-video"/></svg><b>Convert a video</b><span>GIF or login animation</span></button>
+          </div>
+          <p class="empty-foot">or drop a file anywhere on this page</p>
+        </div>
+        <div id="drop-veil" hidden><div>Drop to convert</div></div>
         <div id="ring" hidden title="Drag the handles to resize — double-click to reset to auto height">
           <div class="handle" id="handle-e"></div>
           <div class="handle" id="handle-s"></div>
@@ -541,5 +575,6 @@
   <script src="app.js"></script>
   <script src="compose.js"></script>
   <script src="translate.js"></script>
+  <script src="ui.js"></script>
 </body>
 </html>
