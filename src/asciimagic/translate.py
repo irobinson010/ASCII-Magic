@@ -216,15 +216,49 @@ def _load(src: str, dst: str):
     return translator, sp
 
 
+_WORD = re.compile(r"^[^\W\d_][\w'-]*$")
+_RUNAWAY = re.compile(r"(?P<u>[^\s,.、，。・]{1,8}?)(?:[\s,.、，。・]*(?P=u)){2,}")
+
+
+def _collapse_runaway(out: str, source: str) -> str:
+    """Safety net for a decoder stuck repeating itself ("水,水,水,..."):
+    a unit repeated 3+ times becomes one copy, unless the source repeats too."""
+    words = re.findall(r"\w+", source.lower())
+    if len(words) != len(set(words)):
+        return out  # "Ha ha ha" may legitimately repeat
+    return _RUNAWAY.sub(lambda m: m.group("u"), out)
+
+
 def _run(src: str, dst: str, lines: List[str]) -> List[str]:
     translator, sp = _load(src, dst)
     todo = [ln for ln in lines if ln.strip()]
     if not todo:
         return lines
+    # A bare word is the model's worst case ("water" -> "beach bathing",
+    # "sky" -> "Skype"); written as a one-word sentence it gets it right
+    # ("water." -> "水。"). Multi-word phrases translate worse with an added
+    # period, so only single words get the hint, and it's removed afterwards.
+    hinted = [bool(_WORD.match(ln.strip())) for ln in todo]
+    # ALL-CAPS banner words ("WATER") read as names/brands; lowercase them.
+    inputs = [sp.encode((ln.strip().lower() if ln.strip().isupper() else ln.strip()) + "." if h else ln,
+                        out_type=str) for ln, h in zip(todo, hinted)]
     results = translator.translate_batch(
-        [sp.encode(ln, out_type=str) for ln in todo], beam_size=4, max_decoding_length=256,
+        inputs,
+        beam_size=4,
+        # Without these, short inputs can loop until the length limit
+        # ("water" -> "水,水,水,..."): no repeated 3-grams, a mild penalty on
+        # repeats, and an output budget proportional to the input.
+        repetition_penalty=1.2,
+        no_repeat_ngram_size=3,
+        max_decoding_length=min(256, 16 + 4 * max(len(t) for t in inputs)),
     )
-    it = iter(sp.decode(r.hypotheses[0]) for r in results)
+    outs = []
+    for ln, h, r in zip(todo, hinted, results):
+        out = sp.decode(r.hypotheses[0]).strip()
+        if h:
+            out = re.sub(r"[.。．]$", "", out)
+        outs.append(_collapse_runaway(out, ln))
+    it = iter(outs)
     return [next(it) if ln.strip() else ln for ln in lines]
 
 

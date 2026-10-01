@@ -54,14 +54,15 @@ def test_render_text_block():
     assert r.status_code == 200
     body = r.json()
     assert body["ascii"]
-    assert "\x1b[" in body["ansi"]
+    # No picture to take colors from: clean letters, not colored from themselves.
+    assert "\x1b[38;2;" not in body["ansi"]
 
 
-def test_render_text_box_without_image_warns_and_stays_plain():
+def test_render_text_box_without_image_stays_plain():
     r = _render({"source": "text", "text": "Hi", "text_style": "box"}, image=False)
     assert r.status_code == 200
     body = r.json()
-    assert body["warning"]
+    assert body["warning"] is None  # plain is the intended result, not a fallback
     assert "\x1b[" not in body["ansi"]
     assert body["ascii"] in body["ansi"]
 
@@ -1016,3 +1017,24 @@ def test_subject_models_and_install(monkeypatch, tmp_path):
     monkeypatch.setattr(sj, "install", lambda name, progress=None: called.append(name))
     r = client.post("/api/subject/install", json={"model": "fast"})
     assert r.status_code == 200 and called == ["fast"]
+
+
+def test_text_without_a_picture_is_not_colored_from_itself():
+    # Coloring letters from the rendered text (black on white) left dark
+    # patches that moved with the font size.
+    for size in (24, 40):
+        r = client.post("/api/render", data={"options": json.dumps(
+            {"source": "text", "text": "water", "text_style": "block", "text_font_size": size, "colorize": True})})
+        assert r.status_code == 200 and "\x1b[38;2;" not in r.json()["ansi"]
+
+
+def test_text_with_a_picture_is_colored_from_it():
+    r = client.post("/api/render", files={"image": ("p.png", _png_bytes((40, 20), (200, 50, 50)), "image/png")},
+                    data={"options": json.dumps({"source": "text", "text": "water", "colorize": True})})
+    assert r.status_code == 200 and "\x1b[38;2;" in r.json()["ansi"]
+
+
+def test_text_matrix_mode_still_uses_letter_shapes():
+    r = client.post("/api/render", data={"options": json.dumps(
+        {"source": "text", "text": "water", "matrix": True, "colorize": True})})
+    assert r.status_code == 200 and "\x1b[38;2;" in r.json()["ansi"]

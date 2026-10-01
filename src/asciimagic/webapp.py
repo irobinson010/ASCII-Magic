@@ -699,6 +699,13 @@ def _render(image: Optional[UploadFile], options: str, bg_image: Optional[Upload
             align=_choice(o, "caption_align", "center", CAPTION_ALIGNS),
         )
 
+    # Text without an uploaded picture would be colored from the picture of
+    # the text itself (black ink on white), dimming random parts of every
+    # letter, and the patches move with the font size. Keep letters clean;
+    # matrix mode still uses the letter shapes as its subject.
+    if source == "text" and image is None and not _bool(o, "matrix"):
+        do_colorize = False
+
     # Colorizing/animating needs a reference image; box/banner text styles
     # do not render one, so fall back to plain output instead of erroring.
     can_colorize = ctx.source_image is not None or ctx.rendered_text_image is not None
