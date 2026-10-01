@@ -197,3 +197,58 @@ def test_real_model_sentence():
     tr._load.cache_clear()
     out = tr.translate("The cat is sleeping on the sofa.", "ja")
     assert any("぀" <= ch <= "ヿ" or "一" <= ch <= "鿿" for ch in out)
+
+
+# ---- decoding guards (single words, runaway repetition) ----
+
+class _FakeSP:
+    def encode(self, text, out_type=str):
+        return list(text)
+
+    def decode(self, toks):
+        return "".join(toks)
+
+
+class _FakeTranslator:
+    def __init__(self, reply):
+        self.reply, self.calls = reply, []
+
+    def translate_batch(self, batch, **kw):
+        self.calls.append(([("".join(t)) for t in batch], kw))
+        return [type("R", (), {"hypotheses": [list(self.reply(("".join(t))))]})() for t in batch]
+
+
+def _fake_model(monkeypatch, reply):
+    fake = _FakeTranslator(reply)
+    monkeypatch.setattr(tr, "_load", lambda src, dst: (fake, _FakeSP()))
+    return fake
+
+
+def test_single_word_gets_a_period_hint_that_is_removed(monkeypatch):
+    fake = _fake_model(monkeypatch, lambda s: "水。" if s == "water." else "?")
+    assert tr._run("en", "ja", ["water", "WATER", "The water is cold"]) == ["水", "水", "?"]
+    inputs, kw = fake.calls[0]
+    assert inputs == ["water.", "water.", "The water is cold"]  # phrases get no hint
+
+
+def test_decoding_is_guarded_against_loops(monkeypatch):
+    fake = _fake_model(monkeypatch, lambda s: "x")
+    tr._run("en", "ja", ["water"])
+    _, kw = fake.calls[0]
+    assert kw["no_repeat_ngram_size"] == 3 and kw["repetition_penalty"] > 1
+    assert kw["max_decoding_length"] < 64  # proportional to a one-word input, not 256
+
+
+def test_runaway_repetition_is_collapsed(monkeypatch):
+    _fake_model(monkeypatch, lambda s: "水,水,水,水,水,水,水,水,水,水")
+    assert tr._run("en", "ja", ["water,"]) == ["水"]
+
+
+@pytest.mark.parametrize("out,src,want", [
+    ("水,水,水,水", "water", "水"),
+    ("水水水水", "water", "水"),
+    ("猫はソファーで寝ています。", "The cat sleeps", "猫はソファーで寝ています。"),
+    ("ハ・ハ・ハ・ハ", "Ha ha ha", "ハ・ハ・ハ・ハ"),  # the source repeats, so the output may
+])
+def test_collapse_runaway(out, src, want):
+    assert tr._collapse_runaway(out, src) == want

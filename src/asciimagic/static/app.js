@@ -411,6 +411,9 @@ function syncVisibility() {
     if (isCompose) $(id).hidden = true;
     else if (id === "sec-caption" || id === "sec-matrix") $(id).hidden = false;
   }
+  // Text is only colored from an uploaded picture; with none there is
+  // nothing to take colors from (letters stay clean).
+  if (state.tab === "text" && !state.file) $("sec-colorize").hidden = true;
   // Video frames are colorized per frame; overlays apply to static renders.
   $("sec-overlay").hidden = isCompose || isVideo;
   $("animate-row").hidden = isVideo;
