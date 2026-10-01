@@ -73,6 +73,19 @@ function collectOptions() {
     gamma: num("gamma"),
     autocontrast: $("autocontrast").checked,
     invert: $("invert").checked,
+    // focus & background (image tab; focus.js keeps the box)
+    focus_box: source === "image" ? (state.focusBox || null) : null,
+    // "Another picture" waits for the picture instead of failing the render.
+    background: source !== "image" || ($("background").value === "image" && !state.bgFile)
+      ? "keep" : $("background").value,
+    bg_color: $("bg_color").value,
+    zoom_subject: source === "image" && $("zoom_subject").checked,
+    enhance_subject: source === "image" && $("enhance_subject").checked,
+    subject_model: $("subject_model").value,
+    mask_threshold: num("mask_threshold"),
+    mask_grow: num("mask_grow"),
+    mask_feather: num("mask_feather"),
+    mask_invert: $("mask_invert").checked,
     // colorize
     colorize: $("colorize").checked,
     keep_top: num("keep_top"),
@@ -158,6 +171,9 @@ async function render() {
     form.append("image", state.videoFile);
   } else if (state.file) {
     form.append("image", state.file);
+    if (state.tab === "image" && state.bgFile && $("background").value === "image") {
+      form.append("bg_image", state.bgFile);
+    }
   }
   form.append("options", JSON.stringify(collectOptions()));
 
@@ -435,7 +451,8 @@ $("reroll").addEventListener("click", (e) => {
   render();
 });
 
-for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale", "overlay_strength"]) {
+for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale", "overlay_strength",
+                  "mask_threshold", "mask_grow", "mask_feather"]) {
   $(id).addEventListener("input", () => { $(`${id}-out`).value = $(id).value; });
 }
 

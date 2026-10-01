@@ -565,12 +565,13 @@ def render(
     # NumPy/PIL render doesn't block the event loop for other requests.
     image: Optional[UploadFile] = File(None),
     options: str = Form("{}"),
+    bg_image: Optional[UploadFile] = File(None),
 ) -> dict[str, Any]:
     with _render_slot():
-        return _render(image, options)
+        return _render(image, options, bg_image)
 
 
-def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
+def _render(image: Optional[UploadFile], options: str, bg_image: Optional[UploadFile] = None) -> dict[str, Any]:
     try:
         o: dict[str, Any] = json.loads(options)
         if not isinstance(o, dict):
@@ -596,8 +597,23 @@ def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
     if o.get("source") == "video":
         return _render_video(image, o, t0)
 
+    focused = None
     if image is not None:
-        ctx.source_image = rotate_cw(_decode_image_upload(image), _ival(o, "rotate", 0, 0, 270))
+        raw = _decode_image_upload(image)
+        rotation = _ival(o, "rotate", 0, 0, 270)
+        focus = _focus_from_options(o, bg_image) if o.get("source", "image") == "image" else None
+        if focus is not None:
+            from .subject import SubjectError, apply_focus
+
+            try:
+                focused = apply_focus(raw, focus, rotate=rotation, invert=_bool(o, "invert"))
+            except SubjectError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except OSError as e:
+                raise HTTPException(status_code=502, detail=f"Subject model download failed: {e}")
+            ctx.source_image = focused.image
+        else:
+            ctx.source_image = rotate_cw(raw, rotation)
 
     source = o.get("source", "image")
     if source == "text" and o.get("text_animate"):
@@ -654,6 +670,10 @@ def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        if focused is not None and focused.blank_background:
+            from .subject import blank_background
+
+            ctx.ascii_text = blank_background(ctx.ascii_text, focused.mask, focused.threshold)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
 
@@ -782,8 +802,18 @@ def _render(image: Optional[UploadFile], options: str) -> dict[str, Any]:
             except Exception:
                 pass  # caption metrics are best-effort; the ring just wraps everything
 
+    focus_info = None
+    if focused is not None:
+        from .subject import preview_png
+
+        focus_info = {
+            "mask_png_b64": (base64.b64encode(preview_png(focused.preview)).decode("ascii")
+                             if focused.preview is not None else None),
+        }
+
     return {
         "ascii": ascii_display,
+        "focus": focus_info,
         "art": art_dims,
         "ansi": ansi,
         "html": html_doc,
@@ -968,6 +998,81 @@ def _compose(images: list[UploadFile], scene_json: str) -> dict[str, Any]:
         ],
         "elapsed_ms": round((time.perf_counter() - t0) * 1000),
     }
+
+
+# ---- subject focus & background ----
+
+
+def _focus_from_options(o: dict[str, Any], bg_upload: Optional[UploadFile]):
+    """FocusOptions from render options, or None when no focus control is on."""
+    from .subject import BACKGROUNDS, MODELS, FocusOptions
+
+    box = o.get("focus_box")
+    if box is not None:
+        if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) for v in box)):
+            raise HTTPException(status_code=400, detail="focus_box must be [x, y, w, h] fractions")
+        box = tuple(float(v) for v in box)
+    model = o.get("subject_model") or None
+    if model is not None and model not in MODELS:
+        raise HTTPException(status_code=400, detail=f"subject_model must be one of {', '.join(MODELS)}")
+    background = _choice(o, "background", "keep", BACKGROUNDS)
+    zoom, enhance = _bool(o, "zoom_subject"), _bool(o, "enhance_subject")
+    if box is None and model is None and background == "keep" and not zoom and not enhance:
+        return None
+    bg_img = None
+    if background == "image":
+        if bg_upload is None:
+            raise HTTPException(status_code=400, detail="Choose a background picture (or another background).")
+        bg_img = _decode_image_upload(bg_upload)
+    color = (0, 0, 0)
+    if background == "color":
+        try:
+            color = colorize_mod.parse_matrix_color(str(o.get("bg_color") or "#000000"))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    return FocusOptions(
+        box=box, subject=model, background=background, bg_color=color, bg_image=bg_img,
+        zoom=zoom, enhance=enhance,
+        threshold=_fval(o, "mask_threshold", 0.5, 0.01, 0.99),
+        grow=_fval(o, "mask_grow", 0.0, -0.2, 0.2),
+        feather=_fval(o, "mask_feather", 0.0, 0.0, 0.2),
+        invert_mask=_bool(o, "mask_invert"),
+        allow_download=_downloads_allowed(),
+    )
+
+
+@app.get("/api/subject/models")
+def subject_models() -> dict[str, Any]:
+    from . import subject
+
+    have = set(subject.installed())
+    return {
+        "engine": subject.engine_available(),
+        "can_install": _downloads_allowed(),
+        "models": {n: {"installed": n in have, "mb": round(s.bytes / 1e6, 1), "about": s.about}
+                   for n, s in subject.MODELS.items()},
+    }
+
+
+@app.post("/api/subject/install")
+def subject_install(payload: dict = Body(...)) -> dict[str, Any]:
+    from . import subject
+
+    name = payload.get("model")
+    if name not in subject.MODELS:
+        raise HTTPException(status_code=400, detail=f"model must be one of {', '.join(subject.MODELS)}")
+    if not _downloads_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail=f"Model downloads are turned off on this server. Install from a terminal: ascii-magic subject install {name}",
+        )
+    try:
+        subject.install(name)
+    except subject.SubjectError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=502, detail=f"Model download failed: {e}")
+    return {"installed": subject.installed()}
 
 
 # ---- translation ----

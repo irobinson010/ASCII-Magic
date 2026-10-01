@@ -680,6 +680,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="Rotate clockwise before conversion (EXIF orientation is "
                     "applied automatically)")
 
+    from .subject import add_focus_args
+
+    add_focus_args(ap)
     return ap
 
 
@@ -713,7 +716,21 @@ def main():
         from .translate import translate_or_exit
 
         args.caption = translate_or_exit(args.caption, args.caption_translate, prog="image-to-ascii")
-    src_img = apply_cell_aspect(rotate_cw(open_oriented(args.input, "RGB"), args.rotate), args.cell_aspect)
+    from .subject import SubjectError, apply_focus, blank_background, focus_from_args
+
+    try:
+        focus = focus_from_args(args)
+        if focus is not None:
+            focused = apply_focus(open_oriented(args.input, "RGB"), focus, rotate=args.rotate, invert=args.invert)
+            src_img = focused.image
+        else:
+            focused = None
+            src_img = rotate_cw(open_oriented(args.input, "RGB"), args.rotate)
+    except SubjectError as e:
+        raise SystemExit(f"image-to-ascii: {e}")
+    except OSError as e:
+        raise SystemExit(f"image-to-ascii: {e}")
+    src_img = apply_cell_aspect(src_img, args.cell_aspect)
 
     if args.mode == "braille":
         art = image_to_braille_from_image(
@@ -740,6 +757,9 @@ def main():
             invert=args.invert,
             topk=args.topk,
         )
+
+    if focused is not None and focused.blank_background:
+        art = blank_background(art, focused.mask, focused.threshold)
 
     if args.color:
         from .colorize_ascii import CaptionOptions, Options

@@ -50,6 +50,11 @@ translate = [
     "ctranslate2>=4.0",
     "sentencepiece>=0.2",
 ]
+subject = [
+    # 1.24+ ships no Python 3.10 wheels
+    "onnxruntime>=1.16,<1.24; python_version < '3.11'",
+    "onnxruntime>=1.16; python_version >= '3.11'",
+]
 
 [dependency-groups]
 dev = [

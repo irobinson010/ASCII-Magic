@@ -5,6 +5,7 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 ## Features
 
 - **Image to ASCII conversion** - Convert PNG images directly to ASCII art using high-quality glyph matching
+- **Subject focus** - Remove, blur, fade, or replace the background, zoom to the subject, or convert just a region you choose
 - **Animated text** - Wave like a flag, spin, flip in every direction, stretch, bounce, typewriter, rainbow, and more, as terminal playback, GIF, HTML, or a login greeting
 - **Free offline translation** - English to Japanese (and ~100 languages) for text, captions, and compose layers, in the CLI and web GUI
 - **ASCII colorization** - Add colors to existing ASCII text by mapping image pixels to characters
@@ -115,6 +116,25 @@ python -m asciimagic.image_to_ascii input.png -o output.txt
 - `--dither` - Braille mode: Floyd-Steinberg dithering (keeps smooth gradients a hard threshold flattens)
 - `--color` - Convert and colorize in one step (ANSI, or HTML when the output ends in `.html`) — no separate `colorize` invocation needed
 - `--caption TEXT` - Render TEXT as ASCII and stitch it onto the art (see Captions below)
+
+### Focus on the subject (background removal and replacement)
+
+A busy background competes with the subject for characters. Decide what the art is about before it's converted:
+
+```bash
+ascii-magic image cat.jpg --focus 0.2,0.1,0.6,0.8          # convert just this part (fractions: x,y,width,height)
+ascii-magic image cat.jpg --background remove              # blank everything but the subject
+ascii-magic image cat.jpg --background blur                # keep the scene, soften it
+ascii-magic image cat.jpg --background fade                # keep a faint hint of it
+ascii-magic image me.jpg  --background image --bg-image beach.jpg --color
+ascii-magic image me.jpg  --background color --bg-color "#1a1a2e" --color
+ascii-magic image cat.jpg --background remove --zoom-subject --enhance-subject
+```
+
+- `--zoom-subject` crops to the subject so all the characters go to it; `--enhance-subject` sets contrast from the subject's own tones.
+- **Finding the subject** uses a small segmentation model that runs on your machine (`pip install "ascii-magic-tools[subject]"`). It downloads once on first use and is checked against a known SHA-256: `--subject fast` (default, 4.6 MB, a fraction of a second) or `--subject best` (179 MB, about a second, cleaner edges). Manage them with `ascii-magic subject list | install | remove`.
+- **When the model gets it wrong** (it will sometimes: a dark close-up of a dark cat fooled both models in testing), adjust with `--mask-threshold`, `--mask-grow` / negative to shrink, `--mask-feather`, `--mask-invert` (focus on the background instead), or supply your own mask with `--mask mask.png` (white = subject). `--focus` needs no model at all.
+- In the **web GUI**, the Image tab's *Focus & background* card does all of this. Drag on the picture to set the focus area. After each render, the detected subject is tinted green on the picture, so you can see what the model picked.
 
 ### Captions
 

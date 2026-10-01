@@ -81,6 +81,11 @@ def _specs() -> Dict[str, Spec]:
             "remove": (["-h", "--help"], {}, {}),
             "list": (["--available", "-h", "--help"], {}, {}),
         }),
+        "subject": (["-h", "--help"], {}, {
+            "install": (["-h", "--help"], {}, {}),
+            "remove": (["-h", "--help"], {}, {}),
+            "list": (["-h", "--help"], {}, {}),
+        }),
         "web": (["--host", "--port", "-h", "--help"], {}, {}),
         "completion": (["-h", "--help"], {"shell": ["bash", "zsh"]}, {}),
     }

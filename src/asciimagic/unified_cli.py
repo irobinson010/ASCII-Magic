@@ -17,6 +17,7 @@ COMMANDS = {
     "presets": "asciimagic.presets",
     "tune": "asciimagic.tune",
     "translate": "asciimagic.translate",
+    "subject": "asciimagic.subject",
 }
 
 
