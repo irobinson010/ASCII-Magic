@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 CELL_W, CELL_H = 8, 16   # mask pixels per character cell (terminal cells are ~1:2)
 ESC = "\x1b"
@@ -490,23 +490,13 @@ class TextAnimation:
         write_frames_file(Path(path), self.frames_ansi(), self.fps, loops)
 
     def to_gif_bytes(self, font_size: int = 14) -> bytes:
-        from .image_to_ascii import find_default_mono_font
+        from .glyphs import GlyphAtlas
 
-        path = find_default_mono_font()
-        if path:
-            font = ImageFont.truetype(path, font_size)
-            ascent, descent = font.getmetrics()
-            cw, ch = max(1, round(font.getlength("M"))), ascent + descent
-        else:
-            font, cw, ch = ImageFont.load_default(), 7, 13
-        glyphs: Dict[str, np.ndarray] = {}
+        atlas = GlyphAtlas(None, font_size)
+        cw, ch = atlas.cell_w, atlas.cell_h
 
         def glyph(c: str) -> np.ndarray:
-            if c not in glyphs:
-                im = Image.new("L", (cw, ch), 0)
-                ImageDraw.Draw(im).text((0, 0), c, fill=255, font=font)
-                glyphs[c] = np.asarray(im, dtype=np.float32)[:, :, None] / 255.0
-            return glyphs[c]
+            return atlas.alpha(c)[:, :, None]
 
         cols, rows = self.size
         default = np.array([224, 224, 224], dtype=np.float32)
