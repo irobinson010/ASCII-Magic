@@ -135,7 +135,8 @@ function collectOptions() {
 function setStatus(msg, cls) {
   const el = $("status");
   el.textContent = msg;
-  el.className = cls || "";
+  // No class after a render means it finished: show the "done" dot.
+  el.className = cls || (state.result ? "done" : "");
 }
 
 function canRender() {
@@ -738,6 +739,9 @@ ring.addEventListener("dblclick", () => {
 });
 
 document.querySelectorAll("#controls input, #controls select, #controls textarea").forEach((el) => {
+  // File pickers render through their own handlers; a generic autoRender
+  // here would render every upload twice.
+  if (el.type === "file") return;
   el.addEventListener("change", () => { syncVisibility(); autoRender(); });
   if (el.tagName === "TEXTAREA" || el.type === "text" || el.type === "range") {
     el.addEventListener("input", autoRender);
