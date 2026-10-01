@@ -1,6 +1,8 @@
+import base64
 import io
 import json
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -934,3 +936,83 @@ def test_text_animate_empty_text():
 def test_text_solid_style_static():
     r = _render_opts(text_style="solid", text_width=30)
     assert r.status_code == 200 and "█" in r.json()["ascii"]
+
+
+# ---- subject focus & background (issue #50) ----
+
+@pytest.fixture
+def fake_subject(monkeypatch):
+    from asciimagic import subject as sj
+
+    def det(img, model="fast", allow_download=True):
+        m = np.zeros((img.height, img.width), np.float32)
+        m[img.height // 4: 3 * img.height // 4, img.width // 4: 3 * img.width // 4] = 1
+        return m
+
+    monkeypatch.setattr(sj, "detect", det)
+    return sj
+
+
+def _photo_png():
+    a = np.full((60, 80, 3), 40, np.uint8)
+    a[15:45, 20:60] = 180
+    buf = io.BytesIO()
+    Image.fromarray(a).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _render_image(opts, bg=None):
+    files = {"image": ("p.png", _photo_png(), "image/png")}
+    if bg is not None:
+        files["bg_image"] = ("bg.png", bg, "image/png")
+    return client.post("/api/render", files=files, data={"options": json.dumps({"source": "image", **opts})})
+
+
+def test_render_background_remove_blanks_and_returns_mask(fake_subject):
+    r = _render_image({"mode": "braille", "cols": 40, "background": "remove", "colorize": False})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    rows = body["ascii"].split("\n")
+    assert rows[0].strip() == "" and any(ln.strip() for ln in rows)
+    png = base64.b64decode(body["focus"]["mask_png_b64"])
+    assert Image.open(io.BytesIO(png)).size == (80, 60)
+
+
+def test_render_focus_box_and_replace_background(fake_subject):
+    r = _render_image({"cols": 30, "focus_box": [0.25, 0.25, 0.5, 0.5]})
+    assert r.status_code == 200 and r.json()["focus"] is not None
+    r = _render_image({"cols": 30, "background": "image"}, bg=_png_bytes((20, 20), (255, 0, 0)))
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("opts,detail", [
+    ({"focus_box": [0, 0, 2, 0.5]}, "fractions"),
+    ({"focus_box": "0,0,1,1"}, "focus_box"),
+    ({"subject_model": "huge"}, "subject_model"),
+    ({"background": "image"}, "background picture"),
+    ({"background": "color", "bg_color": "notacolor"}, ""),
+])
+def test_render_focus_rejects_bad_options(fake_subject, opts, detail):
+    r = _render_image({"cols": 30, **opts})
+    assert r.status_code == 400 and detail in r.json()["detail"]
+
+
+def test_render_without_focus_has_no_focus_info():
+    r = _render_image({"cols": 30})
+    assert r.status_code == 200 and r.json()["focus"] is None
+
+
+def test_subject_models_and_install(monkeypatch, tmp_path):
+    from asciimagic import subject as sj
+
+    monkeypatch.setenv("ASCII_MAGIC_MODELS_DIR", str(tmp_path))
+    body = client.get("/api/subject/models").json()
+    assert set(body["models"]) == {"fast", "best"} and body["models"]["fast"]["installed"] is False
+    assert client.post("/api/subject/install", json={"model": "huge"}).status_code == 400
+    monkeypatch.setenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", "0")
+    assert client.post("/api/subject/install", json={"model": "fast"}).status_code == 403
+    monkeypatch.delenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD")
+    called = []
+    monkeypatch.setattr(sj, "install", lambda name, progress=None: called.append(name))
+    r = client.post("/api/subject/install", json={"model": "fast"})
+    assert r.status_code == 200 and called == ["fast"]

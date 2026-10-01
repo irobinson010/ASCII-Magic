@@ -266,6 +266,23 @@ details.sub[open] { padding-left: 0.65rem; border-left: 2px solid var(--border);
   background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
 }
 
+/* focus & background */
+#focus-card { margin-top: 0.6rem; }
+.subcard-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.6rem; }
+#focus-stage {
+  position: relative; margin-bottom: 0.5rem; line-height: 0;
+  border-radius: var(--radius-sm); overflow: hidden; cursor: crosshair; touch-action: none;
+  border: 1px solid var(--border-strong); user-select: none;
+}
+#focus-img { width: 100%; display: block; pointer-events: none; }
+#focus-mask { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#focus-rect {
+  position: absolute; border: 2px dashed var(--accent); pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(9, 12, 17, 0.55);
+}
+#focus-stage.drawing { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filepick.small { padding: 0.6rem 0.8rem; margin-bottom: 0; }
+
 /* image drop zone */
 #dropzone {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem;

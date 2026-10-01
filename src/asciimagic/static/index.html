@@ -169,6 +169,66 @@
           <label class="check"><input type="checkbox" id="autocontrast"> Auto-contrast</label>
           <label class="check"><input type="checkbox" id="invert"> Invert <small>often better on dark terminals</small></label>
         </details>
+
+        <div class="subcard" id="focus-card">
+          <div class="subcard-title">Focus &amp; background</div>
+          <div id="focus-stage" hidden>
+            <img id="focus-img" alt="Your picture: drag to choose the focus area">
+            <canvas id="focus-mask"></canvas>
+            <div id="focus-rect" hidden></div>
+          </div>
+          <span class="input-group" id="focus-buttons" hidden>
+            <button type="button" id="focus-draw" title="Then drag across the picture above">Draw focus area</button>
+            <button type="button" id="focus-clear" disabled>Whole picture</button>
+          </span>
+          <p class="field-hint" id="focus-hint">Upload a picture to choose what the art focuses on.</p>
+          <div class="field">
+            <label for="background">Background</label>
+            <select id="background">
+              <option value="keep">Keep it</option>
+              <option value="remove">Remove (blank)</option>
+              <option value="blur">Blur it</option>
+              <option value="fade">Fade it</option>
+              <option value="color">Solid color</option>
+              <option value="image">Replace with another picture</option>
+            </select>
+          </div>
+          <div class="field" id="bg-color-field" hidden>
+            <label for="bg_color">Background color</label>
+            <input type="color" id="bg_color" value="#1a1a2e">
+          </div>
+          <div class="field" id="bg-image-field" hidden>
+            <label class="filepick small" for="bg_file"><span><b>Choose background picture</b><br><small id="bg-file-name">none chosen</small></span></label>
+            <input type="file" id="bg_file" accept="image/*" class="visually-hidden">
+          </div>
+          <label class="check"><input type="checkbox" id="zoom_subject"> Zoom in on the subject</label>
+          <label class="check"><input type="checkbox" id="enhance_subject"> Boost the subject's contrast</label>
+          <div class="field">
+            <label for="subject_model" title="Which model finds the subject. Used by the options above.">Subject detection</label>
+            <select id="subject_model">
+              <option value="fast">Fast (4.6 MB download)</option>
+              <option value="best">Best edges (179 MB download)</option>
+            </select>
+            <p class="field-hint" id="subject-status"></p>
+          </div>
+          <details class="sub">
+            <summary>Fine-tune the subject</summary>
+            <label class="check"><input type="checkbox" id="show_mask" checked> Show it on the picture <small>green = subject</small></label>
+            <div class="field">
+              <label for="mask_threshold" title="Lower keeps more of the picture as subject">Cutoff <output id="mask_threshold-out">0.5</output></label>
+              <input type="range" id="mask_threshold" min="0.05" max="0.95" step="0.05" value="0.5">
+            </div>
+            <div class="field">
+              <label for="mask_grow" title="Grow or shrink the subject's outline">Grow / shrink <output id="mask_grow-out">0</output></label>
+              <input type="range" id="mask_grow" min="-0.05" max="0.05" step="0.005" value="0">
+            </div>
+            <div class="field">
+              <label for="mask_feather" title="Soften the subject's edge">Soft edge <output id="mask_feather-out">0</output></label>
+              <input type="range" id="mask_feather" min="0" max="0.05" step="0.005" value="0">
+            </div>
+            <label class="check"><input type="checkbox" id="mask_invert"> Swap: treat the background as the subject</label>
+          </details>
+        </div>
       </section>
 
       <!-- ===== Text ===== -->
@@ -576,5 +636,6 @@
   <script src="compose.js"></script>
   <script src="translate.js"></script>
   <script src="ui.js"></script>
+  <script src="focus.js"></script>
 </body>
 </html>
