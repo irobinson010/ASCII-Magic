@@ -1038,3 +1038,11 @@ def test_text_matrix_mode_still_uses_letter_shapes():
     r = client.post("/api/render", data={"options": json.dumps(
         {"source": "text", "text": "water", "matrix": True, "colorize": True})})
     assert r.status_code == 200 and "\x1b[38;2;" in r.json()["ansi"]
+
+
+def test_figlet_with_chinese_falls_back_to_block():
+    r = client.post("/api/render", data={"options": json.dumps(
+        {"source": "text", "text": "水", "text_style": "figlet"})})
+    assert r.status_code == 200
+    body = r.json()
+    assert "Block" in body["warning"] and body["ascii"].strip()

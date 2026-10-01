@@ -252,3 +252,37 @@ def test_runaway_repetition_is_collapsed(monkeypatch):
 ])
 def test_collapse_runaway(out, src, want):
     assert tr._collapse_runaway(out, src) == want
+
+
+# ---- subtitle junk from some models (en->zh) ----
+
+@pytest.mark.parametrize("raw,single,want", [
+    ("▁{\\fn黑体\\fs22\\bord1\\shad0}天空", True, "天空"),      # ASS/SSA subtitle tags
+    ("⁇ 水", True, "水"),                                  # SentencePiece unknown marker
+    ("边", True, "边"),                                   # private-use character
+    ("天空( T)", True, "天空"),                                 # trailing gloss on a single word
+    ("猫(猫咪)在睡觉", False, "猫(猫咪)在睡觉"),                  # sentences keep their parentheses
+])
+def test_clean(raw, single, want):
+    assert tr._clean(raw, single) == want
+
+
+class _TokTranslator(_FakeTranslator):
+    def translate_batch(self, batch, **kw):
+        self.calls.append(([("".join(t)) for t in batch], kw))
+        return [type("R", (), {"hypotheses": [["<unk>", "水"]]})() for _ in batch]
+
+
+def test_unknown_tokens_are_dropped_and_hint_is_japanese_only(monkeypatch):
+    fake = _TokTranslator(lambda s: "")
+    monkeypatch.setattr(tr, "_load", lambda src, dst: (fake, _FakeSP()))
+    assert tr._run("en", "zh", ["water"]) == ["水"]   # no "⁇" from <unk>
+    assert fake.calls[-1][0] == ["water"]               # Chinese gets no period hint
+    tr._run("en", "ja", ["water"])
+    assert fake.calls[-1][0] == ["water."]
+
+
+def test_chinese_phrasebook(models, fake_engine):
+    assert tr.translate("Good night", "zh") == "晚安"
+    assert tr.translate("Water", "zh") == "水"
+    assert fake_engine == []
