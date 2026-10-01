@@ -111,10 +111,13 @@ class Overlay:
         return tuple(round(a[k] + (b[k] - a[k]) * f) for k in range(3))
 
     def blend(self, base: Optional[RGB], over: RGB) -> RGB:
-        base = base or DEFAULT_FG
         s = self.strength
-        if self.mode == "tint":
+        if self.mode == "tint" or base is None:
+            # Uncolored characters have nothing to multiply/screen against:
+            # against white, screen and overlay would stay white and the
+            # overlay would silently do nothing. Color them as a tint.
             mixed = over
+            base = base or DEFAULT_FG
         else:
             mixed = tuple(round(255 * _blend_ch(self.mode, base[k] / 255, over[k] / 255)) for k in range(3))
         return tuple(round(base[k] * (1 - s) + mixed[k] * s) for k in range(3))
