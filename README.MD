@@ -266,6 +266,20 @@ Options:
 - `-c, --char` : Character to use for the `banner` style
 - `--log-level` : CLI logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
 
+### Frames: boxes and banners that scale
+
+`--frame` wraps any style. With big-letter styles, `--width` sizes the letters and the frame grows around them:
+
+```bash
+ascii-magic text "HELLO" -s block --frame box -w 60      # big letters in a box
+ascii-magic text "Hi" -s solid --frame rounded -w 40      # ╭─╮ rounded corners
+ascii-magic text "Hello" -s figlet --frame double -w 90   # figlet picks the font that fills the frame
+ascii-magic text "水" -s solid --frame banner -c "*"      # banner frame drawn with any character
+ascii-magic text "Server maintenance at 5pm" -s plain --frame heavy   # normal-size text, framed
+```
+
+Frames: `box`, `rounded`, `double`, `heavy`, `banner`. `--frame-pad N` sets the space inside. `-s box` and `-s banner` still print normal-size text in a frame, exactly as before (handy for login messages). In the web GUI, pick a **Frame** under Style.
+
 ### Japanese and other non-Latin text
 
 Text in any script works in `text`, captions, and compose text layers:

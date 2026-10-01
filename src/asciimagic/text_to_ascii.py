@@ -359,6 +359,62 @@ def text_to_banner(text: str, char: str = "#") -> str:
     return f"{border}\n{char} {text} {char}\n{border}"
 
 
+# Frames wrap any style: big letters scale with the width and the frame
+# grows around them. (-s box / -s banner remain the original "plain text
+# in a frame" shortcuts.)
+FRAMES = {
+    "box": "┌─┐│└┘",
+    "rounded": "╭─╮│╰╯",
+    "double": "╔═╗║╚╝",
+    "heavy": "┏━┓┃┗┛",
+    "banner": None,  # drawn with the banner character
+}
+FRAME_CHOICES = ("none",) + tuple(FRAMES)
+
+
+def frame_inner_width(width: int, pad: int = 1) -> int:
+    """Columns left for the art inside a frame `width` columns wide."""
+    return max(4, int(width) - 2 - 2 * max(0, pad))
+
+
+def trim_art(text: str) -> list[str]:
+    """Drop blank rows above/below, shared left indent, and trailing spaces,
+    so a frame hugs the letters rather than the canvas they were drawn on."""
+    lines = [ln.rstrip() for ln in text.split("\n")]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        return [""]
+    indent = min(len(ln) - len(ln.lstrip(" ")) for ln in lines if ln.strip())
+    return [ln[indent:] for ln in lines]
+
+
+def frame_art(text: str, frame: str = "box", char: str = "#", pad: int = 1) -> str:
+    """Wrap text or art in a frame. Widths are terminal columns, so Japanese
+    and Chinese line up."""
+    from .textwidth import ljust
+
+    if frame not in FRAMES:
+        raise ValueError(f"unknown frame {frame!r}; choose from {', '.join(FRAME_CHOICES)}")
+    lines = trim_art(text)
+    inner = max(str_width(ln) for ln in lines)
+    if FRAMES[frame] is None:
+        c = (char or "#")[:1]
+        tl = h = tr = v = bl = br = c
+    else:
+        tl, h, tr, v, bl, br = FRAMES[frame]
+    pad = max(0, int(pad))
+    span = inner + 2 * pad
+    body = [f"{v}{' ' * pad}{ljust(ln, inner)}{' ' * pad}{v}" for ln in lines]
+    if len(lines) > 1 and pad:
+        # Big letters get a blank row above and below, like the side padding.
+        blank = f"{v}{' ' * span}{v}"
+        body = [blank] + body + [blank]
+    return "\n".join([tl + h * span + tr] + body + [bl + h * span + br])
+
+
 def figlet_missing(text: str, font: str = "standard") -> str:
     """Characters the figlet font has no letterform for. pyfiglet silently
     drops them, so e.g. all-Japanese text renders as nothing at all."""
@@ -368,16 +424,20 @@ def figlet_missing(text: str, font: str = "standard") -> str:
     return "".join(ch for ch in dict.fromkeys(text) if not ch.isspace() and ord(ch) not in chars)
 
 
-def text_to_figlet(text: str, width: int = 80, font: str = "standard") -> str:
-    """Classic figlet outline lettering (the traditional terminal-banner look)."""
-    import pyfiglet
-
+def figlet_missing_or_raise(text: str, font: str = "standard") -> None:
     missing = figlet_missing(text, font)
     if missing:
         raise ValueError(
             f"figlet fonts have no letters for {missing!r} (figlet covers Latin text only); "
             "use --style block, small, or shadow instead"
         )
+
+
+def text_to_figlet(text: str, width: int = 80, font: str = "standard") -> str:
+    """Classic figlet outline lettering (the traditional terminal-banner look)."""
+    import pyfiglet
+
+    figlet_missing_or_raise(text, font)
     return pyfiglet.figlet_format(text, font=font, width=max(20, int(width)))
 
 
@@ -619,6 +679,30 @@ def compose_caption(
 # =============================
 
 
+def render_text(text: str, style: str = "block", width: int = 80, font_size: int = 24,
+                font_path: str | None = None, char: str = "#", frame: str = "none", frame_pad: int = 1) -> str:
+    """Any text style, optionally framed. With a frame, `width` is the whole
+    framed width: the letters are drawn to fit inside it."""
+    if style == "box" and frame == "none":
+        return text_to_box(text, width=width)
+    if style == "banner" and frame == "none":
+        return text_to_banner(text, char=char)
+    framed = frame not in (None, "", "none")
+    w = frame_inner_width(width, frame_pad) if framed else width
+    if style in ("box", "banner", "plain"):
+        art = "\n".join(fit(ln, w) if str_width(ln) > w else ln for ln in text.split("\n"))
+    elif style == "figlet":
+        if framed:
+            figlet_missing_or_raise(text)
+            # Pick the figlet font that best fills the frame, so it scales too.
+            art = _figlet_sized(text, w, 1.0)
+        else:
+            art = text_to_figlet(text, width=w)
+    else:
+        art = text_to_ascii_art(text, style=style, width=w, font_size=font_size, font_path=font_path)
+    return frame_art(art, frame, char=char, pad=frame_pad) if framed else art
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="text-to-ascii", description="Convert text to ASCII art")
 
@@ -642,7 +726,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-s",
         "--style",
-        choices=["block", "small", "shadow", "solid", "box", "banner", "figlet"],
+        choices=["block", "small", "shadow", "solid", "plain", "box", "banner", "figlet"],
         default="block",
         help="ASCII art style",
     )
@@ -670,6 +754,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="#",
         help="Character to use for banner style",
     )
+    parser.add_argument(
+        "--frame",
+        choices=FRAME_CHOICES,
+        default="none",
+        help="Wrap the result in a frame; with block/small/shadow/solid/figlet the letters "
+             "scale with --width and the frame grows around them (banner uses --char)",
+    )
+    parser.add_argument("--frame-pad", type=int, default=1, metavar="N",
+                        help="Spaces between the frame and the text (default: 1)")
     from .ansi import add_depth_arg
     from .overlay import add_overlay_args
 
@@ -737,24 +830,19 @@ def main():
     if args.animate:
         from .textanim import run_cli
 
+        if args.frame != "none":
+            print("text-to-ascii: note: --frame applies to still text; the animation is unframed", file=sys.stderr)
+
         sys.exit(run_cli(text, args))
 
-    # Generate ASCII art based on style
-    if args.style == "box":
-        output = text_to_box(text, width=args.width)
-    elif args.style == "banner":
-        output = text_to_banner(text, char=args.char)
-    elif args.style == "figlet":
-        output = text_to_figlet(text, width=args.width)
-    else:
-        # Generate ascii-art styles using the renderer
-        output = text_to_ascii_art(
-            text,
-            style=args.style,
-            width=args.width,
-            font_size=args.font_size,
-            font_path=args.font,
-        )
+    if not 0 <= args.frame_pad <= 8:
+        parser.error("--frame-pad must be between 0 and 8")
+    try:
+        output = render_text(text, style=args.style, width=args.width, font_size=args.font_size,
+                             font_path=args.font, char=args.char, frame=args.frame, frame_pad=args.frame_pad)
+    except ValueError as e:
+        print(f"text-to-ascii: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if args.overlay:
         from .overlay import finish_output

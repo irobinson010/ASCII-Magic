@@ -38,27 +38,19 @@ def text_to_ascii(
     font_size: int = 24,
     font_path: str | None = None,
     banner_char: str = "#",
+    frame: str = "none",
+    frame_pad: int = 1,
 ) -> str:
     ctx.source_text = text
     ctx.metadata["text_style"] = style
 
-    if style == "box":
-        ascii_out = text_mod.text_to_box(text, width=width)
-        ctx.rendered_text_image = None
-    elif style == "banner":
-        ascii_out = text_mod.text_to_banner(text, char=banner_char)
-        ctx.rendered_text_image = None
-    elif style == "figlet":
-        ascii_out = text_mod.text_to_figlet(text, width=width)
+    ascii_out = text_mod.render_text(
+        text, style=style, width=width, font_size=font_size, font_path=font_path,
+        char=banner_char, frame=frame, frame_pad=frame_pad,
+    )
+    if style in ("box", "banner", "plain", "figlet"):
         ctx.rendered_text_image = None
     else:
-        ascii_out = text_mod.text_to_ascii_art(
-            text=text,
-            style=style,
-            width=width,
-            font_size=font_size,
-            font_path=font_path,
-        )
         ctx.rendered_text_image = text_mod.render_text_to_image(
             text=text,
             font_size=font_size,

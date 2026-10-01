@@ -229,12 +229,15 @@ function refreshHints() {
   $("mode-hint").textContent = MODE_HINTS[$("mode").value] || "";
   const style = $("text_style").value;
   const STYLE_HINTS = {
-    box: "Box frames your text at normal size, handy for terminal messages. For big letters use Block, Small, Shadow, or Solid. Color it with a Color overlay.",
-    banner: "Banner frames your text at normal size, handy for terminal messages. For big letters use Block, Small, Shadow, or Solid. Color it with a Color overlay.",
+    plain: "Plain text keeps your words at normal size, handy for terminal messages. Add a Frame to box it; pick Block or Solid for big letters.",
     figlet: "Figlet draws classic outline letters for Latin text only; Japanese or Chinese is shown in Block instead.",
   };
-  $("text-style-hint").textContent = STYLE_HINTS[style] || "";
-  $("text-style-hint").hidden = !STYLE_HINTS[style] || !!$("text_anim").value;
+  let styleHint = STYLE_HINTS[style] || "";
+  if ($("text_anim").value) {
+    styleHint = $("text_frame").value !== "none" ? "Frames apply to still text; the animation is shown without one." : "";
+  }
+  $("text-style-hint").textContent = styleHint;
+  $("text-style-hint").hidden = !styleHint;
 
   const cap = $("caption_text").value.trim();
   setState("caption", cap ? `“${cap.length > 18 ? cap.slice(0, 17) + "…" : cap}” · ${$("caption_pos").value}` : "Off", !!cap);
