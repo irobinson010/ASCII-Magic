@@ -26,6 +26,11 @@
 }
 
 * { box-sizing: border-box; }
+/* The desktop app is exactly one screen; the page itself never scrolls (the
+   sidebar and preview scroll inside it). Phones scroll the page instead. */
+@media (min-width: 761px) {
+  html, body { overflow: hidden; }
+}
 [hidden] { display: none !important; }
 
 body {
@@ -123,8 +128,10 @@ button.wide { width: 100%; margin-top: 0.4rem; }
 .segmented button[aria-checked="true"] { background: var(--surface-3); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-line); }
 
 /* switch (checkbox) */
-.switch { display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; color: var(--muted); user-select: none; }
-.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch { position: relative; display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; color: var(--muted); user-select: none; }
+/* Hidden inside its switch: positioned against the page, it sat far below
+   the window and gave the page scroll height (scrolling it showed a blank screen). */
+.switch input { position: absolute; left: 0; top: 0; opacity: 0; width: 1px; height: 1px; margin: 0; }
 .switch .track {
   position: relative; width: 34px; height: 20px; flex: none;
   background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: 999px;
@@ -161,6 +168,8 @@ button.wide { width: 100%; margin-top: 0.4rem; }
 main { flex: 1; display: flex; min-height: 0; }
 
 #controls {
+  position: relative;          /* contains its visually-hidden inputs */
+  overscroll-behavior: contain; /* scrolling past the end doesn't move the page */
   width: 350px;
   min-width: 350px;
   overflow-y: auto;

@@ -91,6 +91,15 @@ def test_strength_mixes_with_base_and_plain_text_counts_as_white():
     assert Overlay.parse("#ff0000", mode="multiply").blend(None, (255, 0, 0)) == (255, 0, 0)
 
 
+@pytest.mark.parametrize("mode", ["multiply", "screen", "overlay"])
+def test_blend_modes_color_uncolored_text(mode):
+    # Against "white" plain text, screen/overlay used to stay white: the
+    # overlay did nothing when "Colors from the image" was off.
+    assert Overlay.parse("#ff5e62", mode=mode).blend(None, (255, 94, 98)) == (255, 94, 98)
+    half = Overlay.parse("#ff0000", mode=mode, strength=0.5).blend(None, (255, 0, 0))
+    assert half == (255, 128, 128)  # strength still mixes from white
+
+
 # ---- ANSI round trip ----
 
 def test_parse_ansi_tracks_fg_bg_and_resets():
