@@ -625,11 +625,21 @@ def _render(image: Optional[UploadFile], options: str, bg_image: Optional[Upload
         text = text.strip("\n")
         if not text:
             raise HTTPException(status_code=400, detail="No text provided.")
+        style = o.get("text_style", "block")
+        if style == "figlet":
+            from .text_to_ascii import figlet_missing
+
+            missing = figlet_missing(text[:2000])
+            if missing:
+                # Figlet fonts are Latin-only; show the text instead of an error.
+                style = "block"
+                warning = (f"Figlet has no letters for {missing[:6]!r} (it covers Latin text only), "
+                           "so this is shown in Block style.")
         try:
             text_to_ascii(
                 ctx,
                 text[:2000],
-                style=o.get("text_style", "block"),
+                style=style,
                 width=_ival(o, "text_width", 80, 1, 500),
                 font_size=_ival(o, "text_font_size", 24, 4, 200),
                 banner_char=(str(o.get("banner_char") or "#"))[0],
@@ -711,7 +721,7 @@ def _render(image: Optional[UploadFile], options: str, bg_image: Optional[Upload
     can_colorize = ctx.source_image is not None or ctx.rendered_text_image is not None
     if (do_colorize or do_animate) and not can_colorize:
         do_colorize = do_animate = False
-        warning = "No reference image for colorizing this style; returning plain ASCII."
+        warning = NO_REFERENCE_WARNING
 
     # ANSI, HTML, and animation are rendered separately, so a random matrix
     # seed would diverge between them — pin one and echo it back.
@@ -743,7 +753,8 @@ def _render(image: Optional[UploadFile], options: str, bg_image: Optional[Upload
 
         ansi = apply_to_ansi(overlay, ansi)
         html_doc = ansi_to_html(ansi, font_size_px=_ival(o, "html_font_size", 12, 4, 64))
-        warning = None  # "returning plain ASCII" no longer holds: the overlay colored it
+        if warning == NO_REFERENCE_WARNING:
+            warning = None  # "returning plain ASCII" no longer holds: the overlay colored it
 
     gif_b64: Optional[str] = None
     if do_animate:
@@ -891,6 +902,7 @@ def _render_text_anim(o: dict[str, Any], t0: float) -> dict[str, Any]:
     }
 
 
+NO_REFERENCE_WARNING = "No reference image for colorizing this style; returning plain ASCII."
 MAX_COMPOSE_LAYERS = 12
 MAX_COMPOSE_TEXT = 500
 

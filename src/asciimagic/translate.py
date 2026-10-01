@@ -229,6 +229,28 @@ def _collapse_runaway(out: str, source: str) -> str:
     return _RUNAWAY.sub(lambda m: m.group("u"), out)
 
 
+# Languages where a one-word sentence ("water.") translates single words
+# better than the bare word. Measured, not assumed: it fixes Japanese
+# (22/24 common words vs ~5/24) but makes Chinese worse (night -> "edge").
+_PERIOD_HINT = {"ja"}
+
+# Some Argos models were trained on film subtitles and leak their markup:
+# ASS/SSA override tags ("{\\fn黑体\\fs22}"), private-use characters, and
+# SentencePiece's unknown-token marker.
+_SUB_TAGS = re.compile(r"\{\\[^}]*\}")
+_PRIVATE_USE = re.compile("[\ue000-\uf8ff\U000f0000-\U0010ffff]")
+_TRAILING_NOTE = re.compile(r"\s*[(（][^()（）]*[)）]\s*$")
+
+
+def _clean(out: str, single_word: bool) -> str:
+    out = _SUB_TAGS.sub("", out)
+    out = _PRIVATE_USE.sub("", out).replace("\u2047", "").replace("\u2581", " ")
+    if single_word:
+        # A gloss like "天空 (T)" or "咖啡 (咖啡)": keep just the word.
+        out = _TRAILING_NOTE.sub("", out)
+    return re.sub(r"[ \t]{2,}", " ", out).strip()
+
+
 def _run(src: str, dst: str, lines: List[str]) -> List[str]:
     translator, sp = _load(src, dst)
     todo = [ln for ln in lines if ln.strip()]
@@ -238,10 +260,17 @@ def _run(src: str, dst: str, lines: List[str]) -> List[str]:
     # "sky" -> "Skype"); written as a one-word sentence it gets it right
     # ("water." -> "水。"). Multi-word phrases translate worse with an added
     # period, so only single words get the hint, and it's removed afterwards.
-    hinted = [bool(_WORD.match(ln.strip())) for ln in todo]
+    single = [bool(_WORD.match(ln.strip())) for ln in todo]
+    hinted = [w and dst in _PERIOD_HINT for w in single]
     # ALL-CAPS banner words ("WATER") read as names/brands; lowercase them.
-    inputs = [sp.encode((ln.strip().lower() if ln.strip().isupper() else ln.strip()) + "." if h else ln,
-                        out_type=str) for ln, h in zip(todo, hinted)]
+    def prepare(ln: str, word: bool, hint: bool) -> str:
+        if not word:
+            return ln
+        w = ln.strip()
+        w = w.lower() if w.isupper() else w
+        return w + "." if hint else w
+
+    inputs = [sp.encode(prepare(ln, w, h), out_type=str) for ln, w, h in zip(todo, single, hinted)]
     results = translator.translate_batch(
         inputs,
         beam_size=4,
@@ -253,8 +282,9 @@ def _run(src: str, dst: str, lines: List[str]) -> List[str]:
         max_decoding_length=min(256, 16 + 4 * max(len(t) for t in inputs)),
     )
     outs = []
-    for ln, h, r in zip(todo, hinted, results):
-        out = sp.decode(r.hypotheses[0]).strip()
+    for ln, w, h, r in zip(todo, single, hinted, results):
+        out = sp.decode([t for t in r.hypotheses[0] if t != "<unk>"])
+        out = _clean(out, w)
         if h:
             out = re.sub(r"[.。．]$", "", out)
         outs.append(_collapse_runaway(out, ln))
@@ -281,6 +311,27 @@ PHRASEBOOK: Dict[str, Dict[str, str]] = {
         "friend": "友達", "friends": "友達", "peace": "平和", "home": "家", "hope": "希望",
         "dream": "夢", "dreams": "夢", "family": "家族", "happiness": "幸せ", "courage": "勇気",
         "hello world": "ハローワールド", "game over": "ゲームオーバー", "the end": "おわり",
+    },
+    # The en->zh model is weakest on bare words (water -> "purified water",
+    # night -> "night time"), so common caption words are listed too.
+    "zh": {
+        "hello": "你好", "hi": "嗨", "hey": "嘿",
+        "good morning": "早上好", "good afternoon": "下午好", "good evening": "晚上好", "good night": "晚安",
+        "goodbye": "再见", "bye": "拜拜", "see you": "回头见", "see you later": "待会儿见",
+        "see you tomorrow": "明天见", "thank you": "谢谢", "thanks": "谢谢", "thank you very much": "非常感谢",
+        "welcome": "欢迎", "welcome home": "欢迎回家", "welcome back": "欢迎回来",
+        "yes": "是", "no": "不", "sorry": "对不起", "excuse me": "打扰一下",
+        "congratulations": "恭喜", "happy birthday": "生日快乐", "happy new year": "新年快乐",
+        "merry christmas": "圣诞快乐", "good luck": "祝你好运", "cheers": "干杯",
+        "love": "爱", "i love you": "我爱你", "friend": "朋友", "friends": "朋友们", "peace": "和平",
+        "home": "家", "hope": "希望", "dream": "梦想", "dreams": "梦想", "family": "家人",
+        "happiness": "幸福", "courage": "勇气", "hello world": "你好，世界", "game over": "游戏结束",
+        "the end": "完",
+        "water": "水", "fire": "火", "wind": "风", "earth": "大地", "sky": "天空", "sun": "太阳",
+        "moon": "月亮", "star": "星星", "stars": "星星", "night": "夜晚", "day": "白天",
+        "dog": "狗", "cat": "猫", "tree": "树", "flower": "花", "rain": "雨", "snow": "雪",
+        "mountain": "山", "river": "河", "ocean": "海洋", "sea": "大海", "house": "房子",
+        "book": "书", "music": "音乐", "coffee": "咖啡", "tea": "茶", "dragon": "龙", "heart": "心",
     },
 }
 
