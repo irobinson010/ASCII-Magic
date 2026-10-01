@@ -55,6 +55,8 @@ function collectOptions() {
     text_width: num("text_width"),
     text_font_size: num("text_font_size"),
     banner_char: $("banner_char").value || "#",
+    text_frame: $("text_frame").value,
+    text_frame_pad: num("text_frame_pad"),
     text_animate: source === "text" ? textAnimSpec() : null,
     anim_amount: num("text_anim_amount"),
     anim_mirror: $("text_anim_mirror").checked,
@@ -384,8 +386,11 @@ function syncVisibility() {
   $("glyph-knobs").hidden = braille;
 
   const style = $("text_style").value;
-  $("text-font-field").hidden = style === "box" || style === "banner";
-  $("banner-char-field").hidden = style !== "banner";
+  // Plain text and figlet ignore the drawing size; the banner character
+  // belongs to the Banner frame.
+  $("text-font-field").hidden = ["box", "banner", "plain", "figlet"].includes(style);
+  $("banner-char-field").hidden = $("text_frame").value !== "banner" && style !== "banner";
+  $("frame-pad-field").hidden = $("text_frame").value === "none";
   $("text-anim-knobs").hidden = !$("text_anim").value;
 
   $("color-knobs").hidden = !$("colorize").checked;

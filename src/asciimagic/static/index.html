@@ -248,11 +248,24 @@
             <option value="small">Small</option>
             <option value="shadow">Shadow</option>
             <option value="solid">Solid blocks</option>
-            <option value="box">Box</option>
-            <option value="banner">Banner</option>
             <option value="figlet">Figlet</option>
+            <option value="plain">Plain text (normal size)</option>
           </select>
           <p class="field-hint" id="text-style-hint" hidden>Box, banner, and figlet are plain characters, so Colorize doesn't apply; use a Color overlay instead.</p>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="text_frame" title="Draw a frame around the text. Big letters scale with Width; the frame grows to fit.">Frame</label>
+            <select id="text_frame">
+              <option value="none">None</option>
+              <option value="box">Box ┌─┐</option>
+              <option value="rounded">Rounded ╭─╮</option>
+              <option value="double">Double ╔═╗</option>
+              <option value="heavy">Heavy ┏━┓</option>
+              <option value="banner">Banner ###</option>
+            </select>
+          </div>
+          <div class="field narrow" id="frame-pad-field" hidden><label for="text_frame_pad" title="Space between the frame and the text">Padding</label><input type="number" id="text_frame_pad" value="1" min="0" max="8"></div>
         </div>
         <div class="field-row">
           <div class="field"><label for="text_width">Width</label><input type="number" id="text_width" value="80" min="10" max="400"></div>

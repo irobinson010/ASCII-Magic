@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .image_to_ascii import flatten_alpha, rotate_cw
+from .text_to_ascii import FRAME_CHOICES
 
 from . import colorize_ascii as colorize_mod
 from .pipeline import AsciiPipelineContext, animate as pipeline_animate, colorize, image_to_ascii, text_to_ascii
@@ -643,6 +644,8 @@ def _render(image: Optional[UploadFile], options: str, bg_image: Optional[Upload
                 width=_ival(o, "text_width", 80, 1, 500),
                 font_size=_ival(o, "text_font_size", 24, 4, 200),
                 banner_char=(str(o.get("banner_char") or "#"))[0],
+                frame=_choice(o, "text_frame", "none", FRAME_CHOICES),
+                frame_pad=_ival(o, "text_frame_pad", 1, 0, 8),
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))

@@ -1046,3 +1046,20 @@ def test_figlet_with_chinese_falls_back_to_block():
     assert r.status_code == 200
     body = r.json()
     assert "Block" in body["warning"] and body["ascii"].strip()
+
+
+def test_render_text_with_frame_scales():
+    def art(width):
+        r = client.post("/api/render", data={"options": json.dumps(
+            {"source": "text", "text": "Hi", "text_style": "solid", "text_frame": "box", "text_width": width})})
+        assert r.status_code == 200, r.text
+        return r.json()["ascii"]
+
+    small, big = art(30), art(80)
+    assert small.startswith("┌") and big.startswith("┌")
+    assert len(big.split("\n")[0]) > len(small.split("\n")[0]) * 1.5
+
+
+def test_render_text_bad_frame():
+    r = client.post("/api/render", data={"options": json.dumps({"source": "text", "text": "Hi", "text_frame": "zigzag"})})
+    assert r.status_code == 400
