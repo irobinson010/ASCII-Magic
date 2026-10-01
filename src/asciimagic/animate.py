@@ -17,16 +17,13 @@ from __future__ import annotations
 import html as html_mod
 import io
 import json
-import os
 import random
-import sys
-import time
 import dataclasses
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from .colorize_ascii import (
     _CAPTION_IMAGE_COLORS,
@@ -38,7 +35,6 @@ from .colorize_ascii import (
     parse_matrix_color,
     tint_rgb,
 )
-from .image_to_ascii import find_default_mono_font
 
 # Rain look tunables
 _BRIGHT_FLOOR = 0.15     # background cells still get this share of rain brightness
@@ -231,26 +227,10 @@ class MatrixAnimation:
     # ---- GIF ----
 
     def to_gif_bytes(self, font_path: Optional[str] = None, font_size: int = 14) -> bytes:
-        font_path = font_path or find_default_mono_font()
-        if font_path:
-            font = ImageFont.truetype(font_path, font_size)
-            ascent, descent = font.getmetrics()
-            cell_h = ascent + descent
-            cell_w = max(1, round(font.getlength("M")))
-        else:
-            font = ImageFont.load_default()
-            cell_w, cell_h = 7, 13
+        from .glyphs import GlyphAtlas
 
-        cache: dict[str, np.ndarray] = {}
-
-        def glyph_alpha(ch: str) -> np.ndarray:
-            a = cache.get(ch)
-            if a is None:
-                img = Image.new("L", (cell_w, cell_h), 0)
-                ImageDraw.Draw(img).text((0, 0), ch, fill=255, font=font)
-                a = np.asarray(img, dtype=np.float32) / 255.0
-                cache[ch] = a
-            return a
+        atlas = GlyphAtlas(font_path, font_size)
+        font, cell_w, cell_h, glyph_alpha = atlas.font, atlas.cell_w, atlas.cell_h, atlas.alpha
 
         cap_strip: Optional[np.ndarray] = None
         if self.caption:
