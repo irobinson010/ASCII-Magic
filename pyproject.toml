@@ -52,14 +52,15 @@ translate = [
 ]
 subject = [
     # 1.24+ ships no Python 3.10 wheels
-    "onnxruntime>=1.16,<1.24; python_version < '3.11'",
-    "onnxruntime>=1.16; python_version >= '3.11'",
+    "onnxruntime>=1.19,<1.24; python_version < '3.11'",
+    "onnxruntime>=1.19; python_version >= '3.11'",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8",
     "httpx>=0.27",
+    "httpx2>=2.16; python_version >= '3.11'",  # newer starlette.testclient prefers it over httpx
 ]
 
 [project.scripts]

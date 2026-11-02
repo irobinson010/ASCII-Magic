@@ -163,6 +163,26 @@ def test_missing_engine_gives_install_hint(monkeypatch):
         sj.ensure_model("fast", allow_download=True)
 
 
+def test_broken_engine_is_reported_not_crashed(monkeypatch):
+    # onnxruntime < 1.19 under NumPy 2 raises SystemError on import, not ImportError.
+    import builtins
+
+    real = builtins.__import__
+
+    def broken(name, *a, **k):
+        if name == "onnxruntime":
+            raise SystemError("module compiled against NumPy 1.x")
+        return real(name, *a, **k)
+
+    monkeypatch.delitem(sys.modules, "onnxruntime", raising=False)
+    monkeypatch.setattr(builtins, "__import__", broken)
+    sj._session.cache_clear()
+    assert sj.engine_available() is False
+    with pytest.raises(SubjectError, match="1.19"):
+        sj._session("fast")
+    sj._session.cache_clear()
+
+
 def test_missing_model_without_download(monkeypatch, tmp_path):
     monkeypatch.setenv("ASCII_MAGIC_MODELS_DIR", str(tmp_path))
     monkeypatch.setattr(sj, "engine_available", lambda: True)

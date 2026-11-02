@@ -166,8 +166,9 @@ def load_font_for(text: str, font_path: str | None, font_size: int):
 
 
 def measure_text(text: str, font: ImageFont.FreeTypeFont) -> tuple[int, int]:
-    """Measure text dimensions."""
-    bbox = font.getbbox(text)
+    """Measure text dimensions. ``ImageDraw.textbbox`` handles multi-line
+    text; ``font.getbbox`` doesn't (Pillow 13 raises ``raqm_layout() failed``)."""
+    bbox = ImageDraw.Draw(Image.new("L", (1, 1))).textbbox((0, 0), text, font=font)
     width = bbox[2] - bbox[0]
     height = bbox[3] - bbox[1]
     return width, height
@@ -194,11 +195,7 @@ def render_text_to_image(
     tmp = Image.new("L", (tmp_w, tmp_h), color=0)
     tmp_draw = ImageDraw.Draw(tmp)
 
-    try:
-        bbox = tmp_draw.textbbox((0, 0), text, font=font)
-    except Exception:
-        # Fallback: use font.getbbox
-        bbox = font.getbbox(text)
+    bbox = tmp_draw.textbbox((0, 0), text, font=font)
 
     # bbox: (left, top, right, bottom)
     left, top, right, bottom = bbox
