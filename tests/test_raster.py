@@ -58,11 +58,17 @@ def test_braille_is_drawn_not_a_missing_glyph_box(atlas):
     assert ink(full) > 4 * ink(one) > 0
 
 
-def test_wide_characters_span_two_cells(atlas):
+def test_wide_characters_take_two_columns(atlas):
+    assert ansi_to_image("水x").width == (3 + 2) * atlas.cell_w
+
+
+def test_wide_characters_are_drawn_across_both_cells(atlas):
+    from asciimagic.text_to_ascii import find_fallback_font
+
+    if find_fallback_font("水", 16) is None:
+        pytest.skip("no CJK-capable font installed")
     img = ansi_to_image("水x")
-    assert img.width == (3 + 2) * atlas.cell_w      # 水 takes two columns
-    right_half = cells(img, atlas, 1, 0)
-    assert right_half.any()                          # drawn across, not squashed into one cell
+    assert cells(img, atlas, 0, 0).any() and cells(img, atlas, 1, 0).any()  # not squashed into one cell
 
 
 def test_transparent_background():
