@@ -322,6 +322,8 @@ def finish_output(ansi_text: str, args, output_path: Optional[str], to_terminal:
         import os
 
         return ansi_to_html(ansi_text, title=os.path.basename(output_path), font_size_px=font_size_px)
+    if output_path and output_path.lower().endswith(".png"):
+        return ansi_text  # rasterized later; keep full 24-bit color
     from .ansi import downsample, resolve_depth
 
     return downsample(ansi_text, resolve_depth(getattr(args, "color_depth", "truecolor"), to_terminal))

@@ -695,7 +695,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("scene", nargs="?", default=None,
                     help="Scene JSON file to render (layers given on the command line are added on top)")
     ap.add_argument("-o", "--output", default=None,
-                    help="Output file: .txt, .ans, or .html (default: ANSI to stdout)")
+                    help="Output file: .txt, .ans, .html, or .png (an image) (default: ANSI to stdout)")
     ap.add_argument("--format", choices=FORMATS, default=None,
                     help="Output format (default: from the output extension, else ansi)")
     ap.add_argument("--canvas", type=_canvas_size, default=None, metavar="COLSxROWS",
@@ -708,6 +708,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     from .overlay import add_overlay_args
 
     add_overlay_args(ap)  # canvas-wide overlay
+    from .raster import add_png_args
+
+    add_png_args(ap)
     ap.add_argument("--save-scene", default=None, metavar="FILE",
                     help="Write the scene (file + command-line layers) as JSON to reuse later")
 
@@ -797,6 +800,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         ext = os.path.splitext(args.output or "")[1].lower()
         fmt = {".txt": "text", ".html": "html", ".htm": "html"}.get(ext, "ansi")
     out = comp.render(fmt, title=os.path.basename(args.output) if args.output else "ASCII Art")
+    from .raster import is_png_path, write_output
+
+    if is_png_path(args.output):
+        if fmt != "ansi":
+            ap.error("a .png output is drawn from the colored art; drop --format or use --format ansi")
+        write_output(args.output, out, args)
+        return 0
     if fmt == "ansi":
         from .ansi import downsample, resolve_depth
 

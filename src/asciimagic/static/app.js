@@ -194,6 +194,9 @@ async function render() {
     }
     for (const b of ["dl-ans", "dl-html", "dl-txt"]) $(b).disabled = false;
     $("dl-gif").disabled = !body.gif_b64;
+    // A still only: an animation's `ansi` is just its first frame (blank for
+    // typewriter), and the GIF already covers sharing those as an image.
+    $("dl-png").disabled = !!body.gif_b64;
     $("dl-frames").disabled = !body.frames_text;
     $("dl-mp4").disabled = !(state.tab === "video" && body.video);
 
@@ -257,6 +260,30 @@ $("dl-gif").addEventListener("click", () => {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   download(`${state.fileStem}.gif`, bytes, "image/gif");
+});
+$("dl-png").addEventListener("click", async () => {
+  const result = state.result;
+  if (!result) return;
+  $("dl-png").disabled = true;
+  setStatus("Drawing PNG…", "busy");
+  try {
+    const form = new FormData();
+    form.append("ansi", result.ansi);
+    form.append("font_size", "16");
+    const res = await fetch("/api/export/png", { method: "POST", body: form });
+    if (!res.ok) {
+      const body = await readJson(res);
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    // "-ascii": the source is often a .png too, and the same name would collide with it.
+    download(`${state.fileStem}-ascii.png`, await res.blob(), "image/png");
+    setStatus("PNG downloaded", "");
+  } catch (err) {
+    setStatus(`Error: ${err.message}`, "error");
+  } finally {
+    // Unless a newer render replaced the result (and set the state itself).
+    if (state.result === result) $("dl-png").disabled = !!result.gif_b64;
+  }
 });
 $("dl-frames").addEventListener("click", () =>
   download(`${state.fileStem}.frames`, state.result.frames_text, "text/plain"));

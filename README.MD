@@ -9,7 +9,7 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 - **Animated text** - Wave like a flag, spin, flip in every direction, stretch, bounce, typewriter, rainbow, and more, as terminal playback, GIF, HTML, or a login greeting
 - **Free offline translation** - English to Japanese (and ~100 languages) for text, captions, and compose layers, in the CLI and web GUI
 - **ASCII colorization** - Add colors to existing ASCII text by mapping image pixels to characters
-- **Flexible output formats** - Generate ANSI, HTML, or braille output
+- **Flexible output formats** - Generate ANSI, HTML, plain text, or a PNG image you can post anywhere
 - **Multiple quality modes** - Choose between fast, balanced, or best-quality character matching
 
 ## Installation
@@ -429,6 +429,22 @@ ascii-magic compose --image cat.png --text HI --style figlet --at top --layer-ov
 
 Works on `text`, `image`, `colorize` (static output), and `compose`. In `compose`, `--overlay` covers the whole canvas and `--layer-overlay` (plus `--layer-overlay-direction/-mode/-strength`) just one layer. The canvas overlay applies last, so at full strength it replaces layer colors; lower its strength to let them show through. `.html` outputs keep the colors, and `--color-depth` still applies. The web GUI has a **Color overlay** section, and overlay fields on the Compose canvas and on each layer.
 
+## Save as an image (PNG)
+
+End `-o` with `.png` to get a picture of the art instead of text. Use it wherever a terminal or a font can't be counted on: chat, social posts, slides, docs. Works on `image`, `text`, and `compose`.
+
+```bash
+ascii-magic image cat.png --color -o cat-art.png
+ascii-magic text "HELLO" --overlay sunset -o hello.png --png-bg transparent
+ascii-magic compose card.json -o card.png
+```
+
+- `--png-font-size PX`: character height, 6-72 (default 16). A 100-column picture at 16 px is about 1000 px wide.
+- `--png-bg COLOR`: background, `#RRGGBB`, a theme name, or `transparent` (default black, like the `.html` export).
+- `--png-fg COLOR`: color for uncolored characters (default `#e0e0e0`).
+
+Braille is drawn dot by dot and CJK characters get two cells, so the PNG doesn't depend on which fonts the viewer has. For animations, use `.gif`. In the web GUI it's **Download → Image (.png)**.
+
 ## Compose images and text (`ascii-magic compose`)
 
 Stack any number of images and text blocks on one canvas and place each one exactly. Start a layer with `--image PATH` or `--text TEXT`; the options after it apply to that layer. Later layers paint over earlier ones.
@@ -458,7 +474,7 @@ ascii-magic compose card.json -o card.html
 | image: `--mode --dither --invert --autocontrast --gamma --threshold --quality --rotate` | Same meaning as `ascii-magic image` |
 | text: `--style --align --font` | Same styles as `ascii-magic text` |
 
-Canvas: `--canvas COLSxROWS` (default: just big enough for every layer) and `--background COLOR`. Output is ANSI to stdout, or `.txt` / `.ans` / `.html` by `-o` extension.
+Canvas: `--canvas COLSxROWS` (default: just big enough for every layer) and `--background COLOR`. Output is ANSI to stdout, or `.txt` / `.ans` / `.html` / `.png` by `-o` extension.
 
 In the web GUI, the **Compose** tab does the same with the mouse: add image and text layers, drag a layer's box in the preview to move it, drag its corner to resize (hold **Shift** to keep the aspect ratio), and use the arrow keys to nudge the selected layer one character (**Shift** for five). **Download scene .json** saves a scene file the CLI can render; put the images next to it.
 
@@ -515,7 +531,7 @@ The install copies the file to `~/.config/ascii-magic/` and appends a marker-gua
 
 ## Web GUI
 
-A browser interface over the same pipeline: upload an image (or type text), turn every knob the CLIs expose, preview live, and download `.ans`, `.html`, or `.txt` results. Nothing is stored server-side.
+A browser interface over the same pipeline: upload an image (or type text), turn every knob the CLIs expose, preview live, and download `.ans`, `.html`, `.txt`, or `.png` results. Nothing is stored server-side.
 
 ```bash
 pip install -e ".[web]"

@@ -49,7 +49,7 @@ syncSegmented();
 
 const dlToggle = $("dl-toggle");
 const dlMenu = $("dl-menu");
-const DL_ITEMS = ["dl-ans", "dl-html", "dl-txt", "dl-gif", "dl-frames", "dl-mp4"];
+const DL_ITEMS = ["dl-ans", "dl-html", "dl-txt", "dl-png", "dl-gif", "dl-frames", "dl-mp4"];
 
 function setDisabled(el, value) {
   // Write only on change: even a same-value write queues a mutation record,

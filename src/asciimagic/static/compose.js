@@ -95,7 +95,7 @@ async function composeRender() {
     cmp.canvas = body.canvas;
     $("cmp-overlay").hidden = true; // re-shown when the preview reports its box
     $("preview").srcdoc = injectMeasure(body.html);
-    for (const b of ["dl-ans", "dl-html", "dl-txt"]) $(b).disabled = false;
+    for (const b of ["dl-ans", "dl-html", "dl-txt", "dl-png"]) $(b).disabled = false;
     for (const b of ["dl-gif", "dl-frames", "dl-mp4"]) $(b).disabled = true;
     $("cmp_dl_scene").disabled = false;
     setStatus(`Composed ${body.canvas.cols} × ${body.canvas.rows}, ${body.layers.length} layers in ${body.elapsed_ms} ms`, "");
