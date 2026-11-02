@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly, so a new upstream release that breaks us (e.g. Pillow 13's
+    # multi-line getbbox) shows up here instead of in a user's bug report.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
 
 jobs:
   test:
@@ -15,7 +20,7 @@ jobs:
         # Oldest supported (pyproject requires-python) and the pinned dev version
         python: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -24,4 +29,28 @@ jobs:
       - name: Run tests
         # --no-sync: a bare `uv run` re-syncs with default options, silently
         # pruning the extras (and the --python override) installed above.
+        run: uv run --no-sync pytest -q
+
+  # uv.lock pins what CI tests, but `pip install ascii-magic-tools` gets
+  # whatever is newest (or, in an old environment, whatever satisfies the
+  # floors in pyproject). These two jobs test both ends of that range.
+  dependency-range:
+    name: deps (${{ matrix.resolution }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - resolution: highest       # newest releases, ignoring uv.lock
+            python: "3.12"
+          - resolution: lowest-direct # the minimums pyproject declares
+            python: "3.10"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v5
+      - name: Sync environment (${{ matrix.resolution }} versions)
+        run: uv sync --all-extras --python ${{ matrix.python }} --upgrade --resolution ${{ matrix.resolution }}
+      - name: Show resolved versions
+        run: uv pip list
+      - name: Run tests
         run: uv run --no-sync pytest -q

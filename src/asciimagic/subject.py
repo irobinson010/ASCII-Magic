@@ -101,12 +101,19 @@ def installed() -> List[str]:
     return [n for n, s in MODELS.items() if (models_dir() / s.file).is_file()]
 
 
-def engine_available() -> bool:
+def _import_ort():
+    """Import onnxruntime, or None if it's missing or broken. A build compiled
+    against NumPy 1.x fails under NumPy 2 with a SystemError, not ImportError."""
     try:
-        import onnxruntime  # noqa: F401
-    except ImportError:
-        return False
-    return True
+        import onnxruntime
+        onnxruntime.SessionOptions  # noqa: B018 - touches the compiled module
+    except Exception:  # noqa: BLE001
+        return None
+    return onnxruntime
+
+
+def engine_available() -> bool:
+    return _import_ort() is not None
 
 
 def install(name: str, progress=None) -> Path:
@@ -159,13 +166,12 @@ def remove(name: str) -> bool:
 
 @lru_cache(maxsize=2)
 def _session(name: str):
-    try:
-        import onnxruntime as ort
-    except ImportError:
+    ort = _import_ort()
+    if ort is None:
         raise SubjectError(
-            'Subject detection needs the [subject] extra:\n'
-            '    pip install "ascii-magic-tools[subject]"   (or: uv sync --extra subject)'
-        ) from None
+            'Subject detection needs the [subject] extra (onnxruntime 1.19 or newer):\n'
+            '    pip install -U "ascii-magic-tools[subject]"   (or: uv sync --extra subject)'
+        )
     path = model_path(name)
     if not path.is_file():
         raise SubjectError(f"the {name!r} subject model isn't installed. Run: ascii-magic subject install {name}")
