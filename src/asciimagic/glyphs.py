@@ -57,20 +57,23 @@ class GlyphAtlas:
         else:
             self.font = ImageFont.load_default()
             self.cell_w, self.cell_h = 7, 13
-        self._cache: Dict[str, np.ndarray] = {}
+        self._cache: Dict[tuple, np.ndarray] = {}
 
-    def alpha(self, ch: str) -> np.ndarray:
-        """Coverage of `ch` in one cell, float32 0..1, shape (cell_h, cell_w)."""
-        a = self._cache.get(ch)
+    def alpha(self, ch: str, span: int = 1) -> np.ndarray:
+        """Coverage of `ch`, float32 0..1, shape (cell_h, cell_w * span).
+        ``span=2`` is for double-width (CJK) characters, which fill two cells."""
+        key = (ch, span)
+        a = self._cache.get(key)
         if a is None:
-            a = self._render(ch)
-            self._cache[ch] = a
+            a = self._render(ch, span)
+            self._cache[key] = a
         return a
 
-    def _render(self, ch: str) -> np.ndarray:
+    def _render(self, ch: str, span: int = 1) -> np.ndarray:
+        w = self.cell_w * span
         if is_braille(ch):
-            return braille_alpha(ch, self.cell_w, self.cell_h)
-        img = Image.new("L", (self.cell_w, self.cell_h), 0)
+            return braille_alpha(ch, w, self.cell_h)
+        img = Image.new("L", (w, self.cell_h), 0)
         ImageDraw.Draw(img).text((0, 0), ch, fill=255, font=self._font_for(ch))
         return np.asarray(img, dtype=np.float32) / 255.0
 

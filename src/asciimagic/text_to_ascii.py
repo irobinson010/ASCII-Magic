@@ -718,7 +718,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         default=None,
-        help="Output file (default: stdout)",
+        help="Output file: .txt, .html, or .png (an image); with --animate: .gif, .html, .frames",
     )
     parser.add_argument(
         "-s",
@@ -765,6 +765,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     add_overlay_args(parser)
     add_depth_arg(parser)
+    from .raster import add_png_args
+
+    add_png_args(parser)
     from .translate import add_translate_arg
 
     add_translate_arg(parser)
@@ -848,8 +851,9 @@ def main():
 
     # Output
     if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(output + "\n")
+        from .raster import write_output
+
+        write_output(args.output, output, args)
     else:
         print(output)
 

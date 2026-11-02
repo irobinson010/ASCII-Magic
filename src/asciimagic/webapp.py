@@ -910,6 +910,41 @@ MAX_COMPOSE_LAYERS = 12
 MAX_COMPOSE_TEXT = 500
 
 
+MAX_PNG_ANSI_BYTES = 8 * 1024 * 1024
+
+
+@app.post("/api/export/png")
+def export_png(
+    ansi: str = Form(...),
+    bg: str = Form("#000000"),
+    fg: str = Form("#e0e0e0"),
+    font_size: int = Form(16),
+):
+    """Draw finished art (the ``ansi`` of a render or compose result) as a
+    PNG. Stateless: the client sends back what it was given, so there is
+    nothing to re-render and nothing kept on the server."""
+    from fastapi.responses import Response
+
+    from .raster import TooLarge, ansi_to_png, parse_color, DEFAULT_BG, DEFAULT_FG
+
+    if len(ansi) > MAX_PNG_ANSI_BYTES:
+        raise HTTPException(status_code=413, detail="Art too large to export as PNG.")
+    try:
+        bg_rgb = parse_color(bg, DEFAULT_BG)
+        fg_rgb = parse_color(fg, DEFAULT_FG) or DEFAULT_FG
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    with _render_slot():
+        try:
+            data = ansi_to_png(ansi, font_size=font_size, bg=bg_rgb, fg=fg_rgb, max_cells=MAX_CELLS)
+        except TooLarge as e:
+            raise HTTPException(status_code=413, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    return Response(content=data, media_type="image/png",
+                    headers={"Content-Disposition": 'attachment; filename="ascii-art.png"'})
+
+
 @app.post("/api/compose")
 def compose_endpoint(
     images: list[UploadFile] = File(default=[]),

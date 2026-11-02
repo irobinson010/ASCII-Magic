@@ -558,7 +558,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("input", help="Input image path")
     ap.add_argument(
-        "-o", "--output", default=None, help="Output text file (default: stdout)"
+        "-o", "--output", default=None,
+        help="Output file: .txt/.ans (text), .html, or .png (an image) (default: stdout)"
     )
 
     ap.add_argument(
@@ -672,6 +673,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     add_depth_arg(ap)
     add_overlay_args(ap)
+    from .raster import add_png_args
+
+    add_png_args(ap)
     ap.add_argument("--cell-aspect", type=_cell_aspect, default=DEFAULT_CELL_ASPECT, metavar="W/H",
                     help="Your terminal's character cell width/height (default 0.5). Raise it if "
                     "output looks squashed, lower it if stretched; `ascii-magic tune "
@@ -761,6 +765,8 @@ def main():
     if focused is not None and focused.blank_background:
         art = blank_background(art, focused.mask, focused.threshold)
 
+    from .raster import is_png_path, write_output
+
     if args.color:
         from .colorize_ascii import CaptionOptions, Options
         from .pipeline import AsciiPipelineContext, colorize
@@ -786,7 +792,7 @@ def main():
                 align=args.caption_align,
             )
         art = colorize(ctx, opt=opt).rstrip("\n")
-        if fmt == "ansi" and not args.overlay:
+        if fmt == "ansi" and not args.overlay and not is_png_path(args.output):
             from .ansi import downsample, resolve_depth
 
             art = downsample(art, resolve_depth(args.color_depth, to_terminal=not args.output))
@@ -811,8 +817,7 @@ def main():
         art = finish_output(art + "\n", args, args.output, to_terminal=not args.output).rstrip("\n")
 
     if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(art + "\n")
+        write_output(args.output, art, args)
     else:
         print(art)
 
