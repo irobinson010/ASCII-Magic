@@ -35,6 +35,9 @@ VARIANTS: List[Variant] = [
     ("glyph, inverted", {"mode": "glyph", "quality": "best", "invert": True}),
     ("glyph, plain ASCII only", {"mode": "glyph", "quality": "best", "ascii": "printable"}),
     ("glyph, autocontrast", {"mode": "glyph", "quality": "best", "autocontrast": True}),
+    # Appended, not inserted: --pick numbers stay what they were.
+    ("braille, line art (outlines)", {"mode": "braille", "line_art": True}),
+    ("glyph, line art (outlines)", {"mode": "glyph", "quality": "best", "line_art": True}),
 ]
 
 ASPECTS = (0.40, 0.45, 0.50, 0.55, 0.60)
@@ -62,6 +65,7 @@ def render_variant(img, settings: Dict[str, Any], cols: int, cell_aspect: float)
         autocontrast=settings.get("autocontrast", False),
         gamma=settings.get("gamma", 1.0),
         invert=settings.get("invert", False),
+        line_art=settings.get("line_detail", 0.5) if settings.get("line_art") else None,
     )
     if settings.get("mode") == "glyph":
         return image_to_text_glyph_from_image(

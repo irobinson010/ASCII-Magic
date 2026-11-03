@@ -72,6 +72,8 @@ function collectOptions() {
     topk: num("topk"),
     threshold: num("threshold"),
     dither: $("dither").checked,
+    line_art: $("line_art").checked,
+    line_detail: num("line_detail"),
     gamma: num("gamma"),
     autocontrast: $("autocontrast").checked,
     invert: $("invert").checked,
@@ -411,6 +413,10 @@ function syncVisibility() {
   const braille = $("mode").value === "braille";
   $("braille-knobs").hidden = !braille;
   $("glyph-knobs").hidden = braille;
+  const lineArt = $("line_art").checked;
+  $("line-knobs").hidden = !lineArt;
+  // Dithering spreads tones; outlines have none, so the server skips it.
+  $("dither").disabled = lineArt;
 
   const style = $("text_style").value;
   // Plain text and figlet ignore the drawing size; the banner character
@@ -486,7 +492,7 @@ $("reroll").addEventListener("click", (e) => {
   render();
 });
 
-for (const id of ["threshold", "gamma", "matrix_gamma", "caption_scale", "overlay_strength",
+for (const id of ["threshold", "line_detail", "gamma", "matrix_gamma", "caption_scale", "overlay_strength",
                   "mask_threshold", "mask_grow", "mask_feather"]) {
   $(id).addEventListener("input", () => { $(`${id}-out`).value = $(id).value; });
 }

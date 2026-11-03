@@ -6,6 +6,7 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 
 - **Image to ASCII conversion** - Convert PNG images directly to ASCII art using high-quality glyph matching
 - **Subject focus** - Remove, blur, fade, or replace the background, zoom to the subject, or convert just a region you choose
+- **Line art** - Trace a picture's outlines instead of shading it: much clearer logos, drawings, and faces
 - **Animated text** - Wave like a flag, spin, flip in every direction, stretch, bounce, typewriter, rainbow, and more, as terminal playback, GIF, HTML, or a login greeting
 - **Free offline translation** - English to Japanese (and ~100 languages) for text, captions, and compose layers, in the CLI and web GUI
 - **ASCII colorization** - Add colors to existing ASCII text by mapping image pixels to characters
@@ -114,8 +115,21 @@ python -m asciimagic.image_to_ascii input.png -o output.txt
 - `--rotate` - Rotate clockwise (90/180/270) before conversion; EXIF orientation from phone photos is applied automatically
 - `--threshold` - Braille mode dot threshold (0-1)
 - `--dither` - Braille mode: Floyd-Steinberg dithering (keeps smooth gradients a hard threshold flattens)
+- `--line-art` - Trace outlines instead of shading (see Line art below); `--line-detail 0..1` sets how much is kept
 - `--color` - Convert and colorize in one step (ANSI, or HTML when the output ends in `.html`) — no separate `colorize` invocation needed
 - `--caption TEXT` - Render TEXT as ASCII and stitch it onto the art (see Captions below)
+
+### Line art (outlines instead of shading)
+
+Shading turns brightness into ink, and at terminal resolution most photos come out as soft blobs. `--line-art` traces the picture's outlines instead. It's often far clearer for logos, drawings, faces, and anything with clear shapes:
+
+```bash
+ascii-magic image logo.png --mode braille --line-art
+ascii-magic image portrait.jpg --mode braille --line-art --color   # outlines, colored from the photo
+ascii-magic image street.jpg --line-art --line-detail 0.2          # only the strongest outlines
+```
+
+`--line-detail` runs from 0 (only the strongest outlines) to 1 (fine lines and some texture). The default is 0.5. It works in both modes, and also in `video` (even live from a camera), in compose image layers (`--line-art`), and in the web GUI (**Line art** under Style). `ascii-magic tune` shows it next to the other looks. Dithering is skipped, since outlines have no tones to spread.
 
 ### Focus on the subject (background removal and replacement)
 

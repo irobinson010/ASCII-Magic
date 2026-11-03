@@ -383,6 +383,7 @@ def video_to_ascii(
     max_decoded: Optional[int] = None,
     max_cell_frames: Optional[int] = None,
     untrusted: bool = False,
+    line_art: Optional[float] = None,
 ) -> AsciiVideo:
     """``max_pixels``/``max_decoded`` bound decoding (see read_video_frames);
     ``max_cell_frames`` bounds output characters x frames, checked before
@@ -408,7 +409,7 @@ def video_to_ascii(
     converted = _convert_frames(
         frames, cols=cols, mode=mode, quality=quality, dither=dither,
         threshold=threshold, gamma=gamma, autocontrast=autocontrast, invert=invert,
-        rows=rows,
+        rows=rows, line_art=line_art,
     )
     cap_render = _resolve_video_caption(caption, converted, matrix)
     return AsciiVideo(converted, out_fps, matrix=matrix, caption=cap_render)
@@ -416,7 +417,7 @@ def video_to_ascii(
 
 def _convert_frame(img: Image.Image, *, cols, mode, quality, charset,
                    dither, threshold, gamma, autocontrast, invert,
-                   rows: Optional[int] = None) -> List[str]:
+                   rows: Optional[int] = None, line_art: Optional[float] = None) -> List[str]:
     if rows:
         # Exact output height: pre-resize the frame onto the converter's cell
         # grid (braille cells are 2x4 px, glyph cells 8x16), so the natural
@@ -427,25 +428,25 @@ def _convert_frame(img: Image.Image, *, cols, mode, quality, charset,
         art = image_to_text_glyph_from_image(
             img=img, cols=cols, cell_w=8, cell_h=16, charset=charset,
             quality=quality, font_path=None, font_size=None,
-            autocontrast=autocontrast, gamma=gamma, invert=invert, topk=24,
+            autocontrast=autocontrast, gamma=gamma, invert=invert, topk=24, line_art=line_art,
         )
     else:
         art = image_to_braille_from_image(
             img, cols=cols, autocontrast=autocontrast, gamma=gamma,
-            invert=invert, threshold=threshold, dither=dither,
+            invert=invert, threshold=threshold, dither=dither, line_art=line_art,
         )
     return art.splitlines()
 
 
 def _convert_frames(frames, *, cols, mode, quality, dither, threshold,
-                    gamma, autocontrast, invert, rows=None):
+                    gamma, autocontrast, invert, rows=None, line_art=None):
     charset = make_charset(unicode_mode="off", ascii_preset="dense") if mode == "glyph" else None
     return [
         (
             _convert_frame(
                 img, cols=cols, mode=mode, quality=quality, charset=charset,
                 dither=dither, threshold=threshold, gamma=gamma,
-                autocontrast=autocontrast, invert=invert, rows=rows,
+                autocontrast=autocontrast, invert=invert, rows=rows, line_art=line_art,
             ),
             img,
         )
@@ -482,6 +483,7 @@ def live_view(
     out=None,
     max_frames: Optional[int] = None,
     color_depth: str = "truecolor",
+    line_art: Optional[float] = None,
 ) -> int:
     """Stream a camera (or any source) to the terminal as live ASCII until
     Ctrl-C. Returns the number of frames shown. `max_frames`/`out` exist for
@@ -504,7 +506,7 @@ def live_view(
             lines = _convert_frame(
                 img, cols=cols, mode=mode, quality=quality, charset=charset,
                 dither=dither, threshold=threshold, gamma=gamma,
-                autocontrast=autocontrast, invert=invert,
+                autocontrast=autocontrast, invert=invert, line_art=line_art,
             )
             if caption is not None and cap_render is None and caption.text:
                 cap_render = _resolve_video_caption(caption, [(lines, img)], matrix)
@@ -637,6 +639,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gamma", type=float, default=1.0)
     ap.add_argument("--autocontrast", action="store_true")
     ap.add_argument("--invert", action="store_true")
+    from .overlay import _strength as _unit_interval
+
+    ap.add_argument("--line-art", action="store_true",
+                    help="Trace outlines instead of shading (works live from a camera too)")
+    ap.add_argument("--line-detail", type=_unit_interval, default=0.5, metavar="0..1",
+                    help="Line art: 0 = strongest outlines only, 1 = fine lines and texture (default 0.5)")
     add_depth_arg(ap)
     ap.add_argument("--loops", type=int, default=1,
                     help="Terminal playback repeats (0 = until Ctrl-C)")
@@ -683,6 +691,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             align=args.caption_align,
         )
 
+    line_detail = args.line_detail if args.line_art else None
     try:
         if is_camera(args.input):
             if args.out is None:
@@ -693,6 +702,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     invert=args.invert, matrix=matrix, caption=caption,
                     mirror=args.mirror,
                     color_depth=resolve_depth(args.color_depth, to_terminal=True),
+                    line_art=line_detail,
                 )
                 return 0
             video = record_camera(
@@ -701,7 +711,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 dither=not args.no_dither, threshold=args.threshold,
                 gamma=args.gamma, autocontrast=args.autocontrast,
                 invert=args.invert, matrix=matrix, caption=caption,
-                rows=args.rows,
+                rows=args.rows, line_art=line_detail,
             )
         else:
             video = video_to_ascii(
@@ -719,6 +729,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 matrix=matrix,
                 caption=caption,
                 rows=args.rows,
+                line_art=line_detail,
             )
     except RuntimeError as e:
         raise SystemExit(str(e))
