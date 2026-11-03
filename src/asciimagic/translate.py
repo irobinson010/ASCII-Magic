@@ -33,6 +33,10 @@ from typing import Dict, List, Optional, Tuple
 
 INDEX_URL = "https://raw.githubusercontent.com/argosopentech/argospm-index/main/index.json"
 MAX_MODEL_BYTES = 600 * 1024 * 1024
+# Unpacked: real models are ~1-2x their archive. zipfile stops each member at
+# its declared size, so summing those bounds what extraction can write.
+MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 1000
 _install_lock = threading.Lock()
 
 
@@ -130,7 +134,14 @@ def available(index: Optional[List[dict]] = None) -> List[Tuple[str, str, str, s
 
 def _safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
     root = dest.resolve()
-    for member in zf.infolist():
+    members = zf.infolist()
+    if len(members) > MAX_ARCHIVE_MEMBERS:
+        raise TranslationError(f"model archive has {len(members)} files, more than a model needs")
+    unpacked = sum(m.file_size for m in members)
+    if unpacked > MAX_UNPACKED_BYTES:
+        raise TranslationError(f"model archive would unpack to {unpacked // 2**20} MB, over the "
+                               f"{MAX_UNPACKED_BYTES // 2**20} MB limit")
+    for member in members:
         target = (dest / member.filename).resolve()
         if root != target and root not in target.parents:
             raise TranslationError(f"refusing unsafe path in model archive: {member.filename!r}")

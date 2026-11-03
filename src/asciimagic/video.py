@@ -80,6 +80,7 @@ def _require_imageio():
 SAFE_DEMUXERS = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,gif,mpegts,ogg,flv"
 UNTRUSTED_INPUT_PARAMS = ["-protocol_whitelist", "file,pipe", "-format_whitelist", SAFE_DEMUXERS]
 FFMPEG_PROBE_TIMEOUT_S = 30
+FFMPEG_MUX_TIMEOUT_S = 120  # copying video + encoding a capped clip's audio
 
 
 def _has_audio_stream(path: str, untrusted: bool = False) -> bool:
@@ -313,17 +314,8 @@ class AsciiVideo:
             arrays = [np.pad(a, ((0, pad_h), (0, pad_w), (0, 0))) for a in arrays]
             h, w = arrays[0].shape[:2]
 
-        def _write(audio: Optional[str]) -> None:
-            gen = imageio_ffmpeg.write_frames(
-                out_path,
-                (w, h),
-                fps=max(1.0, self.fps),
-                macro_block_size=1,
-                audio_path=audio,
-                audio_codec="aac" if audio else None,
-                # A truncated sample (--max-frames) is shorter than the audio.
-                output_params=["-shortest"] if audio else None,
-            )
+        def _write_video(path: str) -> None:
+            gen = imageio_ffmpeg.write_frames(path, (w, h), fps=max(1.0, self.fps), macro_block_size=1)
             try:
                 gen.send(None)
                 for a in arrays:
@@ -333,8 +325,37 @@ class AsciiVideo:
 
         if audio_source is not None and not _has_audio_stream(audio_source, untrusted_source):
             audio_source = None  # write silent; encode errors below propagate
-        _write(audio_source)
-        return audio_source is not None
+        if audio_source is None:
+            _write_video(out_path)
+            return False
+
+        # The audio is muxed in a second, separate ffmpeg run rather than via
+        # write_frames(audio_path=...): that puts `-i audio_path` on the
+        # command line with no per-input options, so an untrusted upload
+        # would be opened without the protocol/demuxer whitelist.
+        import os
+        import subprocess
+        import tempfile
+
+        fd, silent = tempfile.mkstemp(suffix=".mp4", dir=os.path.dirname(os.path.abspath(out_path)))
+        os.close(fd)
+        try:
+            _write_video(silent)
+            cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-v", "error", "-y", "-i", silent]
+            if untrusted_source:
+                cmd += UNTRUSTED_INPUT_PARAMS
+            cmd += ["-i", audio_source, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
+                    # A truncated sample (--max-frames) is shorter than the audio.
+                    "-shortest", out_path]
+            proc = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                                  timeout=FFMPEG_MUX_TIMEOUT_S)
+            if proc.returncode != 0:
+                raise RuntimeError(f"ffmpeg could not add the audio: {proc.stderr.strip()[-300:]}")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("ffmpeg timed out adding the audio") from None
+        finally:
+            os.unlink(silent)
+        return True
 
     def play(self, loops: int = 1, color_depth: str = "truecolor") -> None:
         from .ansi import downsample
@@ -709,12 +730,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             f.write(video.to_gif_bytes(font_size=args.font_size))
         print(f"Wrote {args.out} ({len(video.frames)} frames @ {video.fps:.1f} fps)")
     elif args.out.lower().endswith(".mp4"):
-        with_audio = video.write_mp4(
-            args.out,
-            # cameras have no muxable audio path; record silent
-            audio_source=None if (args.no_audio or is_camera(args.input)) else args.input,
-            font_size=args.font_size,
-        )
+        try:
+            with_audio = video.write_mp4(
+                args.out,
+                # cameras have no muxable audio path; record silent
+                audio_source=None if (args.no_audio or is_camera(args.input)) else args.input,
+                font_size=args.font_size,
+            )
+        except RuntimeError as e:  # ffmpeg failed: a message, not a traceback
+            raise SystemExit(f"error: {e}")
         note = "with source audio" if with_audio else "silent (no usable audio in source)"
         print(f"Wrote {args.out} ({len(video.frames)} frames @ {video.fps:.1f} fps, {note})")
     else:

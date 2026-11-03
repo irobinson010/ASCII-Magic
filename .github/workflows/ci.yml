@@ -10,6 +10,9 @@ on:
     - cron: "17 4 * * 1"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -18,7 +21,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         # Oldest supported (pyproject requires-python) and the pinned dev version
-        python: ["3.10", "3.12"]
+        python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v5
@@ -44,7 +47,7 @@ jobs:
           - resolution: highest       # newest releases, ignoring uv.lock
             python: "3.12"
           - resolution: lowest-direct # the minimums pyproject declares
-            python: "3.10"
+            python: "3.11"
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v5
@@ -54,3 +57,17 @@ jobs:
         run: uv pip list
       - name: Run tests
         run: uv run --no-sync pytest -q
+
+  # Known vulnerabilities in what uv.lock installs (CI, Docker, `uv sync`).
+  # Runs on the weekly schedule too, so a CVE published after a merge shows
+  # up here; the fix is usually a `uv lock --upgrade-package NAME`.
+  audit:
+    name: vulnerability scan (uv.lock)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v5
+      - name: Export the locked dependency set
+        run: uv export --frozen --all-extras --all-groups --no-hashes --no-emit-project -o audit-requirements.txt
+      - name: pip-audit
+        run: uvx pip-audit==2.10.1 --no-deps --disable-pip --progress-spinner off -r audit-requirements.txt

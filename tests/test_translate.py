@@ -118,6 +118,27 @@ def test_install_rejects_zip_slip(models, tmp_path, monkeypatch):
     assert not (tmp_path / "evil.txt").exists()
 
 
+def test_install_rejects_archive_bombs(models, tmp_path, monkeypatch):
+    # Highly compressible: a few KB on the wire, far more once unpacked.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("pkg/model/model.bin", b"\0" * 4_000_000)
+        zf.writestr("pkg/sentencepiece.model", b"x")
+    bomb = tmp_path / "bomb.zip"
+    bomb.write_bytes(buf.getvalue())
+    assert bomb.stat().st_size < 100_000
+    monkeypatch.setattr(tr, "MAX_UNPACKED_BYTES", 1_000_000)
+    _patch_download(monkeypatch, bomb)
+    with pytest.raises(tr.TranslationError, match="unpack to"):
+        tr.install("en", "ja", index=INDEX)
+    assert tr.installed() == [] and not list(models.rglob("model.bin"))
+
+    monkeypatch.setattr(tr, "MAX_ARCHIVE_MEMBERS", 3)
+    _patch_download(monkeypatch, _archive(tmp_path, [f"pkg/f{i}" for i in range(4)]))
+    with pytest.raises(tr.TranslationError, match="more than a model needs"):
+        tr.install("en", "ja", index=INDEX)
+
+
 def test_install_rejects_incomplete_archive(models, tmp_path, monkeypatch):
     _patch_download(monkeypatch, _archive(tmp_path, ["pkg/README"]))
     with pytest.raises(tr.TranslationError, match="missing"):

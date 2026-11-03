@@ -14,7 +14,7 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 
 ## Installation
 
-Requires Python 3.10+.
+Requires Python 3.11+ (3.10 reached end of life in October 2026, and Pillow no longer ships security fixes for it).
 
 ```bash
 pipx install ascii-magic-tools           # from PyPI (CLI tools)
@@ -544,7 +544,14 @@ The **Profile** switch in the header applies sensible defaults per target: *Term
 
 ### Server limits
 
-The server is safe to expose on a LAN or behind a reverse proxy: request bodies over ~102 MB get a 413 before anything touches disk, cross-site browser POSTs get a 403, and each render is checked against a work budget up front (a 400 names the knob to lower). The defaults keep one request to roughly 10 seconds of CPU. Tune them with environment variables:
+**There is no login.** Anyone who can reach the server can use it, including installing translation models. `ascii-magic web` listens on `127.0.0.1` only; bind it to `0.0.0.0` (as the Docker image does) only on a network you trust, or put it behind a reverse proxy that adds authentication.
+
+What it does guard against:
+- Abuse of the machine: request bodies over ~102 MB get a 413 before anything touches disk, and each render is checked against a work budget up front (a 400 names the knob to lower). The defaults keep one request to roughly 10 seconds of CPU. Model downloads run one at a time and are capped in number.
+- Other websites driving it through your browser: cross-site POSTs get a 403, and no other site may frame the page.
+- Hostile uploads: images are size-checked before decoding, and videos are decoded with ffmpeg limited to local files and plain media formats.
+
+Tune the limits with environment variables:
 
 | Variable | Default | Limits |
 |---|---|---|
@@ -555,7 +562,8 @@ The server is safe to expose on a LAN or behind a reverse proxy: request bodies 
 | `ASCII_MAGIC_MAX_DECODED_VIDEO_FRAMES` | `5000` | Video frames decoded per upload (sampling skips frames but still decodes them) |
 | `ASCII_MAGIC_ALLOWED_ORIGINS` | *(none)* | Extra allowed `Origin`s, comma-separated, for a proxy that rewrites `Host` |
 | `ASCII_MAGIC_MAX_TEXT_ANIM_PIXELS` | `40000000` | Animated text: canvas pixels × frames (about 70 ns each) |
-| `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD` | on | Let the GUI download translation models (~100+ MB each); `0` turns it off |
+| `ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD` | on | Let the GUI download translation and subject models (~100+ MB each); `0` turns it off |
+| `ASCII_MAGIC_MAX_LANGUAGES` | `10` | Language pairs the GUI may have installed before it refuses new ones (the CLI is not limited) |
 
 ## Docker
 
@@ -565,7 +573,9 @@ One image covers both the web GUI and one-shot CLI runs (it bundles DejaVu Sans 
 docker build -t ascii-magic .
 
 # Web GUI (default command) — open http://localhost:8000
-docker run --rm -p 8000:8000 ascii-magic
+# 127.0.0.1: only this machine can reach it. Plain `-p 8000:8000` publishes it
+# on every network interface, with no login (see "Server limits").
+docker run --rm -p 127.0.0.1:8000:8000 ascii-magic
 
 # One-shot CLI: mount your working directory at /data and pass any subcommand
 docker run --rm -v "$(pwd):/data" ascii-magic image photo.png -o art.txt
@@ -574,7 +584,7 @@ docker run --rm -v "$(pwd):/data" ascii-magic text "Hello" -s block
 
 # Translation: the GUI downloads languages on first use. Mount a named volume
 # so they survive the container being removed (otherwise they re-download).
-docker run --rm -p 8000:8000 -v am-models:/home/app/.local/share/ascii-magic ascii-magic
+docker run --rm -p 127.0.0.1:8000:8000 -v am-models:/home/app/.local/share/ascii-magic ascii-magic
 ```
 
 ## Tips
