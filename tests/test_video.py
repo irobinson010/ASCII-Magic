@@ -373,6 +373,41 @@ def test_mp4_keeps_source_audio(av_clip, tmp_path):
     assert b"mp4a" in out.read_bytes()
 
 
+def test_mp4_audio_mux_applies_whitelists_to_the_upload(monkeypatch, av_clip, tmp_path):
+    # The upload is opened a second time to copy its audio; that open must be
+    # restricted too, with the options placed directly before its own -i.
+    import subprocess
+
+    real = subprocess.run
+    cmds = []
+
+    def spy(cmd, *a, **kw):
+        cmds.append(list(cmd))
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    v = video_mod.video_to_ascii(str(av_clip), cols=16, max_frames=5, untrusted=True)
+    (tmp_path / "out").mkdir()
+    assert v.write_mp4(str(tmp_path / "out" / "o.mp4"), audio_source=str(av_clip), untrusted_source=True)
+    assert [p.name for p in (tmp_path / "out").iterdir()] == ["o.mp4"]  # the silent temp file is gone
+    mux = [c for c in cmds if "-map" in c]
+    assert len(mux) == 1
+    upload_i = [i for i, x in enumerate(mux[0]) if x == str(av_clip)][0] - 1
+    assert mux[0][upload_i] == "-i"
+    before = mux[0][:upload_i]
+    assert before[before.index("-protocol_whitelist") + 1] == "file,pipe"
+    assert "-format_whitelist" in before
+    assert before.index("-protocol_whitelist") > before.index("-i")  # after the first input: applies to the upload
+
+
+def test_mp4_without_audio_is_silent(clip, tmp_path):
+    v = video_mod.video_to_ascii(str(clip), cols=16, max_frames=3)
+    (tmp_path / "out").mkdir()
+    out = tmp_path / "out" / "s.mp4"
+    assert v.write_mp4(str(out), audio_source=None) is False and out.stat().st_size > 0
+    assert [p.name for p in out.parent.iterdir()] == ["s.mp4"]
+
+
 def test_cli_frames_color_depth(clip, tmp_path):
     import re
 

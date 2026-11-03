@@ -890,6 +890,52 @@ def test_translate_install_allowed_by_default(fake_translate, monkeypatch):
     assert client.post("/api/translate/install", json={"to": "ja"}).status_code == 502
 
 
+def test_translate_install_caps_languages_from_the_web(fake_translate, monkeypatch):
+    import asciimagic.webapp as web
+
+    monkeypatch.delenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", raising=False)
+    monkeypatch.setattr(web, "MAX_WEB_LANGUAGES", 2)
+    have = [("en", "ja"), ("en", "zh")]
+    called = []
+    monkeypatch.setattr(fake_translate, "installed", lambda: list(have))
+    monkeypatch.setattr(fake_translate, "install", lambda src, dst, **k: called.append((src, dst)))
+    r = client.post("/api/translate/install", json={"from": "en", "to": "de"})
+    assert r.status_code == 409 and "ASCII_MAGIC_MAX_LANGUAGES" in r.json()["detail"] and not called
+    # Re-installing one that's already there isn't new disk use.
+    assert client.post("/api/translate/install", json={"from": "en", "to": "ja"}).status_code == 200
+
+
+def test_one_model_download_at_a_time(fake_translate, monkeypatch):
+    import asciimagic.webapp as web
+
+    monkeypatch.delenv("ASCII_MAGIC_ALLOW_MODEL_DOWNLOAD", raising=False)
+    called = []
+    monkeypatch.setattr(fake_translate, "install", lambda *a, **k: called.append(a))
+    assert web._web_install_lock.acquire(blocking=False)  # a download already running
+    try:
+        r = client.post("/api/translate/install", json={"from": "en", "to": "ja"})
+        assert r.status_code == 409 and r.headers["retry-after"] and not called
+        assert client.post("/api/subject/install", json={"model": "fast"}).status_code == 409
+    finally:
+        web._web_install_lock.release()
+    assert client.post("/api/translate/install", json={"from": "en", "to": "ja"}).status_code == 200
+
+
+@pytest.mark.parametrize("method,path,kw", [
+    ("get", "/", {}),
+    ("get", "/app.js", {}),
+    ("get", "/api/health", {}),
+    ("post", "/api/render", {"data": {"options": "nope"}}),                      # an error response
+    ("post", "/api/render", {"data": {}, "headers": {"origin": "https://evil.example"}}),  # middleware 403
+])
+def test_security_headers_on_every_response(method, path, kw):
+    r = getattr(client, method)(path, **kw)
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["referrer-policy"] == "no-referrer"
+
+
 def test_translate_cross_origin_blocked(fake_translate):
     r = client.post("/api/translate", json={"text": "hi", "to": "ja"}, headers={"origin": "https://evil.example"})
     assert r.status_code == 403

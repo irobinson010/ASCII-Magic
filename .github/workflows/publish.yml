@@ -4,6 +4,10 @@ on:
   push:
     tags: ["v*"]
 
+# Least privilege by default; jobs that need more ask for it themselves.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

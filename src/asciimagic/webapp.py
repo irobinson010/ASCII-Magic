@@ -184,12 +184,45 @@ class SameOriginMiddleware:
         await self.app(scope, receive, send)
 
 
+class SecurityHeadersMiddleware:
+    """Headers every response gets. No script-src policy: the preview is a
+    srcdoc iframe, which inherits this page's CSP, and animated previews run
+    inline scripts (it is sandboxed without allow-same-origin instead)."""
+
+    HEADERS = [
+        # Nobody else's page may frame the GUI (clickjacking its buttons).
+        (b"content-security-policy", b"frame-ancestors 'none'; object-src 'none'; base-uri 'none'"),
+        (b"x-frame-options", b"DENY"),
+        (b"x-content-type-options", b"nosniff"),
+        (b"referrer-policy", b"no-referrer"),
+    ]
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                names = {k.lower() for k, _ in message.get("headers", ())}
+                message["headers"] = list(message.get("headers", ())) + [
+                    (k, v) for k, v in self.HEADERS if k not in names
+                ]
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
 app = FastAPI(title="ASCII Magic")
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
 app.add_middleware(
     SameOriginMiddleware,
     allowed_origins=os.environ.get("ASCII_MAGIC_ALLOWED_ORIGINS", "").split(","),
 )
+app.add_middleware(SecurityHeadersMiddleware)  # outermost: also covers the other middlewares' 403/413s
 
 
 def _check_budget(value: int, limit: int, what: str, hint: str) -> None:
@@ -1111,6 +1144,26 @@ def subject_models() -> dict[str, Any]:
     }
 
 
+# Model downloads take minutes and run in a worker thread. Waiting on a lock
+# would let a burst of install requests occupy every worker, so a second
+# install is refused at once instead of queued.
+_web_install_lock = threading.Lock()
+# Each language pair is ~100 MB and the install endpoint has no login, so
+# anyone who can reach the server could otherwise fill its disk.
+MAX_WEB_LANGUAGES = _env_int("ASCII_MAGIC_MAX_LANGUAGES", 10)
+
+
+@contextmanager
+def _install_slot():
+    if not _web_install_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Another download is in progress; try again when it finishes.",
+                            headers={"Retry-After": "30"})
+    try:
+        yield
+    finally:
+        _web_install_lock.release()
+
+
 @app.post("/api/subject/install")
 def subject_install(payload: dict = Body(...)) -> dict[str, Any]:
     from . import subject
@@ -1124,7 +1177,8 @@ def subject_install(payload: dict = Body(...)) -> dict[str, Any]:
             detail=f"Model downloads are turned off on this server. Install from a terminal: ascii-magic subject install {name}",
         )
     try:
-        subject.install(name)
+        with _install_slot():
+            subject.install(name)
     except subject.SubjectError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except OSError as e:
@@ -1212,8 +1266,17 @@ def translate_install(payload: dict = Body(...)) -> dict[str, Any]:
         )
     source = _lang(payload, "from", "en")
     to = _lang(payload, "to", "ja")
+    have = tr.installed()
+    if (source, to) not in have and len(have) >= MAX_WEB_LANGUAGES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This server already has {len(have)} languages installed (the limit for installs from "
+                   f"the web is {MAX_WEB_LANGUAGES}, set by ASCII_MAGIC_MAX_LANGUAGES). Remove one from a "
+                   f"terminal: ascii-magic translate remove FROM TO",
+        )
     try:
-        tr.install(source, to)
+        with _install_slot():
+            tr.install(source, to)
     except tr.TranslationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except OSError as e:
