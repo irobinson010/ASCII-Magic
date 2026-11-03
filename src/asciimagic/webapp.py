@@ -489,6 +489,7 @@ def _video_from_upload(upload: Optional[UploadFile], o: dict[str, Any]):
                 max_decoded=MAX_DECODED_VIDEO_FRAMES,
                 max_cell_frames=MAX_ANIM_CELL_FRAMES,
                 untrusted=True,
+                line_art=_fval(o, "line_detail", 0.5, 0.0, 1.0) if _bool(o, "line_art") else None,
             )
         except VideoTooLarge as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -713,6 +714,7 @@ def _render(image: Optional[UploadFile], options: str, bg_image: Optional[Upload
                 invert=_bool(o, "invert"),
                 threshold=_fval(o, "threshold", 0.5, 0.0, 1.0),
                 dither=_bool(o, "dither"),
+                line_art=_fval(o, "line_detail", 0.5, 0.0, 1.0) if _bool(o, "line_art") else None,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))

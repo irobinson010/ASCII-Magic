@@ -121,6 +121,14 @@
           </div>
         </div>
 
+        <label class="check" title="Trace the picture's outlines instead of shading it. Colors still come from the picture.">
+          <input type="checkbox" id="line_art"> <b>Line art</b> <small>outlines instead of shading: logos, drawings, faces</small>
+        </label>
+        <div class="field" id="line-knobs" hidden>
+          <label for="line_detail" title="Low keeps only the strongest outlines; high keeps fine lines and some texture">Line detail <output id="line_detail-out">0.5</output></label>
+          <input type="range" id="line_detail" min="0" max="1" step="0.05" value="0.5">
+        </div>
+
         <div id="braille-knobs">
           <div class="field">
             <label for="threshold" title="Brightness a dot needs to show. Lower = more dots.">Dot threshold <output id="threshold-out">0.5</output></label>
@@ -321,7 +329,7 @@
           <div class="field"><label for="video_fps">FPS</label><input type="number" id="video_fps" value="8" min="1" max="30"></div>
           <div class="field"><label for="video_max_frames">Max frames</label><input type="number" id="video_max_frames" value="60" min="1" max="120"></div>
         </div>
-        <p class="field-hint">Videos take a few seconds, so they render when you press <b>Render</b>. Matrix mode applies per frame; dither, invert, and gamma come from the Image tab.</p>
+        <p class="field-hint">Videos take a few seconds, so they render when you press <b>Render</b>. Matrix mode applies per frame; line art, dither, invert, and gamma come from the Image tab.</p>
       </section>
 
       <!-- ===== Compose ===== -->

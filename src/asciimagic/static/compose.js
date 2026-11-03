@@ -215,6 +215,8 @@ const IMAGE_FIELDS = [
   ["mode", "Mode", "select", { options: ["braille", "glyph"] }],
   ["threshold", "Threshold", "range", { min: 0, max: 1, step: 0.05, fallback: 0.5 }],
   ["gamma", "Gamma", "range", { min: 0.2, max: 3, step: 0.05, fallback: 1 }],
+  ["line_art", "Line art (outlines)", "check"],
+  ["line_detail", "Line detail", "range", { min: 0, max: 1, step: 0.05, fallback: 0.5 }],
   ["dither", "Dither (braille)", "check"],
   ["invert", "Invert", "check"],
   ["autocontrast", "Autocontrast", "check"],

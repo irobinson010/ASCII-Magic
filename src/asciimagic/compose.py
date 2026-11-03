@@ -95,6 +95,8 @@ class Layer:
     gamma: float = 1.0
     threshold: float = 0.5
     rotate: int = 0
+    line_art: bool = False             # trace outlines instead of shading
+    line_detail: float = 0.5           # line art: 0 = strongest outlines only, 1 = fine lines too
 
     # text layers
     text: Optional[str] = None
@@ -126,6 +128,8 @@ class Layer:
                 raise ValueError(f"unknown image mode {self.mode!r}")
             if self.quality not in QUALITIES:
                 raise ValueError(f"unknown quality {self.quality!r}")
+            if not 0 <= self.line_detail <= 1:
+                raise ValueError(f"line_detail must be 0..1, got {self.line_detail}")
         else:
             if not self.text:
                 raise ValueError("text layer needs non-empty text")
@@ -326,17 +330,20 @@ def render_image_layer(layer: Layer, img: Optional[Image.Image] = None) -> Block
         # natural-rows formula lands exactly on `rows`.
         img = img.resize((cols * cw, rows * ch), Image.Resampling.LANCZOS)
 
+    line_detail = layer.line_detail if layer.line_art else None
     if layer.mode == "glyph":
         art = image_to_text_glyph_from_image(
             img=img, cols=cols, cell_w=cw, cell_h=ch,
             charset=make_charset(unicode_mode="off", ascii_preset="dense"),
             quality=layer.quality, font_path=None, font_size=None,
             autocontrast=layer.autocontrast, gamma=layer.gamma, invert=layer.invert, topk=24,
+            line_art=line_detail,
         )
     else:
         art = image_to_braille_from_image(
             img, cols=cols, autocontrast=layer.autocontrast, gamma=layer.gamma,
             invert=layer.invert, threshold=layer.threshold, dither=layer.dither,
+            line_art=line_detail,
         )
 
     lines = art.splitlines()
@@ -753,6 +760,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     o.add_argument("--gamma", action=_LayerOpt, type=float, help="Image: gamma")
     o.add_argument("--threshold", action=_LayerOpt, type=float, help="Image, braille: ink threshold 0..1")
     o.add_argument("--rotate", action=_LayerOpt, type=int, choices=[0, 90, 180, 270], help="Image: rotate clockwise")
+    o.add_argument("--line-art", action=_LayerOpt, nargs=0, const=True, dest="line_art",
+                   help="Image: trace outlines instead of shading")
+    o.add_argument("--line-detail", action=_LayerOpt, type=float, dest="line_detail",
+                   help="Image, line art: 0..1 (default 0.5)")
     o.add_argument("--style", action=_LayerOpt, choices=TEXT_STYLES, help="Text style (default: block)")
     o.add_argument("--align", action=_LayerOpt, choices=ALIGNS, help="Text: align lines within the block")
     o.add_argument("--font", action=_LayerOpt, help="Text: .ttf font for block/small/shadow styles")

@@ -361,13 +361,19 @@ def image_to_text_glyph_from_image(
     gamma: float,
     invert: bool,
     topk: int,
+    line_art: float | None = None,
 ):
+    """``line_art``: trace outlines (detail 0..1) instead of shading; None = off."""
     if cols < 1:
         raise ValueError("cols must be >= 1")
     if cell_w < 1 or cell_h < 1:
         raise ValueError("cell dimensions must be >= 1")
 
     img = img.convert("L")
+    if line_art is not None:
+        from .lineart import line_art as _outlines
+
+        img = _outlines(img, cols * cell_w, line_art)
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 
     W, H = img.size
@@ -508,11 +514,17 @@ def image_to_braille_from_image(
     invert: bool,
     threshold: float,
     dither: bool = False,
+    line_art: float | None = None,
 ):
+    """``line_art``: trace outlines (detail 0..1) instead of shading; None = off."""
     if cols < 1:
         raise ValueError("cols must be >= 1")
 
     img = img.convert("L")
+    if line_art is not None:
+        from .lineart import line_art as _outlines
+
+        img = _outlines(img, cols * 2, line_art)  # braille: 2 dots per column
     img = preprocess_image(img, autocontrast=autocontrast, gamma=gamma, invert=invert)
 
     W, H = img.size
@@ -527,7 +539,9 @@ def image_to_braille_from_image(
     gray = np.asarray(img, dtype=np.float32) / 255.0
     ink = 1.0 - gray  # 1=dark
 
-    if dither:
+    # Dithering spreads smooth tones into dot patterns; outlines have no
+    # tones to spread, only speckle it would add along every line.
+    if dither and line_art is None:
         dots = _floyd_steinberg_dots(ink, threshold)
     else:
         dots = ink >= threshold
@@ -641,6 +655,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Braille mode: Floyd-Steinberg dithering (preserves smooth gradients)",
     )
+    from .overlay import _strength as _unit_interval
+
+    ap.add_argument(
+        "--line-art",
+        action="store_true",
+        help="Trace the picture's outlines instead of shading it: often clearer for "
+        "logos, drawings and faces (--color still takes colors from the picture)",
+    )
+    ap.add_argument(
+        "--line-detail",
+        type=_unit_interval,
+        default=0.5,
+        metavar="0..1",
+        help="Line art: 0 keeps only the strongest outlines, 1 keeps fine lines and texture (default 0.5)",
+    )
 
     ap.add_argument(
         "--color",
@@ -735,6 +764,7 @@ def main():
     except OSError as e:
         raise SystemExit(f"image-to-ascii: {e}")
     src_img = apply_cell_aspect(src_img, args.cell_aspect)
+    line_detail = args.line_detail if args.line_art else None
 
     if args.mode == "braille":
         art = image_to_braille_from_image(
@@ -745,6 +775,7 @@ def main():
             invert=args.invert,
             threshold=float(np.clip(args.threshold, 0.0, 1.0)),
             dither=args.dither,
+            line_art=line_detail,
         )
     else:
         art = image_to_text_glyph_from_image(
@@ -760,6 +791,7 @@ def main():
             gamma=args.gamma,
             invert=args.invert,
             topk=args.topk,
+            line_art=line_detail,
         )
 
     if focused is not None and focused.blank_background:

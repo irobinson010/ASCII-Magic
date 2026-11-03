@@ -79,7 +79,9 @@ def image_to_ascii(
     invert: bool = False,
     threshold: float = 0.5,
     dither: bool = False,
+    line_art: float | None = None,
 ) -> str:
+    """``line_art``: trace outlines (detail 0..1) instead of shading; None = off."""
     img = ctx.source_image
     if img is None and ctx.source_image_path:
         img = image_mod.open_oriented(ctx.source_image_path, "RGB")
@@ -108,6 +110,7 @@ def image_to_ascii(
             invert=invert,
             threshold=threshold,
             dither=dither,
+            line_art=line_art,
         )
     else:
         ascii_out = image_mod.image_to_text_glyph_from_image(
@@ -123,6 +126,7 @@ def image_to_ascii(
             gamma=gamma,
             invert=invert,
             topk=topk,
+            line_art=line_art,
         )
 
     ctx.ascii_text = ascii_out
