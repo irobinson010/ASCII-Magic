@@ -96,15 +96,15 @@ Always create the virtualenv as `.venv/` inside the repo — never at the repo r
 ### Releasing
 
 1. Bump `version` in `pyproject.toml` and `__version__` in `src/asciimagic/__init__.py`, add a `## X.Y.Z` section to `CHANGELOG.md`, and update the wheel link under Installation. Then merge.
-2. Tag the merge: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+2. Publish a GitHub Release named `vX.Y.Z` on `main`. This link pre-fills the form (edit the version): <https://github.com/irobinson010/ASCII-Magic/releases/new?tag=v0.3.0&target=main&title=v0.3.0>. Leave the description empty, then click **Publish release**. From a terminal, `gh release create vX.Y.Z --target main --title vX.Y.Z --notes ""` does the same.
 
 The release workflow (`.github/workflows/release.yml`) then:
 - runs the tests
 - checks that the tag matches the version
-- builds the sdist and wheel
-- creates the GitHub Release with that version's `CHANGELOG.md` section as its notes and both files attached
+- builds the sdist and wheel and attaches both to the release
+- fills empty release notes from that version's `CHANGELOG.md` section
 
-No accounts or tokens are involved beyond the repository's own.
+If a check fails, the release stays up with no files attached. Fix the problem, then re-run the workflow from the Actions tab.
 
 ## Usage
 

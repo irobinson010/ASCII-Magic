@@ -1,10 +1,12 @@
 name: Release
 
-# Push a tag like v0.3.0 to publish that version as a GitHub Release,
-# with the sdist and wheel attached. See "Releasing" in the README.
+# Publishing a GitHub Release (web UI or `gh release create vX.Y.Z`) runs
+# this: tests, a tag/version check, then the sdist and wheel are built and
+# attached to that release. Empty release notes are filled from the
+# version's CHANGELOG.md section. See "Releasing" in the README.
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -18,21 +20,25 @@ jobs:
       - run: uv sync --all-extras
       - run: uv run --no-sync pytest -q
 
-  release:
+  assets:
     needs: test
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # create the release and upload its files
+      contents: write  # upload files to the release and set its notes
+    env:
+      # Through env, never ${{ }} inside a script: a crafted tag name can't inject commands.
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
       - uses: astral-sh/setup-uv@v5
       - name: Tag must match the package version
-        # The tag name reaches the shell through an env var, never ${{ }}
-        # interpolation, so a crafted tag name can't inject commands.
         run: |
           version="$(uv version --short)"
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::tag is $GITHUB_REF_NAME but pyproject.toml says $version"; exit 1
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::release tag is $TAG but pyproject.toml says $version"; exit 1
           fi
           if ! grep -qx "__version__ = \"$version\"" src/asciimagic/__init__.py; then
             echo "::error::__version__ in src/asciimagic/__init__.py is not $version"; exit 1
@@ -41,14 +47,16 @@ jobs:
         run: uv build
       - name: Check metadata
         run: uvx twine check dist/*
-      - name: Release notes from CHANGELOG.md
+      - name: Release notes from CHANGELOG.md (only if the release has none)
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          if [ -n "$(gh release view "$TAG" --json body --jq .body)" ]; then
+            echo "Release already has notes; leaving them."; exit 0
+          fi
+          version="${TAG#v}"
           awk -v v="## $version" '$0 == v || index($0, v " ") == 1 {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
           if [ ! -s notes.md ]; then
             echo "::error::CHANGELOG.md has no '## $version' section"; exit 1
           fi
-      - name: Create the GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+          gh release edit "$TAG" --notes-file notes.md
+      - name: Attach the files
+        run: gh release upload "$TAG" dist/* --clobber
