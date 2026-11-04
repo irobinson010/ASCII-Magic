@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.3.0 (first release on PyPI)
+## 0.3.0
 
-The import package is `asciimagic`; install with `pipx install ascii-magic-tools`
-(extras: `[web]`, `[video]`, `[translate]`, `[subject]`). Python 3.11+.
+First published release. The import package is `asciimagic`; see Installation
+in the README (extras: `web`, `video`, `translate`, `subject`). Python 3.11+.
 
 ### Pictures
 - Image to ASCII by glyph matching or braille dots, with color from the picture,

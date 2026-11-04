@@ -37,6 +37,7 @@ from .image_to_ascii import (
     image_to_text_glyph_from_image,
     make_charset,
 )
+from . import install_hint
 
 # Braille blank: no ink to draw
 _BLANKS = (" ", "⠀")
@@ -67,7 +68,7 @@ def _require_imageio():
         # RuntimeError (not SystemExit) so the web server can map it to a 400.
         raise RuntimeError(
             "Video support needs the [video] extra:\n"
-            '    pip install "ascii-magic-tools[video]"   (or: uv sync --extra video)'
+            f'    {install_hint("video")}   (or: uv sync --extra video)'
         )
     return iio
 

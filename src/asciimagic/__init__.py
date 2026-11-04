@@ -3,6 +3,14 @@
 __version__ = "0.3.0"
 __author__ = "Ian Robinson"
 
+# Releases are published on GitHub, not PyPI, so extras install from there.
+SOURCE = "git+https://github.com/irobinson010/ASCII-Magic.git"
+
+
+def install_hint(extra: str) -> str:
+    """The command that adds an optional extra, e.g. install_hint("video")."""
+    return f'pip install "ascii-magic-tools[{extra}] @ {SOURCE}"'
+
 """
 Expose lightweight lazy wrappers to avoid importing submodules at package
 import time. Importing submodules in `__init__` causes `runpy` to warn when

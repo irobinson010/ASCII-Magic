@@ -37,6 +37,8 @@ from typing import List, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 
+from . import install_hint
+
 RGB = Tuple[int, int, int]
 _RELEASES = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
 
@@ -170,7 +172,7 @@ def _session(name: str):
     if ort is None:
         raise SubjectError(
             'Subject detection needs the [subject] extra (onnxruntime 1.19 or newer):\n'
-            '    pip install -U "ascii-magic-tools[subject]"   (or: uv sync --extra subject)'
+            f'    {install_hint("subject")}   (or: uv sync --extra subject)'
         )
     path = model_path(name)
     if not path.is_file():
@@ -509,7 +511,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             path = install(a.model, progress=progress)
             print(f"\nInstalled {a.model} in {path}", file=sys.stderr)
             if not engine_available():
-                print('Note: detection also needs: pip install "ascii-magic-tools[subject]"', file=sys.stderr)
+                print(f'Note: detection also needs: {install_hint("subject")}', file=sys.stderr)
             return 0
         if a.cmd == "remove":
             ok = remove(a.model)
@@ -520,7 +522,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"  {name:<5} {'installed' if name in have else 'not installed':<14} {spec.about}")
         print(f"Models folder: {models_dir()}")
         if not engine_available():
-            print('Detection needs: pip install "ascii-magic-tools[subject]"')
+            print(f'Detection needs: {install_hint("subject")}')
         return 0
     except SubjectError as e:
         print(f"ascii-magic subject: {e}", file=sys.stderr)

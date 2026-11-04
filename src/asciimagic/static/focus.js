@@ -148,7 +148,7 @@ function describeModels() {
   const el = $("subject-status");
   if (!models) { el.textContent = ""; return; }
   if (!models.engine) {
-    el.textContent = 'This server lacks the subject extra: pip install "ascii-magic-tools[subject]". The focus box still works.';
+    el.textContent = 'This server lacks the subject extra: pip install "ascii-magic-tools[subject] @ git+https://github.com/irobinson010/ASCII-Magic.git". The focus box still works.';
     return;
   }
   const m = models.models[$("subject_model").value];
