@@ -49,7 +49,7 @@ function fillSelect(sel) {
   const row = sel.closest(".translate-row");
   const btn = row && row.querySelector(".translate-btn");
   let why = "";
-  if (!tr.engine) why = 'Translation needs the server installed with the [translate] extra: pip install "ascii-magic-tools[translate]"';
+  if (!tr.engine) why = 'Translation needs the server installed with the [translate] extra: pip install "ascii-magic-tools[translate] @ git+https://github.com/irobinson010/ASCII-Magic.git"';
   else if (!opts.length) why = "No translation models installed. In a terminal: ascii-magic translate install en ja";
   sel.disabled = !!why;
   if (btn) { btn.disabled = !!why; btn.title = why || "Translate from English (machine translation: proofread it)"; }

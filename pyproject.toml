@@ -36,6 +36,7 @@ classifiers = [
 Homepage = "https://github.com/irobinson010/ASCII-Magic"
 Repository = "https://github.com/irobinson010/ASCII-Magic"
 Issues = "https://github.com/irobinson010/ASCII-Magic/issues"
+Changelog = "https://github.com/irobinson010/ASCII-Magic/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 web = [

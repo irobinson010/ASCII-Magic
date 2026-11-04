@@ -31,6 +31,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from . import install_hint
+
 INDEX_URL = "https://raw.githubusercontent.com/argosopentech/argospm-index/main/index.json"
 MAX_MODEL_BYTES = 600 * 1024 * 1024
 # Unpacked: real models are ~1-2x their archive. zipfile stops each member at
@@ -96,7 +98,7 @@ def _require_engine():
     except ImportError:
         raise TranslationError(
             "Translation needs the [translate] extra:\n"
-            '    pip install "ascii-magic-tools[translate]"   (or: uv sync --extra translate)'
+            f'    {install_hint("translate")}   (or: uv sync --extra translate)'
         ) from None
     return ctranslate2, sentencepiece
 
@@ -452,7 +454,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             path = install(a.src, a.dst, progress=progress)
             print(f"\nInstalled {a.src} -> {a.dst} in {path}", file=sys.stderr)
             if not engine_available():
-                print('Note: translating also needs: pip install "ascii-magic-tools[translate]"', file=sys.stderr)
+                print(f'Note: translating also needs: {install_hint("translate")}', file=sys.stderr)
             return 0
 
         if argv[0] == "list":

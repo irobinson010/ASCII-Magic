@@ -34,7 +34,7 @@ jobs:
         # pruning the extras (and the --python override) installed above.
         run: uv run --no-sync pytest -q
 
-  # uv.lock pins what CI tests, but `pip install ascii-magic-tools` gets
+  # uv.lock pins what CI tests, but a fresh `pip install` of the package gets
   # whatever is newest (or, in an old environment, whatever satisfies the
   # floors in pyproject). These two jobs test both ends of that range.
   dependency-range:

@@ -17,14 +17,22 @@ Convert images into colorized ASCII art. This project provides two main tools fo
 
 Requires Python 3.11+ (3.10 reached end of life in October 2026, and Pillow no longer ships security fixes for it).
 
+Releases are published on GitHub (not PyPI). Install a release's wheel, which needs no git:
+
 ```bash
-pipx install ascii-magic-tools           # from PyPI (CLI tools)
-pip install "ascii-magic-tools[web]"     # + web GUI
-pip install "ascii-magic-tools[video]"   # + video support
+pipx install "ascii-magic-tools[web,video] @ https://github.com/irobinson010/ASCII-Magic/releases/download/v0.3.0/ascii_magic_tools-0.3.0-py3-none-any.whl"
+```
+
+Or install the latest `main` straight from the repository (needs git):
+
+```bash
+pipx install "ascii-magic-tools[web,video] @ git+https://github.com/irobinson010/ASCII-Magic.git"
 
 # from a checkout:
 pip install -e ".[web,video]"
 ```
+
+Pick extras to taste: `web` (browser GUI), `video`, `translate`, `subject` (background removal), or none for the plain CLI. Every release and its wheel are listed at <https://github.com/irobinson010/ASCII-Magic/releases>.
 
 The import package is `asciimagic` (the PyPI project `ascii-magic` is an unrelated package that owns the `ascii_magic` import name).
 
@@ -87,7 +95,16 @@ Always create the virtualenv as `.venv/` inside the repo — never at the repo r
 
 ### Releasing
 
-Bump `version` in `pyproject.toml` and `__version__` in `src/asciimagic/__init__.py`, merge, then tag: `git tag v0.3.0 && git push origin v0.3.0`. The publish workflow runs the tests, builds sdist+wheel, and uploads via PyPI trusted publishing (configure once on PyPI: project `ascii-magic-tools` → publisher = this repo, workflow `publish.yml`, environment `pypi`).
+1. Bump `version` in `pyproject.toml` and `__version__` in `src/asciimagic/__init__.py`, add a `## X.Y.Z` section to `CHANGELOG.md`, and update the wheel link under Installation. Then merge.
+2. Tag the merge: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+The release workflow (`.github/workflows/release.yml`) then:
+- runs the tests
+- checks that the tag matches the version
+- builds the sdist and wheel
+- creates the GitHub Release with that version's `CHANGELOG.md` section as its notes and both files attached
+
+No accounts or tokens are involved beyond the repository's own.
 
 ## Usage
 
@@ -146,7 +163,7 @@ ascii-magic image cat.jpg --background remove --zoom-subject --enhance-subject
 ```
 
 - `--zoom-subject` crops to the subject so all the characters go to it; `--enhance-subject` sets contrast from the subject's own tones.
-- **Finding the subject** uses a small segmentation model that runs on your machine (`pip install "ascii-magic-tools[subject]"`). It downloads once on first use and is checked against a known SHA-256: `--subject fast` (default, 4.6 MB, a fraction of a second) or `--subject best` (179 MB, about a second, cleaner edges). Manage them with `ascii-magic subject list | install | remove`.
+- **Finding the subject** uses a small segmentation model that runs on your machine (the `subject` extra; see Installation). It downloads once on first use and is checked against a known SHA-256: `--subject fast` (default, 4.6 MB, a fraction of a second) or `--subject best` (179 MB, about a second, cleaner edges). Manage them with `ascii-magic subject list | install | remove`.
 - **When the model gets it wrong** (it will sometimes: a dark close-up of a dark cat fooled both models in testing), adjust with `--mask-threshold`, `--mask-grow` / negative to shrink, `--mask-feather`, `--mask-invert` (focus on the background instead), or supply your own mask with `--mask mask.png` (white = subject). `--focus` needs no model at all.
 - In the **web GUI**, the Image tab's *Focus & background* card does all of this. Drag on the picture to set the focus area. After each render, the detected subject is tinted green on the picture, so you can see what the model picked.
 
@@ -314,7 +331,7 @@ Tip: rendered styles give each character only a few columns, so keep Japanese sh
 Free and offline: [Argos Translate](https://github.com/argosopentech/argos-translate)'s open models run locally through CTranslate2. There's no API key and no per-use cost, and your text never leaves the machine. Install the extra, then download a language pair once (en→ja is ~120 MB):
 
 ```bash
-pip install "ascii-magic-tools[translate]"
+pip install "ascii-magic-tools[translate] @ git+https://github.com/irobinson010/ASCII-Magic.git"
 ascii-magic translate install en ja
 ascii-magic translate "The cat is sleeping on the sofa." --to ja   # 猫はソファーで寝ています。
 ascii-magic text "Good night" --translate ja -s box                # おやすみなさい in a box
