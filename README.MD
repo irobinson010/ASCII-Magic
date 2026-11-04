@@ -87,7 +87,19 @@ Always create the virtualenv as `.venv/` inside the repo — never at the repo r
 
 ### Releasing
 
-Bump `version` in `pyproject.toml` and `__version__` in `src/asciimagic/__init__.py`, merge, then tag: `git tag v0.3.0 && git push origin v0.3.0`. The publish workflow runs the tests, builds sdist+wheel, and uploads via PyPI trusted publishing (configure once on PyPI: project `ascii-magic-tools` → publisher = this repo, workflow `publish.yml`, environment `pypi`).
+Bump `version` in `pyproject.toml` and `__version__` in `src/asciimagic/__init__.py`, add the release to `CHANGELOG.md`, merge, then tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The publish workflow runs the tests, builds the sdist and wheel, and uploads them with PyPI trusted publishing: no API token is stored anywhere.
+
+Trusted publishing is set up once, on PyPI. Before the first upload the project doesn't exist yet, so add a *pending* publisher at <https://pypi.org/manage/account/publishing/>:
+
+| Field | Value |
+|---|---|
+| PyPI Project Name | `ascii-magic-tools` |
+| Owner | `irobinson010` |
+| Repository name | `ASCII-Magic` |
+| Workflow name | `publish.yml` |
+| Environment name | `pypi` |
+
+After the first upload it becomes a normal publisher, listed under the project's **Settings → Publishing**.
 
 ## Usage
 
